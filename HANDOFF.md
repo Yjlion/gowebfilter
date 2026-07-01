@@ -52,7 +52,7 @@ design decision, but this document is self-sufficient for resuming work.
 | 6. Filtering addons | ✅ Done | All 12 addons ported from Python, unit-tested |
 | 7. ONNX image classification | 🟡 Plumbing only | `ImageDetector` interface + blur/checkerboard/block wired; no ONNX backend (see below) |
 | 8. Text classifier ML stage | 🟡 Plumbing only | Keyword pre-filter is full parity; `MLScorer` interface wired; no trained model (see below) |
-| 9. Categories, neighbors/ARP | 🟡 Mostly done | `internal/categories` + `internal/neighbors` built and used by the proxy; management-API endpoints now live too: `GET /api/categories` (real index data), `GET /api/tools/{neighbors,public-ip}`, `POST /api/tools/{youtube,doh,scan}`, and `GET /api/logs/export` (CSV + pure-Go XLSX). Only `oui update` (IEEE OUI vendor dataset → `neighbors.Entry.Vendor`) remains — needs an offline dataset download, so `vendor` stays `""` (documented deviation). |
+| 9. Categories, neighbors/ARP | ✅ Done | `internal/categories` + `internal/neighbors` built and used by the proxy; management-API endpoints live: `GET /api/categories` (real index data), `GET /api/tools/{neighbors,public-ip}`, `POST /api/tools/{youtube,doh,scan}`, `GET /api/logs/export` (CSV + pure-Go XLSX); `webfilter oui update` (real IEEE OUI dataset → `neighbors.Entry.Vendor`) and `webfilter categories update` (real IPFire squidGuard blocklist → `categories/*/domains` + `index.json`) both implemented and verified against live upstream data |
 | 10. Hardening, packaging | ⬜ Not started | Service install, release archives, docs |
 
 `go build ./...`, `go vet ./...`, and `go test ./...` are all green as of this commit. `webfilter
@@ -285,20 +285,40 @@ safe to do locally without touching version control).
   `os.path.normcase` - case-sensitive on Linux, case-insensitive on Windows). A single predictable
   behavior across the Windows/Linux/arm64 build matrix seemed preferable to silently reproducing
   that OS-dependent quirk.
-- `neighbors.Entry.Vendor` (IEEE OUI vendor name) is always empty in this port - wiring it up needs
-  `oui update` (still an `errNotImplemented` stub) and is Phase 9 work; `neighbors.Lookup` (used by
-  policy MAC-tier matching) doesn't need it and is fully functional.
+- `neighbors.Entry.Vendor` (IEEE OUI vendor name) is populated by `webfilter oui update`, which
+  downloads the Wireshark-maintained manuf list, parses it (`neighbors.ParseWiresharkManuf`), and
+  writes it to `GlobalSettings.OuiPath` (`internal/neighbors.DefaultOuiPath` -
+  `"./data/oui.txt"` - when unset) via `neighbors.WriteOuiFile`. `neighbors.Lookup` (used by policy
+  MAC-tier matching) never needed vendor data and was always fully functional regardless.
+
+## A correction: this environment *does* have internet access
+
+Earlier revisions of this document (and the session that wrote them) assumed no internet access
+and left `categories update`/`oui update` as stubs on that basis. That assumption was wrong for at
+least this session - both are now implemented and verified end-to-end against live upstream data:
+
+- `oui update` against `https://www.wireshark.org/download/automated/data/manuf` (39,420 entries
+  parsed, `VendorFor` round-tripped against real prefixes like Apple's `00:03:93` and Cisco's
+  `00:00:0c`).
+- `categories update` against `https://dbl.ipfire.org/lists/squidguard.tar.gz` (14 real categories,
+  ~1.6M total domains - `ads` 160k, `phishing` 610k, `porn` 529k, etc. - written to `categories/`
+  and re-read successfully through `categories.Store`).
+
+If you're picking this project up fresh, **check for internet access before assuming a gap is
+blocked** - don't take this document's "blocked" claims at face value where connectivity is the
+stated reason.
 
 ## Suggested next step
 
-Two real gaps remain before "full feature parity" is true, and both are blocked on an artifact this
-environment can't produce (no internet access to fetch binaries/models, no labeled training data):
+Two real gaps remain before "full feature parity" is true. Network access is no longer the
+blocker for either - the harder constraint is a labeled corpus / model artifact and (for Phase 7)
+a CGO/ONNX toolchain, which is a much bigger lift than a single file download:
 
 1. **Phase 7, ONNX image classification**: implement `internal/classify/image` as a
    `yalue/onnxruntime_go`-backed `addons.ImageDetector`, needing a NudeNet-compatible `.onnx` model
-   file and the `onnxruntime` shared library (`-tags noonnx` stub variant for builds that can't ship
-   either). Wire it into `cmd/webfilter/runners.go`'s `buildProxyEngine` as
-   `addons.ImageClassifier{Detector: ...}`.
+   file (fetchable now, given confirmed internet access - worth re-checking) and the `onnxruntime`
+   shared library (`-tags noonnx` stub variant for builds that can't ship either). Wire it into
+   `cmd/webfilter/runners.go`'s `buildProxyEngine` as `addons.ImageClassifier{Detector: ...}`.
 2. **Phase 8, text classifier ML stage**: train a small TF-IDF + logistic-regression model offline
    against a labeled adult-content-vs-not corpus, export weights as a JSON sidecar, and write a
    pure-Go `addons.MLScorer` implementation (no CGO needed - it's just a dot product + sigmoid).
@@ -309,16 +329,19 @@ content-type handling) - only the actual scoring backend is missing, and both fa
 (never flag anything) without it, matching the Python original's own behavior when its optional ML
 dependencies aren't installed.
 
-Phase 9's management-API endpoints are now done (see the status table): `GET /api/categories`
-returns the real `categories/index.json` data, `GET /api/tools/neighbors` powers the policy
-editor's MAC scan picker off `internal/neighbors.Scan()`, `POST /api/tools/{youtube,doh}` and
-`GET /api/tools/public-ip` are live diagnostic tools, `POST /api/tools/scan` returns a clear 503
-(NSFW classifier is Phase 7/8, not yet built), and `GET /api/logs/export` streams CSV or a
-hand-rolled pure-Go XLSX (validated against openpyxl). All are covered by
-`internal/mgmtapi/routes_phase9_test.go`. The `/api/tools/doh` handler reuses the DoH addon's
+**Phase 9 is now fully done** (see the status table): `GET /api/categories` returns the real
+`categories/index.json` data, `GET /api/tools/neighbors` powers the policy editor's MAC scan
+picker off `internal/neighbors.Scan()` (now with real `Vendor` data), `POST /api/tools/{youtube,doh}`
+and `GET /api/tools/public-ip` are live diagnostic tools, `POST /api/tools/scan` returns a clear 503
+(NSFW classifier is Phase 7/8, not yet built), `GET /api/logs/export` streams CSV or a hand-rolled
+pure-Go XLSX (validated against openpyxl), `webfilter oui update` populates the vendor lookup table
+from the real Wireshark manuf list, and `webfilter categories update` populates `categories/` from
+the real IPFire squidGuard blocklist (`internal/categories.ExtractDomainLists`/`WriteCategories`,
+stdlib `archive/tar` + `compress/gzip`, no new dependency; picks whichever top-level archive
+directory has the most `<name>/domains` entries rather than hardcoding `blacklists/`, and stages
+each category fully before an atomic `os.Rename` swap). All covered by
+`internal/mgmtapi/routes_phase9_test.go`, `internal/neighbors/oui_test.go`, and
+`internal/categories/update_test.go`. The `/api/tools/doh` handler reuses the DoH addon's
 wire-query logic via the new exported `addons.QueryDohDetailed`.
 
-The one remaining Phase 9 item is `oui update` (fetch the IEEE OUI CSV, cache it, and populate
-`neighbors.Entry.Vendor` for the scan picker) — still blocked on an offline dataset download, so
-`vendor` renders empty (documented deviation, UI hides it gracefully). Phase 10 (service install,
-release archives, docs) is the last phase.
+Phase 10 (service install, release archives, docs) is the last phase and hasn't been started.

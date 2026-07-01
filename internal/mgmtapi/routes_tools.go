@@ -184,6 +184,7 @@ func (s *Server) handleToolsPublicIP(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 func (s *Server) handleToolsNeighbors(w http.ResponseWriter, r *http.Request) {
+	neighbors.ConfigureOUI(s.Settings().OuiPath)
 	entries := neighbors.Scan()
 	out := make([]map[string]any, 0, len(entries))
 	for _, e := range entries {
