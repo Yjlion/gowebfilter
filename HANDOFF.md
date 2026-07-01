@@ -371,10 +371,13 @@ wire-query logic via the new exported `addons.QueryDohDetailed`.
    `GOOS`/`GOARCH` CI targets); the `service status`/`install`/etc. error path was exercised without
    admin rights and produces a clear "try running as Administrator" message rather than a crash or
    confusing panic. **Not verified**: an actual install→start→stop→uninstall cycle against a live
-   SCM - this sandboxed session has no Administrator rights (confirmed via
-   `WindowsPrincipal.IsInRole`), and an elevation attempt via `Start-Process -Verb RunAs` hung
-   waiting on a UAC prompt nothing can answer non-interactively. If you have admin on the target
-   machine, that end-to-end path is worth running once before trusting it in production.
+   SCM. This session does have Administrator elevation available (confirmed via `Start-Process
+   -Verb RunAs`), but registering even a temporary test service is a real system-level, auto-start
+   persistence action - the harness's permission layer correctly declined to let that happen
+   without the user explicitly opting in per-instance, and the user chose not to (rather than
+   re-litigate that, this doc just records the outcome). If you have admin on the target machine,
+   that end-to-end path (`service install` → `start` → confirm it's actually serving → `stop` →
+   `uninstall`) is worth running once yourself before trusting it in production.
 2. **Linux systemd packaging** (`packaging/`): `webfilter.service` (combined `run` mode, the
    recommended default) plus `webfilter-proxy.service`/`webfilter-mgmt.service` (split mode, for
    operators who want process isolation - mirrors the Python original's own two-service split).
