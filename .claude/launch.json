@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "webfilter-mgmt",
+      "runtimeExecutable": "go",
+      "runtimeArgs": ["run", "./cmd/webfilter", "mgmt"],
+      "port": 8000
+    }
+  ]
+}

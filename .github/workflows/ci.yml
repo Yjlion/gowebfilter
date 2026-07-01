@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+      - run: go build ./...
+      - run: go vet ./...
+      - run: go test ./...
+
+  # Cross-compile matrix for the three release targets. CGO is disabled here
+  # deliberately: through Phase 6 the whole tree is pure Go, so this catches
+  # any accidental CGO dependency creeping in early. Once the ONNX image
+  # classifier lands (Phase 7), this job gains a CGO_ENABLED=1 + zig-cc
+  # variant per docs/build.md rather than replacing this one, so the
+  # noonnx build tag keeps a pure-Go cross-compile path verified.
+  cross-compile:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: windows
+            goarch: amd64
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+      - env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: go build -tags noonnx -o /dev/null ./cmd/webfilter

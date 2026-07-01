@@ -1,0 +1,23 @@
+# Build artifacts
+/webfilter
+/webfilter.exe
+/dist/
+*.exe
+*.dll
+*.so
+
+# Runtime state (mirrors the Python original's untracked data dirs)
+/config/settings.json
+/certs/
+/logs/
+/policies/*.json
+!/policies/.gitkeep
+
+# Go
+/vendor/
+
+# OS/editor cruft
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
