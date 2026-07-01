@@ -1,6 +1,7 @@
 # Handoff: Go port of mitmproxy-web-filter
 
-Status as of this commit: **Phases 0–3 of 11 complete and tested.** This document is
+Status as of this commit: **Phases 0–6 of 11 complete and tested; Phases 7–8 partially done (see
+below — both need an offline artifact this environment couldn't produce).** This document is
 written so a new session (human or AI) can resume without re-deriving context.
 
 ## What this project is
@@ -46,17 +47,19 @@ design decision, but this document is self-sufficient for resuming work.
 | 1. Models + config store | ✅ Done | `Policy`/`GlobalSettings` structs, atomic file I/O, fsnotify watcher |
 | 2. Management API core | ✅ Done | Full REST API + embedded UI serving, browser-verified |
 | 3. CA + cert issuance | ✅ Done | Root CA generation, per-host leaf certs, import/export |
-| 4. Minimal proxy engine | ⬜ Not started | Plain HTTP + CONNECT blind-splice passthrough |
-| 5. MITM + pipeline skeleton | ⬜ Not started | Wire cert issuance into CONNECT, addon chain (no-op stubs) |
-| 6. Filtering addons | ⬜ Not started | All 12 addons ported from Python |
-| 7. ONNX image classification | ⬜ Not started | NSFW detection via onnxruntime_go |
-| 8. Text classifier ML stage | ⬜ Not started | Offline-trained model + Go inference |
-| 9. Categories, neighbors/ARP | ⬜ Not started | Category blocklists, MAC resolution, backup/tools endpoints |
+| 4. Minimal proxy engine | ✅ Done | Plain HTTP + CONNECT blind-splice passthrough |
+| 5. MITM + pipeline skeleton | ✅ Done | Real TLS interception, `FlowContext`, ordered `Pipeline` |
+| 6. Filtering addons | ✅ Done | All 12 addons ported from Python, unit-tested |
+| 7. ONNX image classification | 🟡 Plumbing only | `ImageDetector` interface + blur/checkerboard/block wired; no ONNX backend (see below) |
+| 8. Text classifier ML stage | 🟡 Plumbing only | Keyword pre-filter is full parity; `MLScorer` interface wired; no trained model (see below) |
+| 9. Categories, neighbors/ARP | 🟡 Partially done | `internal/categories` + `internal/neighbors` built and used by the proxy (Phase 6 needed them); the *management-API* admin endpoints (`GET /api/categories` real data, `/api/tools/neighbors` scan picker, `oui update`) are still stubs/unimplemented |
 | 10. Hardening, packaging | ⬜ Not started | Service install, release archives, docs |
 
-`go build ./...`, `go vet ./...`, and `go test ./...` are all green as of this commit. There is no
-`main`/proxy engine yet — `webfilter run` currently starts *only* the management server (logs a
-warning that the proxy engine isn't implemented) so the UI is usable for Phase 1–3 verification.
+`go build ./...`, `go vet ./...`, and `go test ./...` are all green as of this commit. `webfilter
+run`/`webfilter proxy` now perform **real MITM interception and real filtering** - not just
+passthrough - for every addon except the two ML backends noted above (image NSFW detection and the
+text classifier's ML stage both fail open / never fire without their Phase 7/8 artifacts, but the
+keyword pre-filter and every non-ML addon are fully live).
 
 ## Verification already done (don't redo blindly — but do re-verify after big changes)
 
@@ -75,6 +78,29 @@ warning that the proxy engine isn't implemented) so the UI is usable for Phase 1
   `GetCertificate` callback and dials it with `crypto/tls.Dial` + a `RootCAs` pool containing the
   generated CA — the Go-native equivalent of `openssl s_client -connect ... -servername
   example.com`. Full chain verification passes.
+- **Minimal proxy engine (Phase 4)**: `internal/proxy/engine_test.go` covers plain HTTP forwarding
+  (`httptest.Server` origin dialed through the proxy via `http.ProxyURL`), the CONNECT blind-splice
+  tunnel (`httptest.NewTLSServer` origin, real TLS handshake over the tunnel verified against the
+  origin's cert), and that unsupported `proxy_listen` modes (e.g. `socks5@`) are skipped rather than
+  failing the whole engine. Also manually verified end-to-end with a real `curl -x` against
+  `https://example.com` (both HTTP and HTTPS/CONNECT) through the built `webfilter proxy` binary.
+- **MITM interception (Phase 5)**: `internal/proxy/engine_test.go`'s
+  `TestMitmInterceptionIssuesOwnLeafCertificate` does a real CONNECT+TLS handshake through the
+  engine against an `httptest.NewTLSServer` origin, captures the leaf certificate actually
+  presented via `TLSClientConfig.VerifyPeerCertificate`, and asserts it chains to the *engine's own*
+  CA and is NOT the origin's real certificate - i.e. genuine interception, not a passthrough.
+  `TestMitmBypassStillBlindSplices` confirms a policy with `mitm.mode: exclude` for a host still
+  gets the untouched blind splice instead.
+- **All 12 addons (Phase 6)**: every addon has a dedicated `_test.go` in `internal/proxy/addons/`
+  (70+ test cases total) covering the tricky logic paths from the Python originals - CIDR/MAC
+  policy-matching tiers, category blacklist/whitelist, safesearch per-engine tab blocking + image-CDN
+  wholesale block, DOH NXDOMAIN/EDE/sinkhole-IP classification (via a fake RFC 8484 HTTP server),
+  YouTube's nested-JSON player/get_watch/next/browse mutation and HTML regex extraction, proxy-auth's
+  CONNECT-vs-per-request gating and `ClientDisconnected` cleanup, and the image classifier's
+  blur/checkerboard/block actions (real JPEG/PNG round-trips, not mocked). Also manually verified
+  end-to-end: a real policy blocking `*.example.org` via `url_filter`, loaded by `webfilter proxy`,
+  correctly MITM-intercepts and serves the block page for `https://www.example.org` while
+  `https://example.com` passes through untouched, with rows landing in the SQLite request log.
 
 ## Two real bugs found and fixed during Phase 2/3 (worth knowing about)
 
@@ -105,35 +131,77 @@ warning that the proxy engine isn't implemented) so the UI is usable for Phase 1
   filesystem-only** (policy/settings JSON, the SQLite log DB) — no in-process RPC even when
   co-located, so hot-reload and the log DB's writer/reader split behave identically regardless of
   deployment topology.
-- **MITM proxy engine (Phase 4/5, not yet built)**: hand-rolled `net.Listener` +
-  `crypto/tls.Config.GetCertificate`, deliberately **not** `elazarl/goproxy` — goproxy's
-  request-handler model and built-in cert store would fight the exact on-disk `certs/` persistence
-  and the purpose-built `FlowContext` metadata-flag pipeline (`URLAllowed`, `MitmPassthrough`,
-  `WFAction`, `WFComponent`, `Policy`) the whole addon chain is designed around. The CA/leaf-cert
-  machinery this depends on (`internal/certs`) is already built and tested.
-- **Addon pipeline (Phase 5/6, not yet built)**: fixed execution order mirroring the Python
-  original's `proxy/main.py` exactly:
-  - Request hooks: `ManagementAccess` → `ProxyAuthGate` → `PolicyRouter` → `MitmControl` →
-    `UrlFilter` → `DohFilter` → `SafeSearch`
-  - Response hooks: `QuicBlocker` → `YouTubeFilter` → `TextClassifier` → `ImageClassifier` →
-    `RequestLogger`
-  - Error hook: `RequestLogger` (dedup-guarded)
-  - Each addon checks `URLAllowed`/`MitmPassthrough` at its own top as a literal early-return guard
-    (not a generic pipeline-level skip) — different addons key off different combinations of these
-    flags, so this is ported faithfully rather than abstracted away.
-- **ONNX/CGO packaging (Phase 7, not yet built)**: `yalue/onnxruntime_go` dynamically loads a
-  companion `onnxruntime.dll`/`libonnxruntime.so` shipped alongside the executable (not statically
-  linked — this is that library's normal usage pattern). A `-tags noonnx` build variant stubs the
-  image classifier as a pass-through for environments that can't ship CGO binaries. Recommended
-  cross-compiler for the CGO build: `zig cc` (one Zig install cross-compiles to
-  windows/amd64+linux/amd64+linux/arm64 from a single Linux CI box).
-- **Text classifier ML stage (Phase 8, not yet built)**: the Python original's scikit-learn joblib
-  model can't be loaded in Go. Plan is to retrain a small TF-IDF + logistic-regression model
-  offline, export weights as a JSON/gob sidecar, and implement both an ONNX-backed scorer (reusing
-  the same runtime as the image classifier) and a pure-Go fallback scorer for `-tags noonnx`
-  builds. **This will not be pixel-perfect parity** with the original model's decision boundary —
-  expect to recalibrate `text_classifier.threshold` empirically; a `webfilter classify text-eval`
-  dev tool was planned for this.
+- **MITM proxy engine (Phase 4/5, done)**: hand-rolled `net.Listener` + raw HTTP/1.1 parsing via
+  `http.ReadRequest`/`http.Response.Write`-equivalent hand-rolled writers, deliberately **not**
+  `elazarl/goproxy` and, as of Phase 5, deliberately **not `net/http.Server` either** - Phase 4
+  used `http.Server` + `Hijacker` for convenience, but real MITM needs to own the connection down
+  to the TCP/TLS layer (accept the raw `net.Conn`, optionally wrap it in `tls.Server` with our own
+  `GetCertificate`, then hand-parse HTTP/1.1 requests off the decrypted stream) so `internal/proxy`
+  was rewritten around a plain `net.Listener` Accept loop (`engine.go`) and manual request/response
+  framing (`handler.go`). `Engine.Listen()`/`Engine.Serve()` remain split from `Engine.Run()` so
+  tests can bind port 0 and discover the real port before serving.
+  - **CONNECT handling** (`Engine.handleConnect`): computes the target `host:port`, asks the
+    pipeline's `ConnectGate` (only `ProxyAuthGate` implements this) to authorize the tunnel, then
+    checks `Runtime.ShouldBypassMitm(host)` - the aggregated `mitm.mode: exclude` domain list from
+    every loaded policy (mirrors `_sync_ignore_hosts`/`ctx.options.ignore_hosts`; like the Python
+    original, this is **global, not per-source-IP** - a real mitmproxy/TLS limitation, not a
+    shortcut). Excluded hosts get the Phase 4 blind splice unchanged. Everything else gets a real
+    `tls.Server` handshake using `certs.LeafIssuer.CertificateFor` - falling back from
+    `ClientHelloInfo.ServerName` to the CONNECT target host when SNI is blank (true for IP-literal
+    HTTPS targets, which never carry SNI per RFC 6066) - advertising only `http/1.1` via ALPN
+    (documented h2-out-of-scope decision, still in force). Each inner HTTP/1.1 request read off the
+    decrypted stream is normalized to an absolute `https://` URL and run through the exact same
+    `handleOneRequest` path as plain-HTTP forwarding.
+  - **Runtime** (`internal/proxy/state`): the shared, hot-reloaded state every addon reads -
+    replaces the several independent per-addon-module globals the Python original keeps. Loads
+    `settings.json` once at startup (matching the Python original: settings changes need a
+    restart, only `policies/*.json` hot-reloads); `GetPolicy(clientIP)` ports
+    `policy_router.get_policy`'s MAC→exact-IP→CIDR→catch-all tiered matching (using
+    `net.IP.Equal`/`net.IPNet.Contains`, which already treat IPv4 and IPv4-mapped-IPv6 forms as
+    equal - no manual unwrapping needed, unlike the Python original's explicit `ipv4_mapped`
+    handling); `ShouldBypassMitm` is the aggregated MITM-exclude set described above.
+- **Addon pipeline (Phase 5/6, done)**: `internal/proxy.Pipeline` holds one fixed-order
+  `[]Addon` slice; `RunRequest`/`RunResponse`/`RunError` each just type-assert every addon against
+  `RequestAddon`/`ResponseAddon`/`ErrorAddon` and call the hook if implemented - mirroring
+  mitmproxy's "call the hook methods an addon actually defines, in registration order" semantics,
+  **including** the easy-to-miss detail that setting `fc.Response` early (a block page, a redirect)
+  does **not** skip later addons' request hooks - only the real upstream fetch is skipped. Wired up
+  in `cmd/webfilter/runners.go`'s `buildProxyEngine`, in `proxy/main.py`'s exact order:
+  `ManagementAccess → ProxyAuthGate → PolicyRouter → MitmControl → UrlFilter → QuicBlocker →
+  DohFilter → SafeSearch → YouTubeFilter → TextClassifier → ImageClassifier → RequestLogger`.
+  All 12 addons live in `internal/proxy/addons/`, one file each, importing `internal/proxy` for
+  `FlowContext`/the hook interfaces (no import cycle - the engine never imports `addons`; wiring
+  happens one level up, in `cmd/webfilter`). `ProxyAuthGate` additionally implements
+  `proxy.ConnectGate` (the CONNECT-stage auth check, since that runs before any `FlowContext`
+  exists) and is constructed with the shared `*state.Runtime` directly for that reason.
+  `management_access.go`'s `dns_request` hook (pseudo-domain DNS answers for dns-mode/transparent/
+  WireGuard deployments) has **no equivalent** - this engine doesn't run a DNS listener, and those
+  proxy_listen modes are unimplemented anyway.
+  `doh_filter.go` pulled in `github.com/miekg/dns` (new dependency) for RFC 8484 wireformat
+  encode/decode + EDNS0/EDE parsing - hand-rolling that wire format wasn't worth it.
+  `image_classifier.go` pulled in `github.com/disintegration/imaging` (new dependency, pure Go) for
+  Gaussian blur; the checkerboard/block actions and the pixel-dimension gate use only stdlib
+  `image`/`image/draw`/`image/color` (the latter mirrors PIL's lazy header-only `Image.open().size`
+  read via `image.DecodeConfig`, no full decode).
+- **ONNX/CGO packaging (Phase 7, plumbing only - see below)**: `internal/proxy/addons.ImageDetector`
+  is the seam Phase 7 plugs into (`Detect(imageBytes) ([]Detection, error)`); `ImageClassifier{}`'s
+  zero value has a nil `Detector` and therefore never flags anything NSFW, matching the Python
+  original's fail-open behavior when `nudenet` isn't installed. The originally-planned
+  `yalue/onnxruntime_go` backend (dynamically loading a companion `onnxruntime.dll`/
+  `libonnxruntime.so`, `-tags noonnx` stub variant, `zig cc` cross-compilation) was **not
+  implemented in this session**: it needs a NudeNet-compatible ONNX model file and the
+  `onnxruntime` shared library, and this sandboxed environment has no internet access to fetch
+  either. The plumbing above is real and tested (blur/checkerboard/block, dimension gating, byte
+  floor all pass real JPEG/PNG round-trips) - only the actual NSFW *detection* backend is missing.
+- **Text classifier ML stage (Phase 8, plumbing only - see below)**: `internal/proxy/addons.MLScorer`
+  is the seam (`Score(text) (float64, bool)`); `TextClassifier{}`'s zero value has a nil `Scorer`
+  and runs keyword-only, which **is** full parity with the Python original's keyword pre-filter
+  (`_ADULT_KEYWORDS` regex, ported verbatim, same `minKeywordHits=3` threshold). The ML stage
+  itself - retraining a TF-IDF + logistic-regression model, exporting weights, writing a pure-Go
+  inference engine - was **not implemented in this session**: it needs either a trained model file
+  or a labeled training corpus, neither of which exists in this environment. If/when that arrives,
+  the inference engine is genuinely simple math (dot product + sigmoid) and doesn't need ONNX/CGO
+  at all - a pure-Go JSON-sidecar scorer implementing `MLScorer` is the right shape.
 
 ## Go package layout (as built so far)
 
@@ -142,13 +210,21 @@ gowebfilter/
   cmd/webfilter/            # cobra CLI: main.go, cmd_run.go, cmd_proxy.go, cmd_mgmt.go,
                              #   cmd_categories.go, cmd_oui.go, flags.go, runners.go
   internal/
-    macutil/                 # MAC address normalization (shared by models + future neighbors pkg)
+    macutil/                 # MAC address normalization (shared by models + neighbors)
     models/                   # Policy, GlobalSettings, all sub-configs, proxy_listen parser
     config/                    # settings.json + policies/*.json load/save, fsnotify watch wrapper
     logstore/                  # modernc.org/sqlite: schema, single-writer, analytics, prune, export
-    pwhash/                     # PBKDF2-SHA256 (mgmt password + future proxy-auth password)
+    pwhash/                     # PBKDF2-SHA256 (mgmt password + proxy-auth password)
     certs/                       # CA generation/import/export, per-host leaf cert issuance + cache
-    mgmtapi/                      # chi router, auth, all current routes, PAC generator, static UI
+    categories/                   # shared site-category domain blocklists (lazy-load, mtime cache)
+    neighbors/                     # cross-platform ARP/NDP reader (Linux/Windows/BSD parsers)
+    mgmtapi/                        # chi router, auth, all current routes, PAC generator, static UI
+    proxy/                           # forward-proxy engine: Engine, Pipeline, FlowContext, matching,
+                                     #   block-page render, MITM/CONNECT handling
+      state/                         # Runtime: hot-reloaded settings/policies, GetPolicy, CA/leaf
+                                     #   issuer, log store, category store - shared by every addon
+      addons/                        # all 12 filtering addons, one file each, ported from
+                                     #   proxy/addons/*.py
   ui/                          # management UI copied verbatim from the Python repo + embed.go
   config/settings.example.json # shipped template (matches the Python original's)
   policies/default.json.example # shipped template
@@ -157,20 +233,32 @@ gowebfilter/
 ```
 
 Directories **not yet created** (per the original plan, for the phases still to come):
-`internal/proxy/` (engine, MITM, addon pipeline, `addons/*`), `internal/block/` (block-page
-rendering, 7-language labels), `internal/classify/text/` and `internal/classify/image/`,
-`internal/categories/`, `internal/neighbors/`.
+`internal/block/` (this port's block-page rendering instead lives in `internal/proxy/block.go` -
+no separate package was needed), `internal/classify/text/` and `internal/classify/image/` (the
+actual ONNX/ML backends - see the Phase 7/8 notes above; the addon-side interfaces they'll
+implement, `ImageDetector`/`MLScorer`, already exist in `internal/proxy/addons`).
 
 ## How to build, run, and test
 
 ```bash
 go build ./...          # build everything
 go vet ./...
-go test ./...            # full suite, currently ~30 tests across 6 packages
+go test ./...            # full suite, ~150+ tests across 11 packages
 
 go build -o webfilter.exe ./cmd/webfilter   # produce the CLI binary (Windows)
-./webfilter.exe mgmt --settings config/settings.json   # management server only (proxy not built yet)
+./webfilter.exe mgmt --settings config/settings.json    # management server only
+./webfilter.exe proxy --settings config/settings.json   # forward-proxy engine, full MITM + filtering
+./webfilter.exe run --settings config/settings.json     # both, in one process
 ```
+
+`webfilter proxy` (or `run`) now does **real MITM interception and real policy-based filtering** -
+point a browser (with the generated `certs/ca.crt` imported into its trust store, or accept the
+cert warning) or `curl -x http://127.0.0.1:8080 ... --cacert certs/ca.crt` at it. A policy with
+`url_filter.enabled=true` and a `block` pattern will actually intercept and block matching HTTPS
+sites; everything else passes through with real content. Manually verified end-to-end this session:
+a policy blocking `*.example.org` correctly served the block page for `https://www.example.org`
+while `https://example.com` loaded normally through the same running proxy, both over a real
+CONNECT+TLS-intercepted tunnel (not blind splice) with rows landing in `logs/webfilter.db`.
 
 For local UI testing, `.claude/launch.json` defines a `webfilter-mgmt` preview server
 (`go run ./cmd/webfilter mgmt`, port 8000) usable with Claude Code's `preview_start`/`preview_*`
@@ -186,17 +274,42 @@ safe to do locally without touching version control).
 - `proxy_listen` entries with a `wireguard@` prefix parse without error (recognized-but-unsupported
   mode) rather than crashing, so a settings.json carried over from the Python original with a
   leftover WireGuard listener doesn't fail to load — that entry is just never started.
-- HTTP/2 over MITM'd connections is planned to be **out of scope for v1** (advertise only
-  `http/1.1` via ALPN on intercepted connections) once Phase 5 builds the actual TLS termination —
-  this avoids a large amount of HPACK/stream-multiplexing complexity interacting with the addon
+- HTTP/2 over MITM'd connections is **out of scope for v1** (only `http/1.1` is advertised via ALPN
+  on intercepted connections, enforced in `internal/proxy/handler.go`'s `handleConnect`) - this
+  avoids a large amount of HPACK/stream-multiplexing complexity interacting with the addon
   pipeline. Real behavioral difference from Python mitmproxy (which supports h2); flag to the user
-  if it becomes a problem in practice.
+  if it becomes a problem in practice (a client that refuses to fall back to h1 would fail here).
+- fnmatch-style glob patterns (`url_filter.block`/`allow`, `mitm.sites`, etc.) are matched
+  **case-sensitively on every platform** (`internal/proxy/matching.go`'s `fnmatch`), rather than
+  reproducing Python's `fnmatch.fnmatch`, whose case-sensitivity actually varies by OS (via
+  `os.path.normcase` - case-sensitive on Linux, case-insensitive on Windows). A single predictable
+  behavior across the Windows/Linux/arm64 build matrix seemed preferable to silently reproducing
+  that OS-dependent quirk.
+- `neighbors.Entry.Vendor` (IEEE OUI vendor name) is always empty in this port - wiring it up needs
+  `oui update` (still an `errNotImplemented` stub) and is Phase 9 work; `neighbors.Lookup` (used by
+  policy MAC-tier matching) doesn't need it and is fully functional.
 
 ## Suggested next step
 
-Phase 4: minimal proxy engine — plain HTTP forward-proxy + CONNECT blind-splice passthrough for
-*all* hosts (no MITM, no addons yet). Verify by pointing a real browser's proxy settings at
-`webfilter proxy` and confirming both HTTP and HTTPS browsing work with zero filtering. This proves
-the socket-handling foundation before layering MITM (Phase 5) and the addon chain (Phase 6) on top.
-`internal/certs` (CA + leaf issuance) is already built and tested and ready to be wired in during
-Phase 5.
+Two real gaps remain before "full feature parity" is true, and both are blocked on an artifact this
+environment can't produce (no internet access to fetch binaries/models, no labeled training data):
+
+1. **Phase 7, ONNX image classification**: implement `internal/classify/image` as a
+   `yalue/onnxruntime_go`-backed `addons.ImageDetector`, needing a NudeNet-compatible `.onnx` model
+   file and the `onnxruntime` shared library (`-tags noonnx` stub variant for builds that can't ship
+   either). Wire it into `cmd/webfilter/runners.go`'s `buildProxyEngine` as
+   `addons.ImageClassifier{Detector: ...}`.
+2. **Phase 8, text classifier ML stage**: train a small TF-IDF + logistic-regression model offline
+   against a labeled adult-content-vs-not corpus, export weights as a JSON sidecar, and write a
+   pure-Go `addons.MLScorer` implementation (no CGO needed - it's just a dot product + sigmoid).
+   Wire it into `buildProxyEngine` as `addons.TextClassifier{Scorer: ...}`.
+
+Both addons already have everything else built and tested (policy gating, response mutation,
+content-type handling) - only the actual scoring backend is missing, and both fail open safely
+(never flag anything) without it, matching the Python original's own behavior when its optional ML
+dependencies aren't installed.
+
+After that, Phase 9's remaining piece is the *management-API* side of categories/neighbors
+(`GET /api/categories` currently returns an empty list; `/api/tools/neighbors` and `oui update`
+don't exist yet) - the underlying `internal/categories`/`internal/neighbors` packages the proxy
+uses are already done. Phase 10 (service install, release archives, docs) is the last phase.

@@ -1,0 +1,137 @@
+package addons
+
+import (
+	"encoding/base64"
+	"net/http"
+	"strings"
+	"sync"
+
+	"github.com/yjlion/gowebfilter/internal/proxy"
+	"github.com/yjlion/gowebfilter/internal/proxy/state"
+	"github.com/yjlion/gowebfilter/internal/pwhash"
+)
+
+// ProxyAuthGate implements HTTP proxy authentication (407 challenge/
+// response), ported from proxy/addons/proxy_auth.py.
+//
+// HTTPS tunnels: auth is carried on the CONNECT request (AuthorizeConnect,
+// called directly by the engine before MITM/blind-splice begins - mirrors
+// mitmproxy's distinct http_connect hook). On success the connection ID is
+// remembered so inner HTTP requests routed through that tunnel aren't
+// re-challenged. Plain HTTP: auth is carried on every request (the browser
+// resends credentials on every subsequent request in the same keep-alive
+// connection after handling the first 407).
+//
+// Credentials are stored in settings.json as a PBKDF2-SHA256 hash, the
+// same scheme used for management UI auth. SOCKS5 proxy auth is a
+// different sub-protocol this addon does not cover (unimplemented mode).
+type ProxyAuthGate struct {
+	runtime *state.Runtime
+
+	mu          sync.Mutex
+	authedConns map[uint64]bool
+}
+
+// NewProxyAuthGate constructs a ProxyAuthGate reading credentials from rt's
+// settings. rt is needed directly (rather than only via FlowContext)
+// because AuthorizeConnect runs at CONNECT time, before any FlowContext
+// exists - see proxy.ConnectGate's doc comment.
+func NewProxyAuthGate(rt *state.Runtime) *ProxyAuthGate {
+	return &ProxyAuthGate{runtime: rt, authedConns: make(map[uint64]bool)}
+}
+
+func (*ProxyAuthGate) Name() string { return "proxy_auth" }
+
+func (g *ProxyAuthGate) enabled(fc *proxy.FlowContext) bool {
+	s := fc.Runtime.Settings
+	return s.ProxyAuthEnabled && s.ProxyAuthPasswordHash != ""
+}
+
+func (g *ProxyAuthGate) validRequest(fc *proxy.FlowContext) bool {
+	username, password, ok := parseBasic(fc.Request.Header.Get("Proxy-Authorization"))
+	if !ok {
+		return false
+	}
+	s := fc.Runtime.Settings
+	return username == s.ProxyAuthUsername && pwhash.Verify(password, s.ProxyAuthPasswordHash)
+}
+
+func parseBasic(header string) (username, password string, ok bool) {
+	const prefix = "basic "
+	if len(header) < len(prefix) || !strings.EqualFold(header[:len(prefix)], prefix) {
+		return "", "", false
+	}
+	decoded, err := base64.StdEncoding.DecodeString(header[len(prefix):])
+	if err != nil {
+		return "", "", false
+	}
+	user, pass, found := strings.Cut(string(decoded), ":")
+	if !found {
+		return user, "", true
+	}
+	return user, pass, true
+}
+
+// AuthorizeConnect validates proxy credentials on a CONNECT request,
+// remembering connID as authorized on success so inner tunneled requests
+// aren't re-challenged. Implements proxy.ConnectGate.
+func (g *ProxyAuthGate) AuthorizeConnect(req *http.Request, connID uint64) bool {
+	if g.runtime == nil {
+		g.markAuthed(connID)
+		return true
+	}
+	s := g.runtime.Settings
+	if !(s.ProxyAuthEnabled && s.ProxyAuthPasswordHash != "") {
+		g.markAuthed(connID)
+		return true
+	}
+	username, password, ok := parseBasic(req.Header.Get("Proxy-Authorization"))
+	if ok && username == s.ProxyAuthUsername && pwhash.Verify(password, s.ProxyAuthPasswordHash) {
+		g.markAuthed(connID)
+		return true
+	}
+	return false
+}
+
+func (g *ProxyAuthGate) markAuthed(connID uint64) {
+	g.mu.Lock()
+	g.authedConns[connID] = true
+	g.mu.Unlock()
+}
+
+// ClientDisconnected releases per-connection auth state. Implements
+// proxy.ConnectGate.
+func (g *ProxyAuthGate) ClientDisconnected(connID uint64) {
+	g.mu.Lock()
+	delete(g.authedConns, connID)
+	g.mu.Unlock()
+}
+
+// HandleRequest gates every plain-HTTP proxy request and every tunneled
+// HTTPS request after the CONNECT is established (the latter already
+// authenticated in AuthorizeConnect, so this is a no-op for them).
+func (g *ProxyAuthGate) HandleRequest(fc *proxy.FlowContext) {
+	if fc.URLAllowed {
+		return
+	}
+	if !g.enabled(fc) {
+		return
+	}
+	g.mu.Lock()
+	authed := g.authedConns[fc.ClientConnID]
+	g.mu.Unlock()
+	if authed {
+		return
+	}
+	if !g.validRequest(fc) {
+		fc.Response = &http.Response{
+			StatusCode: http.StatusProxyAuthRequired,
+			Header: http.Header{
+				"Proxy-Authenticate": []string{`Basic realm="WebFilter Proxy"`},
+				"Content-Type":       []string{"text/plain"},
+				"Proxy-Connection":   []string{"close"},
+			},
+		}
+		fc.ResponseBody = []byte("Proxy Authentication Required")
+	}
+}
