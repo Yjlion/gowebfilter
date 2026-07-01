@@ -1,0 +1,106 @@
+package addons_test
+
+import (
+	"testing"
+
+	"github.com/yjlion/gowebfilter/internal/models"
+	"github.com/yjlion/gowebfilter/internal/proxy/addons"
+)
+
+func enabledPolicyWithSafeSearch(engineOverrides map[string]models.SafeSearchEngineConfig) models.Policy {
+	p := models.NewPolicy()
+	cfg := models.NewSafeSearchConfig()
+	cfg.Enabled = true
+	for name, e := range engineOverrides {
+		cfg.Engines[name] = e
+	}
+	p.SafeSearch = cfg
+	return p
+}
+
+func TestSafeSearchGoogleParamInjection(t *testing.T) {
+	rt := newTestRuntime(t)
+	fc := newFlow(t, rt, "http://www.google.com/search?q=cats")
+	policy := enabledPolicyWithSafeSearch(nil)
+	fc.Policy = &policy
+
+	addons.SafeSearch{}.HandleRequest(fc)
+
+	if got := fc.Request.URL.Query().Get("safe"); got != "active" {
+		t.Errorf("safe param = %q, want active", got)
+	}
+	if fc.WFAction != "modified" || fc.WFComponent != "safesearch" {
+		t.Errorf("WFAction/WFComponent = %q/%q", fc.WFAction, fc.WFComponent)
+	}
+}
+
+func TestSafeSearchYouTubeHeaderInjection(t *testing.T) {
+	rt := newTestRuntime(t)
+	fc := newFlow(t, rt, "http://www.youtube.com/watch?v=abc")
+	policy := enabledPolicyWithSafeSearch(nil)
+	fc.Policy = &policy
+
+	addons.SafeSearch{}.HandleRequest(fc)
+
+	if got := fc.Request.Header.Get("YouTube-Restrict"); got != "Strict" {
+		t.Errorf("YouTube-Restrict header = %q, want Strict", got)
+	}
+}
+
+func TestSafeSearchBlocksImageTab(t *testing.T) {
+	rt := newTestRuntime(t)
+	fc := newFlow(t, rt, "http://www.google.com/search?tbm=isch&q=cats")
+	policy := enabledPolicyWithSafeSearch(map[string]models.SafeSearchEngineConfig{
+		"google": {Enabled: true, BlockImagesTab: true},
+	})
+	fc.Policy = &policy
+
+	addons.SafeSearch{}.HandleRequest(fc)
+
+	if fc.Response == nil {
+		t.Fatal("expected image tab param to trigger a block")
+	}
+}
+
+func TestSafeSearchBlocksImageCDNWholesale(t *testing.T) {
+	rt := newTestRuntime(t)
+	fc := newFlow(t, rt, "http://encrypted-tbn0.gstatic.com/images?q=x")
+	policy := enabledPolicyWithSafeSearch(map[string]models.SafeSearchEngineConfig{
+		"google": {Enabled: true, BlockImagesTab: true},
+	})
+	fc.Policy = &policy
+
+	addons.SafeSearch{}.HandleRequest(fc)
+
+	if fc.Response == nil {
+		t.Fatal("expected the google image CDN to be blocked wholesale")
+	}
+}
+
+func TestSafeSearchEngineDisabledSkipsEnforcement(t *testing.T) {
+	rt := newTestRuntime(t)
+	fc := newFlow(t, rt, "http://www.google.com/search?q=cats")
+	policy := enabledPolicyWithSafeSearch(map[string]models.SafeSearchEngineConfig{
+		"google": {Enabled: false},
+	})
+	fc.Policy = &policy
+
+	addons.SafeSearch{}.HandleRequest(fc)
+
+	if fc.Request.URL.Query().Get("safe") != "" {
+		t.Error("did not expect safe param injection for a disabled engine")
+	}
+}
+
+func TestSafeSearchUnlistedEngineIsNoop(t *testing.T) {
+	rt := newTestRuntime(t)
+	fc := newFlow(t, rt, "http://unrelated.com/search?q=cats")
+	policy := enabledPolicyWithSafeSearch(nil)
+	fc.Policy = &policy
+
+	addons.SafeSearch{}.HandleRequest(fc)
+
+	if fc.Response != nil || fc.WFAction != "" {
+		t.Error("expected no effect for a domain matching no known search engine")
+	}
+}

@@ -6,10 +6,10 @@ func newProxyCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "proxy",
 		Short: "Run only the MITM filtering proxy engine",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return errNotImplemented("proxy")
-		},
 	}
-	addConfigFlags(cmd)
+	f := addConfigFlags(cmd)
+	cmd.RunE = func(cmd *cobra.Command, args []string) error {
+		return runProxy(cmd.Context(), f.settingsPath)
+	}
 	return cmd
 }

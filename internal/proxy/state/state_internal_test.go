@@ -1,0 +1,122 @@
+package state
+
+import (
+	"testing"
+
+	"github.com/yjlion/gowebfilter/internal/models"
+)
+
+func policyNamed(name string, sourceIPs ...string) models.Policy {
+	p := models.NewPolicy()
+	p.Name = name
+	p.SourceIPs = sourceIPs
+	return p
+}
+
+func TestGetPolicyExactIPWinsOverCIDR(t *testing.T) {
+	rt := &Runtime{}
+	policies := []models.Policy{
+		policyNamed("cidr", "192.168.1.0/24"),
+		policyNamed("exact", "192.168.1.5"),
+	}
+	rt.policies.Store(&policies)
+
+	got := rt.GetPolicy("192.168.1.5")
+	if got == nil || got.Name != "exact" {
+		t.Fatalf("GetPolicy = %+v, want exact-IP policy", got)
+	}
+}
+
+func TestGetPolicyNarrowestCIDRWins(t *testing.T) {
+	rt := &Runtime{}
+	policies := []models.Policy{
+		policyNamed("wide", "192.168.0.0/16"),
+		policyNamed("narrow", "192.168.1.0/24"),
+	}
+	rt.policies.Store(&policies)
+
+	got := rt.GetPolicy("192.168.1.5")
+	if got == nil || got.Name != "narrow" {
+		t.Fatalf("GetPolicy = %+v, want narrow CIDR policy", got)
+	}
+}
+
+func TestGetPolicyCatchAll(t *testing.T) {
+	rt := &Runtime{}
+	policies := []models.Policy{
+		policyNamed("specific", "10.0.0.0/8"),
+		policyNamed("catchall"),
+	}
+	rt.policies.Store(&policies)
+
+	got := rt.GetPolicy("203.0.113.9")
+	if got == nil || got.Name != "catchall" {
+		t.Fatalf("GetPolicy = %+v, want catchall policy", got)
+	}
+}
+
+func TestGetPolicyNoMatchReturnsNil(t *testing.T) {
+	rt := &Runtime{}
+	policies := []models.Policy{policyNamed("specific", "10.0.0.0/8")}
+	rt.policies.Store(&policies)
+
+	if got := rt.GetPolicy("203.0.113.9"); got != nil {
+		t.Fatalf("GetPolicy = %+v, want nil", got)
+	}
+}
+
+func TestGetPolicySkipsInactiveSchedule(t *testing.T) {
+	rt := &Runtime{}
+	inactive := policyNamed("inactive", "192.168.1.5")
+	inactive.Schedule = models.ScheduleConfig{
+		Enabled: true,
+		ActiveWindows: []models.TimeWindow{
+			{Days: []int{}, Start: "00:00", End: "00:00"},
+		},
+	}
+	fallback := policyNamed("fallback")
+	policies := []models.Policy{inactive, fallback}
+	rt.policies.Store(&policies)
+
+	got := rt.GetPolicy("192.168.1.5")
+	if got == nil || got.Name != "fallback" {
+		t.Fatalf("GetPolicy = %+v, want fallback (inactive policy skipped)", got)
+	}
+}
+
+func TestGetPolicyIPv4MappedIPv6Matches(t *testing.T) {
+	rt := &Runtime{}
+	policies := []models.Policy{policyNamed("v4", "192.168.1.5")}
+	rt.policies.Store(&policies)
+
+	got := rt.GetPolicy("::ffff:192.168.1.5")
+	if got == nil || got.Name != "v4" {
+		t.Fatalf("GetPolicy = %+v, want v4 policy to match its IPv4-mapped IPv6 form", got)
+	}
+}
+
+func TestShouldBypassMitm(t *testing.T) {
+	rt := &Runtime{}
+	excluded := models.NewPolicy()
+	excluded.Name = "excluded"
+	excluded.Mitm = models.MitmConfig{Mode: models.MitmModeExclude, Sites: []string{"*.example.com"}}
+	included := models.NewPolicy()
+	included.Name = "included"
+	included.Mitm = models.MitmConfig{Mode: models.MitmModeInclude, Sites: []string{"other.com"}}
+	policies := []models.Policy{excluded, included}
+	rt.policies.Store(&policies)
+	rt.rebuildMitmBypass(policies)
+
+	if !rt.ShouldBypassMitm("example.com") {
+		t.Error("ShouldBypassMitm(example.com) = false, want true (exact domain from *.example.com)")
+	}
+	if !rt.ShouldBypassMitm("sub.example.com") {
+		t.Error("ShouldBypassMitm(sub.example.com) = false, want true (subdomain)")
+	}
+	if rt.ShouldBypassMitm("other.com") {
+		t.Error("ShouldBypassMitm(other.com) = true, want false (only listed under include-mode policy)")
+	}
+	if rt.ShouldBypassMitm("notexample.com") {
+		t.Error("ShouldBypassMitm(notexample.com) = true, want false (must not match as a bare suffix)")
+	}
+}
