@@ -45,11 +45,15 @@ var toolsHTTPClient = &http.Client{
 // POST /api/tools/scan
 // ---------------------------------------------------------------------------
 
-// handleToolsScan would fetch a URL and classify it for NSFW text/images, but
-// that depends on the ML classifier backends (project plan Phases 7 & 8),
-// which aren't built in this port yet. Rather than silently return a
-// misleading "clean" verdict, it reports 503 with a detail the Tools page
-// surfaces verbatim (it reads body.detail on any non-2xx).
+// handleToolsScan would fetch a URL and classify it for NSFW text/images
+// using the same internal/classify/{text,image} backends the proxy pipeline
+// now uses (project plan Phases 7 & 8), but this management-API server is
+// constructed independently from the proxy engine's addon pipeline
+// (cmd_mgmt.go vs. cmd_proxy.go/runners.go's buildProxyEngine) and has no
+// loaded classifier instance to call - wiring that through is a separate,
+// not-yet-done piece of work. Rather than silently return a misleading
+// "clean" verdict, it reports 503 with a detail the Tools page surfaces
+// verbatim (it reads body.detail on any non-2xx).
 func (s *Server) handleToolsScan(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
 		URL string `json:"url"`
@@ -60,7 +64,7 @@ func (s *Server) handleToolsScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSONError(w, http.StatusServiceUnavailable,
-		"NSFW scanning is not available in this build: the image and text ML classifiers are not yet implemented in the Go port")
+		"NSFW scanning is not available from the management API: the classifier backends are not wired into this server")
 }
 
 // ---------------------------------------------------------------------------

@@ -8,6 +8,7 @@ require (
 	github.com/go-chi/chi/v5 v5.3.0
 	github.com/miekg/dns v1.1.72
 	github.com/spf13/cobra v1.10.2
+	github.com/yalue/onnxruntime_go v1.31.0
 	golang.org/x/crypto v0.53.0
 	golang.org/x/sys v0.46.0
 	modernc.org/sqlite v1.53.0

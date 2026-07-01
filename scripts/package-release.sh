@@ -8,8 +8,12 @@
 #            (default: `git describe --tags --always --dirty`, or "dev")
 #   OUT_DIR  where to write archives (default: ./dist)
 #
-# Pure-Go cross-compile (CGO_ENABLED=0, -tags noonnx) - same posture as the
-# CI cross-compile job, so this script never needs a target's C toolchain.
+# Pure-Go cross-compile (CGO_ENABLED=0, default build tags - i.e. without
+# -tags onnx, so internal/classify/image's stub variant is what ships) -
+# same posture as the CI cross-compile job, so this script never needs a
+# target's C toolchain. See HANDOFF.md's Phase 7 notes: an operator who
+# wants the real ONNX-backed NSFW detector builds their own binary with
+# -tags onnx, a C toolchain, and the onnxruntime shared library.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -43,7 +47,7 @@ for target in "${TARGETS[@]}"; do
   mkdir -p "$stage"
 
   echo "[package] building ${goos}/${goarch} ..."
-  GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 go build -tags noonnx \
+  GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 go build \
     -ldflags "$LDFLAGS" \
     -o "$stage/webfilter${ext}" ./cmd/webfilter
 
