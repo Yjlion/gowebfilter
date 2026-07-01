@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -217,6 +218,96 @@ func edeBlockDetail(msg *dns.Msg) string {
 		return fmt.Sprintf("EDE %d", ede.InfoCode)
 	}
 	return ""
+}
+
+// DohRecord is one resource record in a diagnostic DoH query result.
+type DohRecord struct {
+	Type string `json:"type"`
+	Name string `json:"name"`
+	TTL  uint32 `json:"ttl"`
+	Data string `json:"data"`
+}
+
+// DohToolResult is the outcome of a diagnostic DoH lookup, matching the
+// shape the management UI's DoH tool expects (GET/POST /api/tools/doh).
+type DohToolResult struct {
+	Server  string      `json:"server"`
+	Domain  string      `json:"domain"`
+	Records []DohRecord `json:"records"`
+	Blocked bool        `json:"blocked"`
+	Detail  string      `json:"detail"`
+	Rcode   string      `json:"rcode"`
+}
+
+// QueryDohDetailed runs A + AAAA DoH lookups for domain against server and
+// reports every resource record plus the block verdict - the diagnostic
+// counterpart to queryDoh (which only returns blocked/not and caches).
+// Mirrors the Python management API's /api/tools/doh handler: it never
+// errors, encoding an all-queries-failed outcome as an empty record set with
+// a SERVFAIL rcode and an explanatory detail.
+func QueryDohDetailed(domain, server string) DohToolResult {
+	res := DohToolResult{Server: server, Domain: domain, Records: []DohRecord{}}
+
+	type result struct {
+		msg *dns.Msg
+		err error
+	}
+	ch := make(chan result, 2)
+	go func() { m, err := resolveDoh(domain, server, dns.TypeA); ch <- result{m, err} }()
+	go func() { m, err := resolveDoh(domain, server, dns.TypeAAAA); ch <- result{m, err} }()
+
+	var messages []*dns.Msg
+	var lastErr error
+	for i := 0; i < 2; i++ {
+		r := <-ch
+		if r.err != nil {
+			lastErr = r.err
+			continue
+		}
+		messages = append(messages, r.msg)
+	}
+
+	if len(messages) == 0 {
+		res.Rcode = "SERVFAIL"
+		if lastErr != nil {
+			res.Detail = "query failed: " + lastErr.Error()
+		} else {
+			res.Detail = "query failed"
+		}
+		return res
+	}
+
+	blocked, detail, _ := classifyDoh(messages)
+	res.Blocked = blocked
+	res.Detail = detail
+	res.Rcode = dns.RcodeToString[messages[0].Rcode]
+
+	for _, msg := range messages {
+		for _, rr := range msg.Answer {
+			hdr := rr.Header()
+			data := rrAddress(rr)
+			if data == "" {
+				// Non-address record: strip the leading header tokens so we
+				// report just the rdata (mirrors dnspython's rd.to_text()).
+				data = rdataText(rr)
+			}
+			res.Records = append(res.Records, DohRecord{
+				Type: dns.TypeToString[hdr.Rrtype],
+				Name: hdr.Name,
+				TTL:  hdr.Ttl,
+				Data: data,
+			})
+		}
+	}
+	return res
+}
+
+// rdataText returns just the rdata portion of a resource record's text form
+// (miekg's rr.String() prepends "name ttl class type").
+func rdataText(rr dns.RR) string {
+	full := rr.String()
+	hdr := rr.Header().String()
+	return strings.TrimPrefix(full, hdr)
 }
 
 // resolveDoh sends one RFC 8484 wireformat query over HTTPS POST.
