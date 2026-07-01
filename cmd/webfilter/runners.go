@@ -7,8 +7,8 @@ import (
 	"net"
 	"net/http"
 
-	"github.com/spf13/cobra"
-
+	"github.com/yjlion/gowebfilter/internal/classify/image"
+	"github.com/yjlion/gowebfilter/internal/classify/text"
 	"github.com/yjlion/gowebfilter/internal/mgmtapi"
 	"github.com/yjlion/gowebfilter/internal/proxy"
 	"github.com/yjlion/gowebfilter/internal/proxy/addons"
@@ -47,8 +47,8 @@ func buildProxyEngine(settingsPath string) (*proxy.Engine, *state.Runtime, error
 		addons.DohFilter{},
 		addons.SafeSearch{},
 		addons.YouTubeFilter{},
-		addons.TextClassifier{},  // ML scorer (Phase 8) not wired in yet: keyword-only
-		addons.ImageClassifier{}, // NSFW detector (Phase 7) not wired in yet: passthrough
+		addons.TextClassifier{Scorer: loadTextScorer(rt.Settings.TextClassifierModelPath)},
+		addons.ImageClassifier{Detector: loadImageDetector(rt.Settings.ImageClassifierModelPath)},
 		addons.RequestLogger{},
 	})
 
@@ -104,9 +104,11 @@ func serveMgmt(ctx context.Context, srv *mgmtapi.Server) error {
 // proxy's leaf-certificate cache immediately (mgmtapi.Server.OnCARotated),
 // rather than requiring a restart, since both run in the same address
 // space here. If either component fails, the other is cancelled too so
-// `run` doesn't limp along half-up.
-func runProxyAndMgmt(cmd *cobra.Command, settingsPath string) error {
-	ctx, cancel := context.WithCancel(cmd.Context())
+// `run` doesn't limp along half-up. Takes a bare context (rather than a
+// *cobra.Command) so the Windows service handler can drive it directly,
+// cancelling ctx when the SCM delivers a stop/shutdown control.
+func runProxyAndMgmt(ctx context.Context, settingsPath string) error {
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	eng, rt, err := buildProxyEngine(settingsPath)
@@ -134,6 +136,42 @@ func runProxyAndMgmt(cmd *cobra.Command, settingsPath string) error {
 		}
 	}
 	return firstErr
+}
+
+// loadTextScorer loads the optional Phase 8 ML sidecar, if configured. A
+// missing path means keyword-only (addons.MLScorer nil); a configured path
+// that fails to load logs a warning and still falls back to keyword-only
+// rather than aborting startup - the ML stage is defense-in-depth on top of
+// the keyword pre-filter, never the only line of defense.
+func loadTextScorer(modelPath string) addons.MLScorer {
+	if modelPath == "" {
+		return nil
+	}
+	m, err := text.Load(modelPath)
+	if err != nil {
+		slog.Warn("text_classifier: failed to load ML model, falling back to keyword-only", "path", modelPath, "err", err)
+		return nil
+	}
+	slog.Info("text_classifier: loaded ML model", "path", modelPath, "vocab_size", len(m.Vocab))
+	return m
+}
+
+// loadImageDetector loads the optional Phase 7 ONNX-backed NSFW detector, if
+// configured. A missing path means passthrough (addons.ImageDetector nil);
+// a configured path that fails to load (including when the binary wasn't
+// built with -tags onnx - see internal/classify/image's build-tagged
+// variants) logs a warning and still falls back to passthrough rather than
+// aborting startup.
+func loadImageDetector(modelPath string) addons.ImageDetector {
+	if modelPath == "" {
+		return nil
+	}
+	d, err := image.New(modelPath)
+	if err != nil {
+		slog.Warn("image_classifier: failed to load NSFW detector, falling back to passthrough", "path", modelPath, "err", err)
+		return nil
+	}
+	return d
 }
 
 func itoa(i int) string {

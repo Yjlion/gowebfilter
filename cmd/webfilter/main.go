@@ -28,6 +28,7 @@ func main() {
 		newMgmtCmd(),
 		newCategoriesCmd(),
 		newOuiCmd(),
+		newServiceCmd(),
 		newVersionCmd(),
 	)
 

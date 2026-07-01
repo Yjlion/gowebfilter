@@ -29,9 +29,11 @@ type Entry struct {
 	IP    string
 	MAC   string
 	Iface string
-	// Vendor is left blank - IEEE OUI vendor lookup is wired up by the
-	// management API's neighbor-scan tooling (project plan Phase 9), not
-	// needed for policy MAC matching.
+	// Vendor is the IEEE-registered OUI vendor name for MAC, populated from
+	// the lookup table at ConfigureOUI's path (VendorFor) - "" if that table
+	// isn't populated yet (run `webfilter oui update`) or the prefix is
+	// unknown. Not needed for policy MAC matching, only for the management
+	// API's neighbor-scan display.
 	Vendor string
 }
 
@@ -143,7 +145,9 @@ func Scan() []Entry {
 	}
 	out := make([]Entry, 0, len(order))
 	for _, mac := range order {
-		out = append(out, seen[mac])
+		e := seen[mac]
+		e.Vendor = VendorFor(e.MAC)
+		out = append(out, e)
 	}
 	sortEntriesByIP(out)
 	return out

@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/yjlion/gowebfilter/internal/categories"
 	"github.com/yjlion/gowebfilter/internal/certs"
 	"github.com/yjlion/gowebfilter/internal/config"
 	"github.com/yjlion/gowebfilter/internal/logstore"
@@ -28,6 +29,7 @@ type Server struct {
 	Policies     *config.PolicyStore
 	Logs         *logstore.Store
 	CA           *certs.CA
+	Categories   *categories.Store
 	StartedAt    time.Time
 
 	// OnCARotated is invoked after a successful CA import so the proxy
@@ -61,6 +63,7 @@ func NewServer(settingsPath string) (*Server, error) {
 		Policies:     config.NewPolicyStore(s.PoliciesDir),
 		Logs:         logs,
 		CA:           ca,
+		Categories:   categories.NewStore(s.CategoriesDir),
 		StartedAt:    time.Now(),
 		settings:     s,
 	}, nil

@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
 
 jobs:
@@ -17,12 +18,14 @@ jobs:
       - run: go vet ./...
       - run: go test ./...
 
-  # Cross-compile matrix for the three release targets. CGO is disabled here
-  # deliberately: through Phase 6 the whole tree is pure Go, so this catches
-  # any accidental CGO dependency creeping in early. Once the ONNX image
-  # classifier lands (Phase 7), this job gains a CGO_ENABLED=1 + zig-cc
-  # variant per docs/build.md rather than replacing this one, so the
-  # noonnx build tag keeps a pure-Go cross-compile path verified.
+  # Cross-compile matrix for the three release targets, CGO_ENABLED=0 (the
+  # default build, i.e. no -tags onnx): internal/classify/image's stub
+  # variant (detector_stub.go, build tag !onnx) means this never needs a C
+  # toolchain, so it's what every release archive actually ships (see
+  # scripts/package-release.sh) - the real ONNX-backed detector
+  # (detector_onnx.go, Phase 7) is an explicit opt-in for operators who
+  # build their own binary with a C toolchain and the onnxruntime shared
+  # library available; see build-onnx below and HANDOFF.md's Phase 7 notes.
   cross-compile:
     runs-on: ubuntu-latest
     strategy:
@@ -43,4 +46,48 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "0"
-        run: go build -tags noonnx -o /dev/null ./cmd/webfilter
+        run: go build -o /dev/null ./cmd/webfilter
+
+  # Builds internal/classify/image's real ONNX-backed detector
+  # (detector_onnx.go, -tags onnx, project plan Phase 7) on a runner that
+  # actually has a C toolchain (ubuntu-latest ships gcc; this project's own
+  # dev sandbox does not, which is why this path wasn't build-verified when
+  # it was written - see HANDOFF.md). This only proves it compiles against
+  # github.com/yalue/onnxruntime_go's real API; it does not download or run
+  # against an actual onnxruntime shared library or NudeNet-compatible
+  # model, so it does NOT validate the runtime tensor-shape assumptions
+  # end-to-end. Deliberately excluded from `release`'s `needs:` below -
+  # Phase 7 is an optional, experimental path that shouldn't block a release
+  # of the (always pure-Go) default build.
+  build-onnx:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+      - run: go build -tags onnx ./...
+      - run: go vet -tags onnx ./...
+
+  # Runs only on a `v*` tag push: builds all three release targets (via the
+  # same script a maintainer would run locally, scripts/package-release.sh -
+  # see packaging/README.md) and attaches the resulting archives to a GitHub
+  # release for that tag.
+  release:
+    needs: [test, cross-compile]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history so `git describe` resolves the tag
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+      - run: ./scripts/package-release.sh "${{ github.ref_name }}" dist
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

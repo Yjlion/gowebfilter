@@ -53,6 +53,24 @@ type GlobalSettings struct {
 	// Python original since unrecognized settings.json fields aren't
 	// validated against there.
 	ImageClassifierModelPath string `json:"image_classifier_model_path,omitempty"`
+
+	// OuiPath is a Go-port-only optional field (documented deviation): path
+	// to the IEEE OUI vendor lookup table (internal/neighbors.DefaultOuiPath
+	// - "./data/oui.txt" - when empty), refreshed by `webfilter oui update`.
+	// The Python original hardcodes shared/data/oui.txt instead of making it
+	// configurable; round-trips harmlessly through it since unrecognized
+	// settings.json fields aren't validated against there.
+	OuiPath string `json:"oui_path,omitempty"`
+
+	// TextClassifierModelPath is a Go-port-only optional field (documented
+	// deviation): path to a JSON sidecar produced by
+	// scripts/train_text_classifier.go (internal/classify/text.Model),
+	// providing addons.TextClassifier's optional ML stage (project plan
+	// Phase 8). Empty means keyword-only, matching the Python original's
+	// behavior when its optional ML dependency isn't installed. Round-trips
+	// harmlessly through the Python original since unrecognized
+	// settings.json fields aren't validated against there.
+	TextClassifierModelPath string `json:"text_classifier_model_path,omitempty"`
 }
 
 // NewGlobalSettings returns GlobalSettings with every field at its
