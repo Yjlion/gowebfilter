@@ -7,8 +7,6 @@ import (
 	"net"
 	"net/http"
 
-	"github.com/spf13/cobra"
-
 	"github.com/yjlion/gowebfilter/internal/mgmtapi"
 	"github.com/yjlion/gowebfilter/internal/proxy"
 	"github.com/yjlion/gowebfilter/internal/proxy/addons"
@@ -104,9 +102,11 @@ func serveMgmt(ctx context.Context, srv *mgmtapi.Server) error {
 // proxy's leaf-certificate cache immediately (mgmtapi.Server.OnCARotated),
 // rather than requiring a restart, since both run in the same address
 // space here. If either component fails, the other is cancelled too so
-// `run` doesn't limp along half-up.
-func runProxyAndMgmt(cmd *cobra.Command, settingsPath string) error {
-	ctx, cancel := context.WithCancel(cmd.Context())
+// `run` doesn't limp along half-up. Takes a bare context (rather than a
+// *cobra.Command) so the Windows service handler can drive it directly,
+// cancelling ctx when the SCM delivers a stop/shutdown control.
+func runProxyAndMgmt(ctx context.Context, settingsPath string) error {
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	eng, rt, err := buildProxyEngine(settingsPath)

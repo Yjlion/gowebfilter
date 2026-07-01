@@ -1,0 +1,24 @@
+[Unit]
+Description=WebFilter Proxy - MITM filtering proxy engine only
+Documentation=https://github.com/Yjlion/mitmproxy-web-filter
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=webfilter
+Group=webfilter
+WorkingDirectory=/opt/webfilter
+ExecStart=/opt/webfilter/webfilter proxy --settings config/settings.json
+Restart=on-failure
+RestartSec=3
+LimitNOFILE=65536
+TimeoutStopSec=15
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/webfilter
+
+[Install]
+WantedBy=multi-user.target

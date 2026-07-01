@@ -1,8 +1,8 @@
 # Handoff: Go port of mitmproxy-web-filter
 
-Status as of this commit: **Phases 0–6 of 11 complete and tested; Phases 7–8 partially done (see
-below — both need an offline artifact this environment couldn't produce).** This document is
-written so a new session (human or AI) can resume without re-deriving context.
+Status as of this commit: **Phases 0–6 and 9–10 of 11 complete and tested; Phases 7–8 partially
+done (see below — both need a labeled corpus/model artifact, not just network access).** This
+document is written so a new session (human or AI) can resume without re-deriving context.
 
 ## What this project is
 
@@ -53,7 +53,7 @@ design decision, but this document is self-sufficient for resuming work.
 | 7. ONNX image classification | 🟡 Plumbing only | `ImageDetector` interface + blur/checkerboard/block wired; no ONNX backend (see below) |
 | 8. Text classifier ML stage | 🟡 Plumbing only | Keyword pre-filter is full parity; `MLScorer` interface wired; no trained model (see below) |
 | 9. Categories, neighbors/ARP | ✅ Done | `internal/categories` + `internal/neighbors` built and used by the proxy; management-API endpoints live: `GET /api/categories` (real index data), `GET /api/tools/{neighbors,public-ip}`, `POST /api/tools/{youtube,doh,scan}`, `GET /api/logs/export` (CSV + pure-Go XLSX); `webfilter oui update` (real IEEE OUI dataset → `neighbors.Entry.Vendor`) and `webfilter categories update` (real IPFire squidGuard blocklist → `categories/*/domains` + `index.json`) both implemented and verified against live upstream data |
-| 10. Hardening, packaging | ⬜ Not started | Service install, release archives, docs |
+| 10. Hardening, packaging | ✅ Done | Native Windows service (`webfilter service install/start/stop/uninstall/status`), Linux systemd units + installer (`packaging/`), release-archive packaging (`scripts/package-release.sh` + a CI `release` job on `v*` tags) |
 
 `go build ./...`, `go vet ./...`, and `go test ./...` are all green as of this commit. `webfilter
 run`/`webfilter proxy` now perform **real MITM interception and real filtering** - not just
@@ -208,7 +208,8 @@ keyword pre-filter and every non-ML addon are fully live).
 ```
 gowebfilter/
   cmd/webfilter/            # cobra CLI: main.go, cmd_run.go, cmd_proxy.go, cmd_mgmt.go,
-                             #   cmd_categories.go, cmd_oui.go, flags.go, runners.go
+                             #   cmd_categories.go, cmd_oui.go, flags.go, runners.go,
+                             #   service_windows.go / service_other.go (Windows service, Phase 10)
   internal/
     macutil/                 # MAC address normalization (shared by models + neighbors)
     models/                   # Policy, GlobalSettings, all sub-configs, proxy_listen parser
@@ -228,8 +229,16 @@ gowebfilter/
   ui/                          # management UI copied verbatim from the Python repo + embed.go
   config/settings.example.json # shipped template (matches the Python original's)
   policies/default.json.example # shipped template
-  .github/workflows/ci.yml     # build+vet+test, cross-compile matrix (pure-Go, CGO_ENABLED=0)
+  .github/workflows/ci.yml     # build+vet+test, cross-compile matrix (pure-Go, CGO_ENABLED=0),
+                                #   a `release` job on `v*` tags (Phase 10)
   .claude/launch.json          # local dev-server config for `mgmt` (used with Claude's preview tools)
+  packaging/                   # Phase 10: systemd units (webfilter.service, -proxy, -mgmt),
+                                #   install.sh, README.md covering both Linux and Windows deployment
+  scripts/
+    package-release.sh         # cross-compiles + bundles all 3 release targets into tarballs/zip
+    archive.go                 # `//go:build ignore` helper - pure-Go tar.gz/zip writer package-
+                                #   release.sh shells out to via `go run`, so packaging doesn't
+                                #   depend on a host `tar`/`zip` binary being installed
 ```
 
 Directories **not yet created** (per the original plan, for the phases still to come):
@@ -344,4 +353,55 @@ each category fully before an atomic `os.Rename` swap). All covered by
 `internal/categories/update_test.go`. The `/api/tools/doh` handler reuses the DoH addon's
 wire-query logic via the new exported `addons.QueryDohDetailed`.
 
-Phase 10 (service install, release archives, docs) is the last phase and hasn't been started.
+**Phase 10 is now done too.** Three pieces:
+
+1. **Native Windows service** (`cmd/webfilter/service_windows.go`, build-tag `windows`;
+   `service_other.go` is the `!windows` stub that points Linux users at systemd instead).
+   `webfilter service install --settings <path>` registers `webfilter run --settings <abs-path>`
+   with the SCM (`golang.org/x/sys/windows/svc/mgr`, `mgr.StartAutomatic`); `start`/`stop`/
+   `uninstall`/`status` round out management. The actual service body
+   (`webfilterService.Execute`, implementing `svc.Handler`) just calls the existing
+   `runProxyAndMgmt(ctx, settingsPath)` on a goroutine and cancels its context on a Stop/Shutdown
+   control request - `runProxyAndMgmt`'s signature was changed from `(*cobra.Command, string)` to
+   `(context.Context, string)` for this (cosmetic, one call site: `cmd_run.go`). Detection of
+   "am I running under the SCM" is `svc.IsWindowsService()`, checked inside `run`'s `RunE` itself
+   (not hijacked in `main()`) - so `webfilter run --settings X` behaves identically whether a human
+   typed it or the SCM launched it as the installed service's `ExecStart`.
+   **Verification**: builds and cross-compiles cleanly (native Windows build plus all three
+   `GOOS`/`GOARCH` CI targets); the `service status`/`install`/etc. error path was exercised without
+   admin rights and produces a clear "try running as Administrator" message rather than a crash or
+   confusing panic. **Not verified**: an actual install→start→stop→uninstall cycle against a live
+   SCM - this sandboxed session has no Administrator rights (confirmed via
+   `WindowsPrincipal.IsInRole`), and an elevation attempt via `Start-Process -Verb RunAs` hung
+   waiting on a UAC prompt nothing can answer non-interactively. If you have admin on the target
+   machine, that end-to-end path is worth running once before trusting it in production.
+2. **Linux systemd packaging** (`packaging/`): `webfilter.service` (combined `run` mode, the
+   recommended default) plus `webfilter-proxy.service`/`webfilter-mgmt.service` (split mode, for
+   operators who want process isolation - mirrors the Python original's own two-service split).
+   `packaging/install.sh --mode run|split [--prefix DIR] [--binary PATH]` creates a system
+   `webfilter` user, lays out `/opt/webfilter/{config,policies,certs,categories,logs,data}`, seeds
+   `config/settings.json`/`policies/default.json` from the shipped examples if absent, and
+   `systemctl enable`s the chosen unit(s). **Verification**: shell syntax checked (`bash -n`); the
+   `useradd`/`systemctl` control flow could not be exercised end-to-end since this sandbox is
+   Windows (no systemd) - worth a real run on a Linux box before relying on it.
+3. **Release archives**: `scripts/package-release.sh [VERSION] [OUT_DIR]` cross-compiles all three
+   targets (`windows/amd64`, `linux/amd64`, `linux/arm64`, `CGO_ENABLED=0 -tags noonnx`, matching
+   CI's cross-compile job exactly) with `-ldflags` injecting `internal/version.{Version,Commit,
+   BuildDate}`, bundles each with `settings.example.json`, `default.json.example`, and the relevant
+   `packaging/` files, and archives them - `.tar.gz` for Linux, `.zip` for Windows, written via a
+   small pure-Go helper (`scripts/archive.go`, `//go:build ignore`) rather than shelling out to a
+   host `tar`/`zip` binary, since this dev sandbox's git-bash has `tar` but no `zip`.
+   `.github/workflows/ci.yml` gained a `release` job that runs this script and attaches the
+   archives via `softprops/action-gh-release@v2` whenever a `v*` tag is pushed. **Verification**:
+   ran the full script locally, produced all three archives, inventoried both the `.tar.gz` (via
+   real `tar tzf`) and the `.zip` (via a throwaway Go `archive/zip` reader, since `unzip` also isn't
+   on this box) and confirmed correct contents per platform (systemd files only in the Linux
+   archives), then extracted the Windows zip and ran the actual `webfilter.exe version` to confirm
+   the ldflags-injected version/commit/build-date string is correct. The CI YAML was validated with
+   `yaml.safe_load` (via the reference Python repo's venv) but **the `release` job itself has never
+   actually run in GitHub Actions** - worth watching the first real tag push.
+
+All 11 phases are now either done or blocked on the same two ML artifacts (Phase 7/8). There is no
+more "next obvious phase" - remaining work is: source/train the Phase 7/8 models (a scope decision
+with real licensing/quality judgment calls, worth explicit user sign-off rather than an autonomous
+pick), or general hardening/bug-fixing as issues surface in real use.
