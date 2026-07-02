@@ -16,6 +16,21 @@ import (
 //     Restricted Mode).
 //   - imageCDNDomains: hostnames that serve image results wholesale for
 //     this engine, blocked outright when block_images_tab is on.
+// paramMatch is a query key/value pair that identifies a search tab. Some
+// engines expose the same tab through more than one URL scheme (Google's
+// current unified nav uses "udm", but "tbm" still works for old links), so
+// each tab category holds a list rather than a single pair.
+type paramMatch struct{ key, val string }
+
+func matchesAny(q url.Values, matches []paramMatch) bool {
+	for _, m := range matches {
+		if q.Get(m.key) == m.val {
+			return true
+		}
+	}
+	return false
+}
+
 type searchEngine struct {
 	name            string
 	domains         map[string]bool
@@ -29,10 +44,9 @@ type searchEngine struct {
 	videosPaths     []string
 	aiDomains       map[string]bool
 	aiPaths         []string
-	imagesParamKey  string
-	imagesParamVal  string
-	videosParamKey  string
-	videosParamVal  string
+	imagesParams    []paramMatch
+	videosParams    []paramMatch
+	aiParams        []paramMatch
 	imageCDNDomains map[string]bool
 	// imageCDNPrefix/imageCDNSuffix match a sharded family of image-CDN
 	// hostnames (e.g. Google load-balances thumbnails across
@@ -59,19 +73,21 @@ func set(vals ...string) map[string]bool {
 
 var searchEngines = []searchEngine{
 	{
-		name:            "google",
-		domains:         set("www.google.com", "google.com"),
-		domainSuffix:    ".google.",
-		safeParamKey:    "safe",
-		safeParamValue:  "active",
-		pathPrefix:      "/search",
-		imagesPaths:     []string{"/imghp"},
-		videosPaths:     []string{"/videohp"},
-		aiDomains:       set("gemini.google.com", "bard.google.com"),
-		imagesParamKey:  "tbm",
-		imagesParamVal:  "isch",
-		videosParamKey:  "tbm",
-		videosParamVal:  "vid",
+		name:           "google",
+		domains:        set("www.google.com", "google.com"),
+		domainSuffix:   ".google.",
+		safeParamKey:   "safe",
+		safeParamValue: "active",
+		pathPrefix:     "/search",
+		imagesPaths:    []string{"/imghp"},
+		videosPaths:    []string{"/videohp"},
+		aiDomains:      set("gemini.google.com", "bard.google.com"),
+		// Google's current unified nav selects tabs via "udm" (2=Images,
+		// 7=Videos, 50=AI Mode); "tbm" is the legacy scheme, still honored
+		// for old links/bookmarks. Both must be checked.
+		imagesParams:    []paramMatch{{"tbm", "isch"}, {"udm", "2"}},
+		videosParams:    []paramMatch{{"tbm", "vid"}, {"udm", "7"}},
+		aiParams:        []paramMatch{{"udm", "50"}},
 		imageCDNDomains: set("encrypted-tbn0.gstatic.com"),
 		imageCDNPrefix:  "encrypted-tbn",
 		imageCDNSuffix:  ".gstatic.com",
@@ -92,12 +108,10 @@ var searchEngines = []searchEngine{
 		domains:        set("duckduckgo.com", "www.duckduckgo.com", "ddg.gg"),
 		safeParamKey:   "kp",
 		safeParamValue: "1",
-		pathPrefix:     "/",
-		aiPaths:        []string{"/duckchat"},
-		imagesParamKey: "iar",
-		imagesParamVal: "images",
-		videosParamKey: "iar",
-		videosParamVal: "videos",
+		pathPrefix:   "/",
+		aiPaths:      []string{"/duckchat"},
+		imagesParams: []paramMatch{{"iar", "images"}},
+		videosParams: []paramMatch{{"iar", "videos"}},
 	},
 	{
 		name:           "yahoo",
@@ -207,10 +221,13 @@ func (SafeSearch) HandleRequest(fc *proxy.FlowContext) {
 		return
 	}
 
+	query := fc.Request.URL.Query()
+
 	// Block AI search engines/tabs: either a dedicated AI-only domain
-	// (Gemini, Copilot) or a specific path on the engine's own domain
+	// (Gemini, Copilot), a specific path on the engine's own domain
 	// (DuckDuckGo's AI Chat lives at /duckchat on duckduckgo.com itself,
-	// so it must be scoped by path rather than blocking the whole domain).
+	// so it must be scoped by path rather than blocking the whole domain),
+	// or a query param (Google's AI Mode tab, udm=50).
 	if blockAI {
 		for aiDomain := range engine.aiDomains {
 			if host == aiDomain || strings.HasSuffix(host, "."+aiDomain) {
@@ -224,6 +241,10 @@ func (SafeSearch) HandleRequest(fc *proxy.FlowContext) {
 				return
 			}
 		}
+		if matchesAny(query, engine.aiParams) {
+			fc.Block("AI search blocked by policy", "safesearch")
+			return
+		}
 	}
 
 	// Block image search tab.
@@ -234,7 +255,7 @@ func (SafeSearch) HandleRequest(fc *proxy.FlowContext) {
 				return
 			}
 		}
-		if engine.imagesParamKey != "" && fc.Request.URL.Query().Get(engine.imagesParamKey) == engine.imagesParamVal {
+		if matchesAny(query, engine.imagesParams) {
 			fc.Block("Image search blocked by policy", "safesearch")
 			return
 		}
@@ -248,7 +269,7 @@ func (SafeSearch) HandleRequest(fc *proxy.FlowContext) {
 				return
 			}
 		}
-		if engine.videosParamKey != "" && fc.Request.URL.Query().Get(engine.videosParamKey) == engine.videosParamVal {
+		if matchesAny(query, engine.videosParams) {
 			fc.Block("Video search blocked by policy", "safesearch")
 			return
 		}

@@ -62,6 +62,43 @@ func TestSafeSearchBlocksImageTab(t *testing.T) {
 	}
 }
 
+func TestSafeSearchBlocksGoogleAiModeTab(t *testing.T) {
+	rt := newTestRuntime(t)
+	fc := newFlow(t, rt, "http://www.google.com/search?udm=50&q=cats")
+	policy := enabledPolicyWithSafeSearch(map[string]models.SafeSearchEngineConfig{
+		"google": {Enabled: true, BlockAiTab: true},
+	})
+	fc.Policy = &policy
+
+	addons.SafeSearch{}.HandleRequest(fc)
+
+	if fc.Response == nil {
+		t.Fatal("expected Google AI Mode (udm=50) to trigger a block")
+	}
+}
+
+func TestSafeSearchBlocksGoogleUdmImagesAndVideosTabs(t *testing.T) {
+	rt := newTestRuntime(t)
+	policy := enabledPolicyWithSafeSearch(map[string]models.SafeSearchEngineConfig{
+		"google": {Enabled: true, BlockImagesTab: true, BlockVideosTab: true},
+	})
+
+	rt2 := newTestRuntime(t)
+	fcImages := newFlow(t, rt, "http://www.google.com/search?udm=2&q=cats")
+	fcImages.Policy = &policy
+	addons.SafeSearch{}.HandleRequest(fcImages)
+	if fcImages.Response == nil {
+		t.Error("expected Google Images tab (udm=2) to trigger a block")
+	}
+
+	fcVideos := newFlow(t, rt2, "http://www.google.com/search?udm=7&q=cats")
+	fcVideos.Policy = &policy
+	addons.SafeSearch{}.HandleRequest(fcVideos)
+	if fcVideos.Response == nil {
+		t.Error("expected Google Videos tab (udm=7) to trigger a block")
+	}
+}
+
 func TestSafeSearchBlocksImageCDNWholesale(t *testing.T) {
 	rt := newTestRuntime(t)
 	fc := newFlow(t, rt, "http://encrypted-tbn0.gstatic.com/images?q=x")
