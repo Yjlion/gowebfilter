@@ -83,7 +83,8 @@ func renderPAC(proxyHost string, proxyPort int, directHosts, directIPs []string)
 		}
 	}
 
-	fmt.Fprintf(&b, "\n  return \"PROXY %s:%d\";\n}\n", proxyHost, proxyPort)
+	proxyDirective := fmt.Sprintf("PROXY %s:%d", proxyHost, proxyPort)
+	fmt.Fprintf(&b, "\n  return %q;\n}\n", proxyDirective)
 	return b.String()
 }
 
