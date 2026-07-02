@@ -2,6 +2,7 @@ package state
 
 import (
 	"testing"
+	"time"
 
 	"github.com/yjlion/gowebfilter/internal/models"
 )
@@ -92,6 +93,34 @@ func TestGetPolicyIPv4MappedIPv6Matches(t *testing.T) {
 	got := rt.GetPolicy("::ffff:192.168.1.5")
 	if got == nil || got.Name != "v4" {
 		t.Fatalf("GetPolicy = %+v, want v4 policy to match its IPv4-mapped IPv6 form", got)
+	}
+}
+
+func TestMatchPolicyExplainsCIDRMatch(t *testing.T) {
+	policies := []models.Policy{
+		policyNamed("lan", "192.168.1.0/24"),
+		policyNamed("default"),
+	}
+	match := MatchPolicy(policies, "192.168.1.20", time.Now(), nil)
+	if match.PolicyName != "lan" || match.Tier != PolicyMatchCIDR || match.Source != "192.168.1.0/24" {
+		t.Fatalf("match = %+v, want lan CIDR", match)
+	}
+}
+
+func TestMatchPolicyReportsInactivePolicies(t *testing.T) {
+	now := time.Date(2026, 7, 2, 12, 0, 0, 0, time.Local)
+	inactive := policyNamed("bedtime", "192.168.1.20")
+	inactive.Schedule = models.ScheduleConfig{
+		Enabled: true,
+		ActiveWindows: []models.TimeWindow{
+			{Days: []int{0}, Start: "00:00", End: "01:00"},
+		},
+	}
+	active := policyNamed("default")
+
+	match := MatchPolicy([]models.Policy{inactive, active}, "192.168.1.20", now, nil)
+	if match.PolicyName != "default" || len(match.InactivePolicies) != 1 || match.InactivePolicies[0] != "bedtime" {
+		t.Fatalf("match = %+v, want default with inactive bedtime", match)
 	}
 }
 

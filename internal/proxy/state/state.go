@@ -14,7 +14,6 @@ package state
 import (
 	"context"
 	"log/slog"
-	"net"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -151,105 +150,13 @@ func (rt *Runtime) ShouldBypassMitm(host string) bool {
 // (narrowest/longest-prefix wins), (3) catch-all (empty source_ips).
 // Within a tier, policies are considered in file-sort order (first wins).
 // A policy is skipped if its schedule is not currently active. Ported from
-// policy_router.py's get_policy.
+// policy_router.py's get_policy. Detailed matching logic lives in
+// MatchPolicy so the management API can simulate the same decision.
 func (rt *Runtime) GetPolicy(clientIP string) *models.Policy {
-	if idx := strings.IndexByte(clientIP, '%'); idx != -1 {
-		clientIP = clientIP[:idx]
-	}
-	addr := net.ParseIP(strings.TrimSpace(clientIP))
-	if addr == nil {
+	policies := rt.Policies()
+	match := MatchPolicy(policies, clientIP, time.Now(), neighbors.Lookup)
+	if match.PolicyIndex < 0 {
 		return nil
 	}
-	policies := rt.Policies()
-
-	// Tier 0: MAC match (best-effort; only resolves for devices on the
-	// proxy's own L2 segment). Only bother resolving if some policy
-	// actually uses source_macs.
-	hasMacPolicy := false
-	for i := range policies {
-		if len(policies[i].SourceMACs) > 0 {
-			hasMacPolicy = true
-			break
-		}
-	}
-	if hasMacPolicy {
-		if mac := neighbors.Lookup(clientIP); mac != "" {
-			for i := range policies {
-				p := &policies[i]
-				if !p.Schedule.IsActiveNow() {
-					continue
-				}
-				if containsString(p.SourceMACs, mac) {
-					return p
-				}
-			}
-		}
-	}
-
-	// Tier 1: exact single-IP match.
-	for i := range policies {
-		p := &policies[i]
-		if !p.Schedule.IsActiveNow() {
-			continue
-		}
-		for _, src := range p.SourceIPs {
-			if strings.Contains(src, "/") {
-				continue
-			}
-			target := net.ParseIP(strings.TrimSpace(src))
-			if target == nil {
-				continue
-			}
-			if addr.Equal(target) {
-				return p
-			}
-		}
-	}
-
-	// Tier 2: CIDR block match - narrowest (longest-prefix) wins.
-	var best *models.Policy
-	bestPrefix := -1
-	for i := range policies {
-		p := &policies[i]
-		if !p.Schedule.IsActiveNow() {
-			continue
-		}
-		for _, src := range p.SourceIPs {
-			if !strings.Contains(src, "/") {
-				continue
-			}
-			_, ipnet, err := net.ParseCIDR(strings.TrimSpace(src))
-			if err != nil {
-				continue
-			}
-			if !ipnet.Contains(addr) {
-				continue
-			}
-			if ones, _ := ipnet.Mask.Size(); ones > bestPrefix {
-				best = p
-				bestPrefix = ones
-			}
-		}
-	}
-	if best != nil {
-		return best
-	}
-
-	// Tier 3: catch-all.
-	for i := range policies {
-		p := &policies[i]
-		if len(p.SourceIPs) == 0 && p.Schedule.IsActiveNow() {
-			return p
-		}
-	}
-	return nil
-}
-
-func containsString(list []string, v string) bool {
-	for _, s := range list {
-		if s == v {
-			return true
-		}
-	}
-	return false
+	return &policies[match.PolicyIndex]
 }

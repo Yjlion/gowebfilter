@@ -125,6 +125,8 @@ func (s *Server) Router() *chi.Mux {
 	s.registerBackupRoutes(r)
 	s.registerToolsRoutes(r)
 	s.registerLogsExportRoute(r)
+	s.registerClassifierHealthRoute(r)
+	s.registerPolicySimulatorRoute(r)
 
 	// Unmatched paths (including unknown /api/* paths) fall through to the
 	// static handler, which returns the same {"detail":"Not Found"} JSON

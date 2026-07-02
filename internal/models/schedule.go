@@ -85,10 +85,16 @@ type ScheduleConfig struct {
 // "no schedule" identically to "always match" for every existing policy
 // file that predates the scheduling feature.
 func (s ScheduleConfig) IsActiveNow() bool {
+	return s.IsActiveAt(time.Now())
+}
+
+// IsActiveAt is the testable form of IsActiveNow. Windows whose end time is
+// earlier than their start time are treated as overnight windows: a Monday
+// 22:00-06:00 window is active late Monday and early Tuesday.
+func (s ScheduleConfig) IsActiveAt(now time.Time) bool {
 	if !s.Enabled || len(s.ActiveWindows) == 0 {
 		return true
 	}
-	now := time.Now()
 	weekday := (int(now.Weekday()) + 6) % 7 // Go: Sunday=0..Saturday=6 -> Monday=0..Sunday=6
 	hm := now.Hour()*60 + now.Minute()
 
@@ -96,16 +102,6 @@ func (s ScheduleConfig) IsActiveNow() bool {
 		days := w.Days
 		if days == nil {
 			days = DefaultTimeWindow().Days
-		}
-		matchDay := false
-		for _, d := range normalizeDays(days) {
-			if d == weekday {
-				matchDay = true
-				break
-			}
-		}
-		if !matchDay {
-			continue
 		}
 		start, ok1 := parseHHMM(orDefault(w.Start, "00:00"))
 		end, ok2 := parseHHMM(orDefault(w.End, "23:59"))
@@ -119,7 +115,26 @@ func (s ScheduleConfig) IsActiveNow() bool {
 		eh, em := splitHHMM(end)
 		startMin := sh*60 + sm
 		endMin := eh*60 + em
-		if hm >= startMin && hm <= endMin {
+		if startMin <= endMin {
+			if containsDay(days, weekday) && hm >= startMin && hm <= endMin {
+				return true
+			}
+			continue
+		}
+		if containsDay(days, weekday) && hm >= startMin {
+			return true
+		}
+		prevWeekday := (weekday + 6) % 7
+		if containsDay(days, prevWeekday) && hm <= endMin {
+			return true
+		}
+	}
+	return false
+}
+
+func containsDay(days []int, weekday int) bool {
+	for _, d := range normalizeDays(days) {
+		if d == weekday {
 			return true
 		}
 	}
