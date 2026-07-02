@@ -39,6 +39,7 @@ var (
 	channelIDRe      = regexp.MustCompile(`"channelId":"(UC[\w-]{22})"`)
 	authorRe         = regexp.MustCompile(`"author":"((?:[^"\\]|\\.)*)"`)
 	handleRe         = regexp.MustCompile(`"canonicalBaseUrl":"/(@[\w.\-]+)"`)
+	ytInitialDataRe  = regexp.MustCompile(`(?:var\s+ytInitialData|window\["ytInitialData"\])\s*=`)
 	ownerURLHandleRe = regexp.MustCompile(`/(@[\w.\-]+)`)
 	externalIDRe     = regexp.MustCompile(`"externalId":"(UC[\w-]{22})"`)
 	vanityRe         = regexp.MustCompile(`"vanityChannelUrl":"https?://(?:www\.)?youtube\.com/(@[\w.\-]+)"`)
@@ -139,22 +140,18 @@ func watchResults(data map[string]any) ([]any, map[string]any) {
 // stripCommentsFromNext removes the comments section from a watch /next
 // response. Ported from _strip_comments_from_next.
 func stripCommentsFromNext(data map[string]any) bool {
+	changed := stripCommentContinuations(data)
+
 	items, holder := watchResults(data)
 	if items == nil {
-		return false
+		return changed
 	}
 	keep := make([]any, 0, len(items))
-	changed := false
 	for _, item := range items {
 		itemMap, _ := item.(map[string]any)
-		if itemMap != nil {
-			if isr, ok := getMap(itemMap, "itemSectionRenderer"); ok {
-				sid, _ := isr["sectionIdentifier"].(string)
-				if sid == "comment-item-section" || sid == "comments-entry-point" {
-					changed = true
-					continue
-				}
-			}
+		if isCommentItem(itemMap) {
+			changed = true
+			continue
 		}
 		keep = append(keep, item)
 	}
@@ -162,6 +159,94 @@ func stripCommentsFromNext(data map[string]any) bool {
 		holder["contents"] = keep
 	}
 	return changed
+}
+
+func isCommentItem(item map[string]any) bool {
+	if item == nil {
+		return false
+	}
+	if _, ok := getMap(item, "commentThreadRenderer"); ok {
+		return true
+	}
+	if _, ok := getMap(item, "commentViewModel"); ok {
+		return true
+	}
+	if _, ok := getMap(item, "commentRepliesRenderer"); ok {
+		return true
+	}
+	if _, ok := getMap(item, "commentsHeaderRenderer"); ok {
+		return true
+	}
+	if _, ok := getMap(item, "commentSectionRenderer"); ok {
+		return true
+	}
+	if _, ok := getMap(item, "commentSimpleboxRenderer"); ok {
+		return true
+	}
+	if isr, ok := getMap(item, "itemSectionRenderer"); ok {
+		sid, _ := isr["sectionIdentifier"].(string)
+		return sid == "comment-item-section" || sid == "comments-entry-point"
+	}
+	return false
+}
+
+func isCommentContinuationCommand(cmd map[string]any) bool {
+	if cmd == nil {
+		return false
+	}
+	target := getString(cmd, "targetId")
+	if target == "comments-section" || strings.HasPrefix(target, "comment-") {
+		return true
+	}
+	items, ok := getSlice(cmd, "continuationItems")
+	if !ok {
+		return false
+	}
+	for _, item := range items {
+		itemMap, _ := item.(map[string]any)
+		if isCommentItem(itemMap) {
+			return true
+		}
+	}
+	return false
+}
+
+func stripCommentContinuations(data map[string]any) bool {
+	changed := false
+	for _, key := range []string{"onResponseReceivedEndpoints", "onResponseReceivedActions", "onResponseReceivedCommands"} {
+		items, ok := getSlice(data, key)
+		if !ok {
+			continue
+		}
+		keep := make([]any, 0, len(items))
+		keyChanged := false
+		for _, item := range items {
+			itemMap, _ := item.(map[string]any)
+			if isCommentContinuationEndpoint(itemMap) {
+				keyChanged = true
+				continue
+			}
+			keep = append(keep, item)
+		}
+		if keyChanged {
+			data[key] = keep
+			changed = true
+		}
+	}
+	return changed
+}
+
+func isCommentContinuationEndpoint(ep map[string]any) bool {
+	if ep == nil {
+		return false
+	}
+	for _, key := range []string{"reloadContinuationItemsCommand", "appendContinuationItemsAction", "appendContinuationItemsCommand", "replaceContinuationItemsCommand"} {
+		cmd, ok := getMap(ep, key)
+		if ok && isCommentContinuationCommand(cmd) {
+			return true
+		}
+	}
+	return false
 }
 
 // stripSidebarFromNext removes the related-videos sidebar (and autoplay)
@@ -175,11 +260,18 @@ func stripSidebarFromNext(data map[string]any) bool {
 	if !ok {
 		return false
 	}
+	changed := false
 	if _, exists := twoCol["secondaryResults"]; exists {
 		delete(twoCol, "secondaryResults")
-		return true
+		changed = true
 	}
-	return false
+	for _, key := range []string{"autoplay", "playlist"} {
+		if _, exists := twoCol[key]; exists {
+			delete(twoCol, key)
+			changed = true
+		}
+	}
+	return changed
 }
 
 // browseChannelIdentity pulls (channel_id, title, handle) from a /browse
@@ -447,6 +539,9 @@ func blankBrowse(fc *proxy.FlowContext, data map[string]any, reason string) {
 
 func handleWatchHTML(fc *proxy.FlowContext, policy *models.Policy) {
 	html := string(fc.ResponseBody)
+	if stripWatchHTML(fc, policy) {
+		html = string(fc.ResponseBody)
+	}
 
 	channelID := ""
 	if m := channelIDRe.FindStringSubmatch(html); m != nil {
@@ -473,6 +568,83 @@ func handleWatchHTML(fc *proxy.FlowContext, policy *models.Policy) {
 		label = channelID
 	}
 	fc.Block("YouTube channel '"+label+"' blocked by policy", "youtube")
+}
+
+func stripWatchHTML(fc *proxy.FlowContext, policy *models.Policy) bool {
+	yt := policy.YouTube
+	if !yt.RemoveComments && !yt.RemoveRecommendations {
+		return false
+	}
+	html := string(fc.ResponseBody)
+	loc := ytInitialDataRe.FindStringIndex(html)
+	if loc == nil {
+		return false
+	}
+	jsonStart := strings.IndexByte(html[loc[1]:], '{')
+	if jsonStart < 0 {
+		return false
+	}
+	jsonStart += loc[1]
+	jsonEnd := findJSONObjectEnd(html, jsonStart)
+	if jsonEnd < 0 {
+		return false
+	}
+
+	var data map[string]any
+	if err := json.Unmarshal([]byte(html[jsonStart:jsonEnd]), &data); err != nil {
+		return false
+	}
+	changed := false
+	if yt.RemoveComments && stripCommentsFromNext(data) {
+		changed = true
+	}
+	if yt.RemoveRecommendations && stripSidebarFromNext(data) {
+		changed = true
+	}
+	if !changed {
+		return false
+	}
+	body, err := json.Marshal(data)
+	if err != nil {
+		return false
+	}
+	fc.ResponseBody = []byte(html[:jsonStart] + string(body) + html[jsonEnd:])
+	return true
+}
+
+func findJSONObjectEnd(s string, start int) int {
+	depth := 0
+	inString := false
+	escaped := false
+	for i := start; i < len(s); i++ {
+		c := s[i]
+		if inString {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if c == '\\' {
+				escaped = true
+				continue
+			}
+			if c == '"' {
+				inString = false
+			}
+			continue
+		}
+		switch c {
+		case '"':
+			inString = true
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return i + 1
+			}
+		}
+	}
+	return -1
 }
 
 func handleChannelHTML(fc *proxy.FlowContext, policy *models.Policy) {

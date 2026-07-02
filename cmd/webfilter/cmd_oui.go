@@ -18,11 +18,11 @@ const manufURL = "https://www.wireshark.org/download/automated/data/manuf"
 func newOuiCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:   "oui",
-		Short: "Manage the embedded IEEE OUI vendor lookup table",
+		Short: "Manage the IEEE OUI vendor lookup table override",
 	}
 	update := &cobra.Command{
 		Use:   "update",
-		Short: "Refresh the OUI vendor lookup table",
+		Short: "Refresh the OUI vendor lookup table override",
 	}
 	f := addConfigFlags(update)
 	update.RunE = func(cmd *cobra.Command, args []string) error {

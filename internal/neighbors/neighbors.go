@@ -30,10 +30,9 @@ type Entry struct {
 	MAC   string
 	Iface string
 	// Vendor is the IEEE-registered OUI vendor name for MAC, populated from
-	// the lookup table at ConfigureOUI's path (VendorFor) - "" if that table
-	// isn't populated yet (run `webfilter oui update`) or the prefix is
-	// unknown. Not needed for policy MAC matching, only for the management
-	// API's neighbor-scan display.
+	// the lookup table at ConfigureOUI's path, or the embedded fallback
+	// (VendorFor) - "" if the prefix is unknown. Not needed for policy MAC
+	// matching, only for the management API's neighbor-scan display.
 	Vendor string
 }
 

@@ -150,6 +150,74 @@ func TestYouTubeNextStripsCommentsOnly(t *testing.T) {
 	}
 }
 
+func TestYouTubeNextStripsCommentContinuation(t *testing.T) {
+	policy, fc := newYoutubeFlow(t, "/youtubei/v1/next", "application/json", `{
+		"responseContext": {},
+		"onResponseReceivedEndpoints": [
+			{"reloadContinuationItemsCommand": {
+				"targetId": "comments-section",
+				"continuationItems": [
+					{"commentsHeaderRenderer": {"countText": {"simpleText": "184 Comments"}}}
+				]
+			}},
+			{"reloadContinuationItemsCommand": {
+				"targetId": "watch-next-feed",
+				"continuationItems": [
+					{"compactVideoRenderer": {"videoId": "abc"}}
+				]
+			}}
+		]
+	}`)
+	policy.YouTube.RemoveComments = true
+	policy.YouTube.RemoveRecommendations = false
+
+	addons.YouTubeFilter{}.HandleResponse(fc)
+
+	body := string(fc.ResponseBody)
+	if strings.Contains(body, "comments-section") || strings.Contains(body, "commentsHeaderRenderer") {
+		t.Errorf("expected comments continuation to be stripped, body = %s", body)
+	}
+	if !strings.Contains(body, "watch-next-feed") || !strings.Contains(body, "compactVideoRenderer") {
+		t.Errorf("expected non-comment continuation to be preserved, body = %s", body)
+	}
+}
+
+func TestYouTubeWatchHTMLStripsInitialCommentsAndSidebar(t *testing.T) {
+	initialData := mustMarshal(t, map[string]any{
+		"contents": map[string]any{
+			"twoColumnWatchNextResults": map[string]any{
+				"results": map[string]any{
+					"results": map[string]any{
+						"contents": []map[string]any{
+							{"itemSectionRenderer": map[string]any{"sectionIdentifier": "comment-item-section"}},
+							{"itemSectionRenderer": map[string]any{"sectionIdentifier": "video-primary-info"}},
+						},
+					},
+				},
+				"secondaryResults": map[string]any{"secondaryResults": map[string]any{"results": []any{}}},
+				"autoplay":         map[string]any{"sets": []any{}},
+				"playlist":         map[string]any{"playlistId": "PL123"},
+			},
+		},
+	})
+	policy, fc := newYoutubeFlow(t, "/watch?v=abc", "text/html; charset=utf-8",
+		`<html><script>var ytInitialData = `+initialData+`;</script></html>`)
+	policy.YouTube.RemoveComments = true
+	policy.YouTube.RemoveRecommendations = true
+
+	addons.YouTubeFilter{}.HandleResponse(fc)
+
+	body := string(fc.ResponseBody)
+	for _, removed := range []string{"comment-item-section", "secondaryResults", "autoplay", "playlist"} {
+		if strings.Contains(body, removed) {
+			t.Errorf("expected %s to be stripped, body = %s", removed, body)
+		}
+	}
+	if !strings.Contains(body, "video-primary-info") {
+		t.Errorf("expected non-comment watch content to be preserved, body = %s", body)
+	}
+}
+
 func TestYouTubeBrowseBlocksChannelByHandle(t *testing.T) {
 	policy, fc := newYoutubeFlow(t, "/youtubei/v1/browse", "application/json", `{
 		"responseContext": {"foo": "bar"},
