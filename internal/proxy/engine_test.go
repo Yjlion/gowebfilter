@@ -1,6 +1,7 @@
 package proxy_test
 
 import (
+	"compress/gzip"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -107,6 +108,61 @@ func TestPlainHTTPForwarding(t *testing.T) {
 	}
 	if string(body) != "hello from origin" {
 		t.Errorf("body = %q, want %q", body, "hello from origin")
+	}
+}
+
+// TestProxyDecodesGzipUpstream verifies the engine strips the client's
+// Accept-Encoding and lets the stdlib Transport negotiate + transparently
+// decode gzip, so content-inspecting addons (and ultimately the client)
+// always see identity bodies even when the client advertised encodings the
+// stdlib can't decode (br, zstd).
+func TestProxyDecodesGzipUpstream(t *testing.T) {
+	const plaintext = "hello decoded origin body"
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ae := r.Header.Get("Accept-Encoding")
+		if !strings.Contains(ae, "gzip") {
+			t.Errorf("upstream Accept-Encoding = %q, want gzip negotiated by the proxy", ae)
+		}
+		if strings.Contains(ae, "br") || strings.Contains(ae, "zstd") {
+			t.Errorf("upstream Accept-Encoding = %q, client's own encodings must not leak through", ae)
+		}
+		w.Header().Set("Content-Encoding", "gzip")
+		gz := gzip.NewWriter(w)
+		io.WriteString(gz, plaintext)
+		gz.Close()
+	}))
+	defer origin.Close()
+
+	proxyAddr := startEngine(t, []string{"127.0.0.1:0"})
+	proxyURL, err := url.Parse("http://" + proxyAddr)
+	if err != nil {
+		t.Fatalf("parse proxy url: %v", err)
+	}
+
+	// Setting Accept-Encoding explicitly disables the client Transport's own
+	// transparent gzip, so the body below is the raw bytes off the wire.
+	req, err := http.NewRequest(http.MethodGet, origin.URL, nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Accept-Encoding", "gzip, deflate, br, zstd")
+
+	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL)}}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("GET through proxy: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if ce := resp.Header.Get("Content-Encoding"); ce != "" {
+		t.Errorf("Content-Encoding = %q, want empty (identity) after proxy-side decode", ce)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	if string(body) != plaintext {
+		t.Errorf("body = %q, want %q (decoded)", body, plaintext)
 	}
 }
 

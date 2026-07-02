@@ -2,12 +2,14 @@ package addons
 
 import (
 	"bytes"
+	"encoding/base64"
 	"image"
 	"image/color"
 	"image/draw"
 	_ "image/gif"
 	"image/jpeg"
 	"image/png"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -155,10 +157,6 @@ func (ic ImageClassifier) HandleResponse(fc *proxy.FlowContext) {
 	if fc.Response == nil {
 		return
 	}
-	ct := fc.Response.Header.Get("Content-Type")
-	if !strings.HasPrefix(ct, "image/") {
-		return
-	}
 
 	host := fc.Request.URL.Hostname()
 	url := fc.Request.URL.String()
@@ -167,6 +165,18 @@ func (ic ImageClassifier) HandleResponse(fc *proxy.FlowContext) {
 		return
 	}
 
+	ct := fc.Response.Header.Get("Content-Type")
+	switch {
+	case strings.HasPrefix(ct, "image/"):
+		ic.filterImageResponse(fc, cfg)
+	case isScannableText(ct):
+		ic.filterInlineImages(fc, cfg)
+	}
+}
+
+// filterImageResponse handles a whole-response image (Content-Type
+// image/*), replacing the entire body when it classifies as NSFW.
+func (ic ImageClassifier) filterImageResponse(fc *proxy.FlowContext, cfg models.ImageClassifierConfig) {
 	body := fc.ResponseBody
 	if len(body) < minImageBytes {
 		return
@@ -178,20 +188,123 @@ func (ic ImageClassifier) HandleResponse(fc *proxy.FlowContext) {
 		return
 	}
 
-	var newBody []byte
-	var ctype string
-	switch cfg.Action {
-	case models.ImageActionCheckerboard:
-		newBody, ctype = checkerboardImage(body), "image/png"
-	case models.ImageActionBlock:
-		newBody, ctype = transparentGIF, "image/gif"
-	default: // blur
-		newBody, ctype = blurImage(body), "image/jpeg"
-	}
-
+	newBody, ctype := replacementImage(body, cfg.Action)
 	fc.ResponseBody = newBody
 	fc.Response.Header.Set("Content-Type", ctype)
 	fc.Response.Header.Set("Content-Length", strconv.Itoa(len(newBody)))
+	fc.WFAction = "modified"
+	fc.WFComponent = "image_classifier"
+}
+
+// replacementImage renders the configured action's stand-in for a
+// classified-NSFW image, returning the new bytes and their MIME type.
+func replacementImage(body []byte, action models.ImageClassifierAction) ([]byte, string) {
+	switch action {
+	case models.ImageActionCheckerboard:
+		return checkerboardImage(body), "image/png"
+	case models.ImageActionBlock:
+		return transparentGIF, "image/gif"
+	default: // blur
+		return blurImage(body), "image/jpeg"
+	}
+}
+
+// scannableTextPrefixes are the Content-Types whose bodies commonly inline
+// images as base64 data URIs. Google Images embeds its entire initial
+// result grid this way inside the search HTML (and later batches inside
+// script/JSON payloads), so filtering only image/* responses misses every
+// initially-visible thumbnail - the browser renders them from the HTML
+// before the separately fetched (and filtered) network copies arrive.
+var scannableTextPrefixes = []string{
+	"text/html", "application/xhtml+xml", "text/css",
+	"text/javascript", "application/javascript", "application/json",
+}
+
+func isScannableText(ct string) bool {
+	for _, p := range scannableTextPrefixes {
+		if strings.HasPrefix(ct, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// inlineImageRe matches a base64 image data URI in HTML, CSS, JS, or JSON,
+// limited to formats the Go stdlib can decode. JS/JSON string contexts may
+// escape characters of the base64 alphabet (`\/` in JSON, and Google's
+// inline scripts escape the `=` padding as `\x3d`/`=`), so those
+// escape sequences are matched as part of the URI and undone by
+// decodeInlineImage before base64 decoding.
+var inlineImageRe = regexp.MustCompile(`data:image\\?/(?:jpe?g|png|gif);base64,(?:[A-Za-z0-9+=]|\\?/|\\x3[dD]|\\u003[dD])+`)
+
+var inlineEscapes = strings.NewReplacer(
+	"\\/", "/",
+	"\\x3d", "=", "\\x3D", "=",
+	"\\u003d", "=", "\\u003D", "=",
+)
+
+// decodeInlineImage extracts and decodes the base64 payload of one matched
+// data URI, tolerating JS/JSON escapes and missing `=` padding.
+func decodeInlineImage(uri []byte) []byte {
+	i := bytes.IndexByte(uri, ',')
+	if i < 0 {
+		return nil
+	}
+	b64 := inlineEscapes.Replace(string(uri[i+1:]))
+	if b, err := base64.StdEncoding.DecodeString(b64); err == nil {
+		return b
+	}
+	if b, err := base64.RawStdEncoding.DecodeString(strings.TrimRight(b64, "=")); err == nil {
+		return b
+	}
+	return nil
+}
+
+// filterInlineImages scans a text body for base64 image data URIs and
+// replaces each one that classifies as NSFW with the configured action's
+// stand-in, re-encoded as a plain (unescaped) data URI - base64 plus the
+// data: prefix contains nothing that needs escaping in HTML-attribute,
+// JS-string, or JSON-string contexts. Safe images and undecodable matches
+// are left byte-for-byte intact.
+func (ic ImageClassifier) filterInlineImages(fc *proxy.FlowContext, cfg models.ImageClassifierConfig) {
+	if ic.Detector == nil {
+		return
+	}
+	body := fc.ResponseBody
+	if !bytes.Contains(body, []byte("data:image")) {
+		return
+	}
+
+	var out bytes.Buffer
+	last := 0
+	modified := false
+	for _, m := range inlineImageRe.FindAllIndex(body, -1) {
+		img := decodeInlineImage(body[m[0]:m[1]])
+		if len(img) < minImageBytes {
+			continue
+		}
+		if imageTooSmall(img, cfg.MinDimension) {
+			continue
+		}
+		if !isNSFW(ic.Detector, img, cfg.Threshold) {
+			continue
+		}
+		repl, mime := replacementImage(img, cfg.Action)
+		out.Write(body[last:m[0]])
+		out.WriteString("data:")
+		out.WriteString(mime)
+		out.WriteString(";base64,")
+		out.WriteString(base64.StdEncoding.EncodeToString(repl))
+		last = m[1]
+		modified = true
+	}
+	if !modified {
+		return
+	}
+	out.Write(body[last:])
+
+	fc.ResponseBody = out.Bytes()
+	fc.Response.Header.Set("Content-Length", strconv.Itoa(len(fc.ResponseBody)))
 	fc.WFAction = "modified"
 	fc.WFComponent = "image_classifier"
 }

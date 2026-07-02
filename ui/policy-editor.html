@@ -375,7 +375,7 @@
               <label class="text-xs font-medium text-gray-700 block mb-1">
                 <span data-i18n="ed.threshold">Threshold:</span> <span class="font-mono" x-text="policy.text_classifier.threshold"></span>
               </label>
-              <input type="range" min="0.5" max="1" step="0.05" x-model="policy.text_classifier.threshold"
+              <input type="range" min="0.5" max="1" step="0.05" x-model.number="policy.text_classifier.threshold"
                      class="w-full accent-blue-600" />
               <div class="flex justify-between text-xs text-gray-400 mt-1">
                 <span data-i18n="ed.moreSensitive">More sensitive (0.5)</span><span data-i18n="ed.morePrecise">More precise (1.0)</span>
@@ -767,6 +767,13 @@
 
           // Trim stray whitespace from the DOH URL (common on paste).
           this.policy.doh.server = (this.policy.doh.server || '').trim();
+
+          // The API rejects string-typed numbers, and a cleared number input
+          // leaves '' behind even with x-model.number - coerce before send.
+          const num = (v, fallback) => { const n = parseFloat(v); return Number.isFinite(n) ? n : fallback; };
+          this.policy.text_classifier.threshold = num(this.policy.text_classifier.threshold, 0.8);
+          this.policy.image_classifier.threshold = num(this.policy.image_classifier.threshold, 0.4);
+          this.policy.image_classifier.min_dimension = Math.round(num(this.policy.image_classifier.min_dimension, 100));
 
           const method = this.isNew ? 'POST' : 'PUT';
           const url = this.isNew

@@ -36,7 +36,7 @@ func (s *Server) handleGetPolicy(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleCreatePolicy(w http.ResponseWriter, r *http.Request) {
 	p := models.NewPolicy()
 	if err := readJSON(r, &p); err != nil {
-		writeJSONError(w, http.StatusBadRequest, "invalid policy body")
+		writeJSONError(w, http.StatusBadRequest, "invalid policy body: "+err.Error())
 		return
 	}
 	if err := s.Policies.Create(p); err != nil {
@@ -54,7 +54,7 @@ func (s *Server) handleUpdatePolicy(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 	p := models.NewPolicy()
 	if err := readJSON(r, &p); err != nil {
-		writeJSONError(w, http.StatusBadRequest, "invalid policy body")
+		writeJSONError(w, http.StatusBadRequest, "invalid policy body: "+err.Error())
 		return
 	}
 	if err := s.Policies.Update(name, p); err != nil {
