@@ -70,6 +70,30 @@ func TestWriteOuiFileAndVendorForRoundTrip(t *testing.T) {
 	}
 }
 
+func TestBuiltinOuiTableIsParseable(t *testing.T) {
+	table := builtinOuiTable()
+	if len(table) == 0 {
+		t.Fatalf("embedded OUI table parsed 0 entries")
+	}
+	if table["000000"] == "" {
+		t.Fatalf("embedded OUI table missing 00:00:00 test prefix")
+	}
+}
+
+func TestVendorForUsesEmbeddedDefaultWhenFileMissing(t *testing.T) {
+	t.Chdir(t.TempDir())
+	ConfigureOUI("")
+	t.Cleanup(func() { ConfigureOUI("") })
+	// Force an immediate reload regardless of the mtime-check TTL.
+	ouiMu.Lock()
+	ouiLastCheck = ouiLastCheck.Add(-2 * ouiMtimeTTL)
+	ouiMu.Unlock()
+
+	if v := VendorFor("00:00:00:11:22:33"); v == "" {
+		t.Errorf("VendorFor with missing default OUI file = empty, want embedded vendor")
+	}
+}
+
 func TestVendorForFailsOpenWhenFileMissing(t *testing.T) {
 	dir := t.TempDir()
 	ConfigureOUI(filepath.Join(dir, "does-not-exist.txt"))

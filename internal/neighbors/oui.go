@@ -2,6 +2,7 @@ package neighbors
 
 import (
 	"bufio"
+	_ "embed"
 	"fmt"
 	"io"
 	"os"
@@ -23,6 +24,9 @@ import (
 const DefaultOuiPath = "./data/oui.txt"
 
 const ouiMtimeTTL = 60 * time.Second
+
+//go:embed oui.txt
+var builtinOuiManuf string
 
 var (
 	ouiMu        sync.Mutex
@@ -51,8 +55,8 @@ func ConfigureOUI(path string) {
 }
 
 // VendorFor returns the IEEE-registered vendor name for a MAC address, or ""
-// if unknown or the lookup table isn't populated. Fails open on any I/O or
-// parse error, matching shared/oui.py's vendor_for.
+// if unknown. The default lookup table is embedded in the binary; a configured
+// oui_path still acts as an optional runtime override.
 func VendorFor(mac string) string {
 	normalized := NormalizeMAC(mac)
 	if normalized == "" {
@@ -83,6 +87,9 @@ func maybeReloadOui() {
 	info, err := os.Stat(ouiPath)
 	if err != nil {
 		ouiTable = nil
+		if ouiPath == DefaultOuiPath {
+			ouiTable = builtinOuiTable()
+		}
 		ouiLoadedAt = time.Time{}
 		return
 	}
@@ -99,6 +106,10 @@ func maybeReloadOui() {
 	defer f.Close()
 	ouiTable = parseOuiFile(f)
 	ouiLoadedAt = info.ModTime()
+}
+
+func builtinOuiTable() map[string]string {
+	return ParseWiresharkManuf(strings.NewReader(builtinOuiManuf))
 }
 
 func parseOuiFile(r io.Reader) map[string]string {

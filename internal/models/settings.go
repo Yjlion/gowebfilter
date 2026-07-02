@@ -47,11 +47,12 @@ type GlobalSettings struct {
 	ProxyAuthPasswordHash string `json:"proxy_auth_password_hash"`
 
 	// OuiPath is a Go-port-only optional field (documented deviation): path
-	// to the IEEE OUI vendor lookup table (internal/neighbors.DefaultOuiPath
-	// - "./data/oui.txt" - when empty), refreshed by `webfilter oui update`.
-	// The Python original hardcodes shared/data/oui.txt instead of making it
-	// configurable; round-trips harmlessly through it since unrecognized
-	// settings.json fields aren't validated against there.
+	// to an optional IEEE OUI vendor lookup table override. When empty, the
+	// app uses the embedded lookup table; `webfilter oui update` can still
+	// refresh an override at internal/neighbors.DefaultOuiPath
+	// ("./data/oui.txt"). The Python original hardcodes shared/data/oui.txt
+	// instead of making it configurable; round-trips harmlessly through it
+	// since unrecognized settings.json fields aren't validated against there.
 	OuiPath string `json:"oui_path,omitempty"`
 
 	// TextClassifierModelPath is a Go-port-only field (documented
