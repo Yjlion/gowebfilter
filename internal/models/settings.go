@@ -46,12 +46,12 @@ type GlobalSettings struct {
 	ProxyAuthUsername     string `json:"proxy_auth_username"`
 	ProxyAuthPasswordHash string `json:"proxy_auth_password_hash"`
 
-	// ImageClassifierModelPath is a Go-port-only optional field (documented
-	// deviation): path to the NudeNet-compatible ONNX model file, not
-	// present in the Python schema. Defaults to a sibling "models/" dir
-	// next to the executable if empty; round-trips harmlessly through the
-	// Python original since unrecognized settings.json fields aren't
-	// validated against there.
+	// ImageClassifierModelPath is a Go-port-only field (documented
+	// deviation): path to the NudeNet v3 ONNX model file (see `webfilter
+	// models download`), not present in the Python schema. Empty means
+	// passthrough (no image classification). Round-trips harmlessly
+	// through the Python original since unrecognized settings.json fields
+	// aren't validated against there.
 	ImageClassifierModelPath string `json:"image_classifier_model_path,omitempty"`
 
 	// OuiPath is a Go-port-only optional field (documented deviation): path
@@ -62,14 +62,18 @@ type GlobalSettings struct {
 	// settings.json fields aren't validated against there.
 	OuiPath string `json:"oui_path,omitempty"`
 
-	// TextClassifierModelPath is a Go-port-only optional field (documented
-	// deviation): path to a JSON sidecar produced by
-	// scripts/train_text_classifier.go (internal/classify/text.Model),
-	// providing addons.TextClassifier's optional ML stage (project plan
-	// Phase 8). Empty means keyword-only, matching the Python original's
-	// behavior when its optional ML dependency isn't installed. Round-trips
-	// harmlessly through the Python original since unrecognized
-	// settings.json fields aren't validated against there.
+	// TextClassifierModelPath is a Go-port-only field (documented
+	// deviation): path to a model *directory* (model.onnx + vocab.txt +
+	// config.json, produced by scripts/export_text_model.py - see
+	// internal/classify/text's package doc), providing
+	// addons.TextClassifier's ML stage. Empty means keyword-only, matching
+	// the Python original's behavior when its optional ML dependency isn't
+	// installed. Round-trips harmlessly through the Python original since
+	// unrecognized settings.json fields aren't validated against there.
+	//
+	// This is a breaking change from this project's earlier TF-IDF era,
+	// where this field pointed at a single JSON sidecar file rather than a
+	// directory - see loadTextScorer's handling of a stale ".json" path.
 	TextClassifierModelPath string `json:"text_classifier_model_path,omitempty"`
 }
 

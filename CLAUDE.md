@@ -19,8 +19,13 @@ HANDOFF.md or a test explicitly says so.
 
 ## Build / test / run
 
+Both ML classifiers (`internal/classify/{text,image}`) are unconditionally
+ONNX/`onnxruntime_go`-backed, so **`CGO_ENABLED=1` and a C toolchain are
+required for every build** — there is no CGO-free build variant anymore. On
+Windows, MSYS2's mingw64 `gcc.exe` works; set `CC`/`PATH` accordingly.
+
 ```bash
-go build ./...
+CGO_ENABLED=1 go build ./...
 go vet ./...
 go test ./...
 
@@ -47,8 +52,15 @@ writes straight through to `policies/{name}.json`.
     `cmd/webfilter/runners.go`'s `buildProxyEngine` in a **fixed pipeline
     order** that matters (mirrors the Python original's addon order)
 - `internal/mgmtapi/` — chi router, REST API, embedded UI static serving
-- `internal/classify/{text,image}/` — optional ML stages (pure-Go TF-IDF
-  text classifier; ONNX-backed image classifier behind `-tags onnx`, CGO)
+- `internal/classify/{text,image}/` — the two NSFW ML classifiers, both
+  unconditionally ONNX/`onnxruntime_go`-backed (CGO required to build at
+  all): `text/` is a WordPiece-tokenized DistilBERT export
+  (`eliasalbouzidi/distilbert-nsfw-text-classifier`, Apache-2.0), `image/`
+  is a NudeNet v3 YOLOv8-style export (AGPLv3 — see README's Models
+  section). Neither ships a model in-repo; `webfilter models download` /
+  `scripts/export_text_model.py` provision them into a gitignored
+  `models/` dir. `internal/classify/onnxrt/` holds the process-global
+  onnxruntime environment init both packages share.
 - `ui/` — management web UI, copied verbatim from the Python original
 
 ## Known gotchas (don't rediscover these the hard way)
@@ -88,6 +100,23 @@ writes straight through to `policies/{name}.json`.
   `policies_dir`/`logs_dir` — the documented relative defaults (`./certs`
   etc.) resolve against the test process's working directory, not the
   settings file's location.
+- **NudeNet v3's actual preprocessing is not the standard Ultralytics
+  YOLOv8 letterbox** — it pads to a square anchored top-left with black
+  fill (not centered with 114-gray), confirmed against NudeNet's own
+  Python inference source. `internal/classify/image/preprocess.go`'s
+  `padToSquareTopLeft`/`resizeSquare` match this; don't "fix" it back to
+  generic YOLOv8 letterboxing.
+- **`webfilter models download` fetches AGPLv3-licensed NudeNet weights**
+  — a separate license from this project's own. It's an explicit opt-in
+  (prints a notice before downloading, never bundled into git or release
+  archives); don't wire it into any automatic/default-on path.
+- Both classifiers' model directories (`models/image-nsfw/`,
+  `models/text-nsfw/`) are gitignored and not present in a fresh checkout
+  — `image_classifier`/`text_classifier` stay `enabled: false` in
+  `policies/default.json.example` even though the backends are always
+  compiled in, so a fresh install fails open (keyword-only/passthrough)
+  rather than silently doing nothing once a model path is configured but
+  the file doesn't exist yet.
 
 ## When testing against a live running instance
 

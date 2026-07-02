@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strings"
 
 	"github.com/yjlion/gowebfilter/internal/classify/image"
 	"github.com/yjlion/gowebfilter/internal/classify/text"
@@ -138,13 +139,25 @@ func runProxyAndMgmt(ctx context.Context, settingsPath string) error {
 	return firstErr
 }
 
-// loadTextScorer loads the optional Phase 8 ML sidecar, if configured. A
+// loadTextScorer loads the ONNX-backed text ML stage, if configured. A
 // missing path means keyword-only (addons.MLScorer nil); a configured path
 // that fails to load logs a warning and still falls back to keyword-only
 // rather than aborting startup - the ML stage is defense-in-depth on top of
 // the keyword pre-filter, never the only line of defense.
+//
+// modelPath is a directory (model.onnx + vocab.txt + config.json - see
+// internal/classify/text's package doc), not a single file, which is a
+// breaking change from this project's earlier TF-IDF JSON-sidecar format.
+// If the configured path is instead a ".json" file (the old format), warn
+// with that specific, more actionable message rather than a generic load
+// error.
 func loadTextScorer(modelPath string) addons.MLScorer {
 	if modelPath == "" {
+		return nil
+	}
+	if strings.HasSuffix(modelPath, ".json") {
+		slog.Warn("text_classifier: text_classifier_model_path points at a .json file, but the ML stage now expects a model directory (model.onnx+vocab.txt+config.json, see internal/classify/text) - falling back to keyword-only",
+			"path", modelPath)
 		return nil
 	}
 	m, err := text.Load(modelPath)
@@ -152,16 +165,14 @@ func loadTextScorer(modelPath string) addons.MLScorer {
 		slog.Warn("text_classifier: failed to load ML model, falling back to keyword-only", "path", modelPath, "err", err)
 		return nil
 	}
-	slog.Info("text_classifier: loaded ML model", "path", modelPath, "vocab_size", len(m.Vocab))
+	slog.Info("text_classifier: loaded ML model", "path", modelPath)
 	return m
 }
 
-// loadImageDetector loads the optional Phase 7 ONNX-backed NSFW detector, if
+// loadImageDetector loads the ONNX-backed NSFW image detector, if
 // configured. A missing path means passthrough (addons.ImageDetector nil);
-// a configured path that fails to load (including when the binary wasn't
-// built with -tags onnx - see internal/classify/image's build-tagged
-// variants) logs a warning and still falls back to passthrough rather than
-// aborting startup.
+// a configured path that fails to load logs a warning and still falls back
+// to passthrough rather than aborting startup.
 func loadImageDetector(modelPath string) addons.ImageDetector {
 	if modelPath == "" {
 		return nil

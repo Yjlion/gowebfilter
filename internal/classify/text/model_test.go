@@ -1,113 +1,118 @@
 package text
 
 import (
+	"encoding/json"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
 )
 
-func TestTokenize(t *testing.T) {
-	got := Tokenize("Don't PANIC! This is a test-case, 123.")
-	want := []string{"don't", "panic", "this", "is", "a", "test", "case"}
-	if len(got) != len(want) {
-		t.Fatalf("Tokenize() = %v, want %v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("Tokenize()[%d] = %q, want %q (full: %v)", i, got[i], want[i], got)
-		}
-	}
-}
+// These cover the pure-Go pieces of Load (config parsing, label-index
+// resolution, softmax) without needing a real ONNX model or onnxruntime
+// session - the CGO-backed Load/Score round trip is exercised against the
+// real exported model as part of this project's verification steps (see
+// HANDOFF.md), not as a package unit test, mirroring how
+// internal/classify/image only unit-tests its non-CGO helpers directly.
 
-func handModel() *Model {
-	return &Model{
-		Vocab:     map[string]int{"porn": 0, "xxx": 1, "cookie": 2, "recipe": 3},
-		IDF:       []float64{1, 1, 1, 1},
-		Coef:      []float64{6, 6, -1, -1},
-		Intercept: -4,
-	}
-}
-
-func TestScoreDistinguishesAdultFromSafe(t *testing.T) {
-	m := handModel()
-
-	adult, ok := m.Score("free porn xxx videos")
-	if !ok {
-		t.Fatalf("Score() ok = false, want true")
-	}
-	safe, ok := m.Score("my favorite cookie recipe")
-	if !ok {
-		t.Fatalf("Score() ok = false, want true")
-	}
-	if !(adult > 0.5 && safe < 0.5) {
-		t.Fatalf("Score() adult=%v safe=%v, want adult>0.5 and safe<0.5", adult, safe)
-	}
-}
-
-func TestScoreOutOfVocabTextIsNeutral(t *testing.T) {
-	m := handModel()
-	score, ok := m.Score("completely unrelated words here")
-	if !ok {
-		t.Fatalf("Score() ok = false, want true")
-	}
-	// No vocab hits -> zero vector -> z == intercept == -4 -> sigmoid very low.
-	if score > 0.1 {
-		t.Fatalf("Score() = %v for out-of-vocab text, want near 0", score)
-	}
-}
-
-func TestScoreOnNilOrEmptyModel(t *testing.T) {
-	var nilModel *Model
-	if _, ok := nilModel.Score("anything"); ok {
-		t.Fatalf("Score() on nil model: ok = true, want false")
-	}
-	empty := &Model{}
-	if _, ok := empty.Score("anything"); ok {
-		t.Fatalf("Score() on empty model: ok = true, want false")
-	}
-}
-
-func TestSaveLoadRoundTrip(t *testing.T) {
-	m := handModel()
-	path := filepath.Join(t.TempDir(), "model.json")
-	if err := m.Save(path); err != nil {
-		t.Fatalf("Save() error = %v", err)
-	}
-
-	loaded, err := Load(path)
+func writeConfig(t *testing.T, dir string, cfg map[string]any) string {
+	t.Helper()
+	path := filepath.Join(dir, "config.json")
+	data, err := json.Marshal(cfg)
 	if err != nil {
-		t.Fatalf("Load() error = %v", err)
+		t.Fatalf("marshal config: %v", err)
 	}
-	want, _ := m.Score("free porn xxx videos")
-	got, ok := loaded.Score("free porn xxx videos")
-	if !ok || got != want {
-		t.Fatalf("Load()ed model Score() = %v, %v, want %v, true", got, ok, want)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	return path
+}
+
+func TestLoadModelConfigValid(t *testing.T) {
+	dir := t.TempDir()
+	path := writeConfig(t, dir, map[string]any{
+		"max_position_embeddings": 512,
+		"do_lower_case":           true,
+		"id2label":                map[string]string{"0": "safe", "1": "nsfw"},
+		"pad_token_id":            0,
+		"unk_token_id":            100,
+		"cls_token_id":            101,
+		"sep_token_id":            102,
+	})
+	cfg, err := loadModelConfig(path)
+	if err != nil {
+		t.Fatalf("loadModelConfig: %v", err)
+	}
+	if cfg.MaxPositionEmbeddings != 512 || !cfg.DoLowerCase || cfg.SepTokenID != 102 {
+		t.Fatalf("loadModelConfig() = %+v, unexpected values", cfg)
 	}
 }
 
-func TestLoadRejectsMismatchedLengths(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "bad.json")
-	bad := &Model{Vocab: map[string]int{"a": 0, "b": 1}, IDF: []float64{1}, Coef: []float64{1, 2}}
-	if err := bad.Save(path); err != nil {
-		t.Fatalf("Save() error = %v", err)
-	}
-	if _, err := Load(path); err == nil {
-		t.Fatalf("Load() error = nil, want a length-mismatch error")
+func TestLoadModelConfigRejectsMissingFields(t *testing.T) {
+	dir := t.TempDir()
+	path := writeConfig(t, dir, map[string]any{"do_lower_case": true})
+	if _, err := loadModelConfig(path); err == nil {
+		t.Fatal("loadModelConfig() with no max_position_embeddings/id2label should fail, got nil error")
 	}
 }
 
-func TestLoadRejectsInvalidJSON(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "invalid.json")
-	if err := os.WriteFile(path, []byte("not json"), 0o644); err != nil {
-		t.Fatalf("os.WriteFile() error = %v", err)
+func TestNsfwLabelIndexFindsCaseInsensitiveMatch(t *testing.T) {
+	idx, err := nsfwLabelIndex(map[string]string{"0": "safe", "1": "NSFW"})
+	if err != nil {
+		t.Fatalf("nsfwLabelIndex: %v", err)
 	}
-	if _, err := Load(path); err == nil {
-		t.Fatalf("Load() error = nil, want a parse error")
+	if idx != 1 {
+		t.Fatalf("nsfwLabelIndex() = %d, want 1", idx)
 	}
 }
 
-func TestLoadMissingFile(t *testing.T) {
-	if _, err := Load(filepath.Join(t.TempDir(), "does-not-exist.json")); err == nil {
-		t.Fatalf("Load() error = nil, want a not-found error")
+func TestNsfwLabelIndexAtDifferentPosition(t *testing.T) {
+	// A re-export with the labels swapped must not silently keep using
+	// index 1 - this is exactly the bug nsfwLabelIndex exists to prevent.
+	idx, err := nsfwLabelIndex(map[string]string{"0": "nsfw", "1": "safe"})
+	if err != nil {
+		t.Fatalf("nsfwLabelIndex: %v", err)
+	}
+	if idx != 0 {
+		t.Fatalf("nsfwLabelIndex() = %d, want 0", idx)
+	}
+}
+
+func TestNsfwLabelIndexMissingLabelErrors(t *testing.T) {
+	if _, err := nsfwLabelIndex(map[string]string{"0": "safe", "1": "spam"}); err == nil {
+		t.Fatal("nsfwLabelIndex() with no nsfw label should fail, got nil error")
+	}
+}
+
+func TestSoftmaxAtSumsToOneAndPicksLargerLogit(t *testing.T) {
+	logits := []float32{0.1, 3.0}
+	pSafe := softmaxAt(logits, 0)
+	pNsfw := softmaxAt(logits, 1)
+	if math.Abs(pSafe+pNsfw-1.0) > 1e-9 {
+		t.Fatalf("softmaxAt probabilities sum to %v, want 1.0", pSafe+pNsfw)
+	}
+	if pNsfw <= pSafe {
+		t.Fatalf("softmaxAt(nsfw)=%v should exceed softmaxAt(safe)=%v given logit 3.0 > 0.1", pNsfw, pSafe)
+	}
+}
+
+func TestSoftmaxAtEqualLogitsSplitEvenly(t *testing.T) {
+	logits := []float32{2.0, 2.0}
+	if got := softmaxAt(logits, 0); math.Abs(got-0.5) > 1e-9 {
+		t.Fatalf("softmaxAt() = %v, want 0.5 for equal logits", got)
+	}
+}
+
+func TestLoadEmptyDirIsPassthrough(t *testing.T) {
+	m, err := Load("")
+	if err != nil || m != nil {
+		t.Fatalf("Load(\"\") = (%v, %v), want (nil, nil)", m, err)
+	}
+}
+
+func TestScoreOnNilModelReturnsNotOK(t *testing.T) {
+	var m *Model
+	if _, ok := m.Score("anything"); ok {
+		t.Fatal("Score() on nil *Model should return ok=false")
 	}
 }

@@ -1,20 +1,11 @@
-// Package image implements the optional ONNX-backed NSFW detector for
-// internal/proxy/addons.ImageClassifier (project plan Phase 7). New is the
-// entry point both build variants share:
-//
-//   - Built with -tags onnx (requires CGO_ENABLED=1, a C toolchain, and the
-//     onnxruntime shared library available at runtime): loads a YOLOv8-style
-//     ONNX object-detection model (the export format NudeNet v3's own
-//     "*n.onnx" checkpoints use) via github.com/yalue/onnxruntime_go and
-//     returns a real addons.ImageDetector.
-//   - Built without it (the default): New returns ErrNotBuilt whenever a
-//     model path is actually configured, so a misconfigured deployment gets
-//     a clear, actionable error instead of silent passthrough.
-//
-// See HANDOFF.md's Phase 7 notes for why the onnx-tagged path is not
-// build-verified in this project's dev sandbox (no C toolchain available)
-// even though it's implemented and its non-CGO helpers (this file,
-// preprocess.go, decode.go) are unit-tested directly.
+// Package image implements the ONNX-backed NSFW detector for
+// internal/proxy/addons.ImageClassifier: New loads a YOLOv8-style ONNX
+// object-detection model (the export format NudeNet v3's own "*n.onnx"
+// checkpoints use, downloadable via `webfilter models download`) through
+// github.com/yalue/onnxruntime_go and returns a real addons.ImageDetector.
+// This package requires CGO_ENABLED=1, a C toolchain, and the onnxruntime
+// shared library available at runtime (see internal/classify/onnxrt and
+// HANDOFF.md) - there is no CGO-free build variant.
 package image
 
 import (

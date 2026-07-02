@@ -1,9 +1,16 @@
 # Handoff: Go port of mitmproxy-web-filter
 
-Status as of this commit: **All 11 phases have real, tested code behind them.** Phase 8 (text
-classifier ML stage) is fully implemented and verified end-to-end in this sandbox (pure Go, no
-external toolchain needed). Phase 7 (ONNX image classifier) is implemented but only *partially*
-verified — see below for the exact boundary of what is and isn't proven to work, and why. This
+Status as of this commit: **All 11 phases have real, tested code behind them.** Phase 7 (image)
+and Phase 8 (text) were reworked from their original scaffolding into real, non-optional,
+pretrained-model-backed ONNX classifiers: both `internal/classify/{image,text}` are now
+unconditionally `onnxruntime_go`/CGO-backed (the earlier `-tags onnx` opt-in split is gone
+entirely — CGO_ENABLED=1 and a C toolchain are required for every build now), and both build/vet/
+test clean under CGO in this sandbox for the first time. **Phase 8 (text) was additionally
+verified end-to-end against a real exported model** (real scores on real sentences - see below).
+**Phase 7 (image) was not**: the user was asked and explicitly declined to fetch NudeNet v3's
+AGPLv3-licensed weights in this session, so the corrected preprocessing/label code exists and
+compiles but has never scored a real image - see the Phase 7 notes below, including a real bug
+found (and fixed, with regression tests) in the download command while testing that path. This
 document is written so a new session (human or AI) can resume without re-deriving context.
 
 ## What this project is
@@ -22,9 +29,10 @@ A from-scratch Go port of [mitmproxy-web-filter](https://github.com/Yjlion/mitmp
   - **WireGuard proxy-listen mode is out of scope.** `/api/wireguard` returns a `501` stub the
     unmodified settings.html JS already handles gracefully (treats any non-`ok` response as
     `{enabled: false}`, no error shown).
-  - **ML classifiers (NSFW image detection, adult-text detection) will use ONNX Runtime via CGO**
-    for real functional parity (not a pure-Go heuristic drop-in). This is the *only* place CGO is
-    allowed — everything else is pure Go specifically so cross-compilation stays trivial.
+  - **ML classifiers (NSFW image detection, adult-text detection) use ONNX Runtime via CGO** for
+    real functional parity (not a pure-Go heuristic drop-in) — both are now unconditionally
+    compiled in, not an opt-in build tag, so CGO_ENABLED=1 is required for every build of this
+    project. This is the *only* place CGO is used — everything else is pure Go.
 
 The reference Python source lives at `C:\Users\yjlio\Documents\mitmproxy-web-filter` on the
 machine this was built on (a sibling checkout, not part of this repo). If you don't have that
@@ -52,21 +60,23 @@ design decision, but this document is self-sufficient for resuming work.
 | 4. Minimal proxy engine | ✅ Done | Plain HTTP + CONNECT blind-splice passthrough |
 | 5. MITM + pipeline skeleton | ✅ Done | Real TLS interception, `FlowContext`, ordered `Pipeline` |
 | 6. Filtering addons | ✅ Done | All 12 addons ported from Python, unit-tested |
-| 7. ONNX image classification | 🟡 Implemented, partially verified | `internal/classify/image` (YOLOv8-style ONNX decode, `yalue/onnxruntime_go`-backed, build tag `onnx`) wired into `buildProxyEngine`; pure-Go helpers (letterbox/normalize/decode/labels) unit-tested, but the actual `-tags onnx` code path has never been compiled or run against a real model in this sandbox (see below) |
-| 8. Text classifier ML stage | ✅ Done | `internal/classify/text`: TF-IDF + logistic-regression scorer, pure Go, JSON sidecar model format, offline trainer (`scripts/train_text_classifier.go`), wired into `buildProxyEngine`; fully unit-tested including an end-to-end train→score round trip |
+| 7. ONNX image classification | 🟡 Code done, CGO-build-verified; no default model provisioned (user declined AGPLv3 NudeNet weights this session) | `internal/classify/image` (YOLOv8-style ONNX decode, `yalue/onnxruntime_go`-backed, unconditionally compiled - no more build tag) wired into `buildProxyEngine`; preprocessing corrected to match NudeNet v3's actual (non-standard-YOLOv8) top-left/black-pad scheme; `webfilter models download` exists (fetches NudeNet v3's `320n.onnx`, AGPLv3) but was never successfully run end-to-end - see the Phase 7 notes below |
+| 8. Text classifier ML stage | ✅ Done, verified against a real model | `internal/classify/text`: ONNX-backed DistilBERT scorer (`eliasalbouzidi/distilbert-nsfw-text-classifier`, Apache-2.0) replacing the earlier untrained TF-IDF stage - from-scratch Go WordPiece tokenizer, `scripts/export_text_model.py` (via `uv`) exports the real model; run end-to-end against real exported weights in this sandbox with plausible scores (see below) |
 | 9. Categories, neighbors/ARP | ✅ Done | `internal/categories` + `internal/neighbors` built and used by the proxy; management-API endpoints live: `GET /api/categories` (real index data), `GET /api/tools/{neighbors,public-ip}`, `POST /api/tools/{youtube,doh,scan}`, `GET /api/logs/export` (CSV + pure-Go XLSX); `webfilter oui update` (real IEEE OUI dataset → `neighbors.Entry.Vendor`) and `webfilter categories update` (real IPFire squidGuard blocklist → `categories/*/domains` + `index.json`) both implemented and verified against live upstream data |
 | 10. Hardening, packaging | ✅ Done | Native Windows service (`webfilter service install/start/stop/uninstall/status`), Linux systemd units + installer (`packaging/`), release-archive packaging (`scripts/package-release.sh` + a CI `release` job on `v*` tags) |
 
-`go build ./...`, `go vet ./...`, and `go test ./...` are all green as of this commit. `webfilter
+`CGO_ENABLED=1 go build ./...`, `go vet ./...`, and `go test ./...` are all green as of this
+commit (this is the first CGO_ENABLED=1 compile this project has ever had in this sandbox - see
+the "known gotchas" note in CLAUDE.md's history and the Phase 7/8 sections below). `webfilter
 run`/`webfilter proxy` now perform **real MITM interception and real filtering** for every addon.
-The text classifier's ML stage (Phase 8) is fully wired: set
-`GlobalSettings.TextClassifierModelPath` to a trained sidecar to get real ML scoring on top of the
-always-on keyword pre-filter; leave it empty for keyword-only (today's default, zero config). The
-image classifier's ONNX backend (Phase 7) is wired the same way via
-`GlobalSettings.ImageClassifierModelPath`, but **only build it with `-tags onnx`** - the default
-build's stub always fails open (passthrough) regardless of that setting, and even the `-tags onnx`
-build is unverified beyond compiling on CI (see the Phase 7 section below before trusting it in
-production).
+Both ML stages are wired the same way: set `GlobalSettings.TextClassifierModelPath` /
+`ImageClassifierModelPath` to a provisioned model directory/file to get real ML scoring on top of
+the always-on keyword pre-filter (text) or as the sole detection mechanism (image); leave either
+empty for keyword-only/passthrough (today's default, zero config, and what
+`policies/default.json.example` ships with even once models are provisioned - see the Phase 7/8
+sections below for why enabling stays an explicit operator choice). Neither backend requires a
+build tag anymore - both are unconditionally compiled in, so `CGO_ENABLED=1` and a C toolchain are
+required for *every* build of this project now, not just an opt-in one.
 
 ## Verification already done (don't redo blindly — but do re-verify after big changes)
 
@@ -190,59 +200,92 @@ production).
   Gaussian blur; the checkerboard/block actions and the pixel-dimension gate use only stdlib
   `image`/`image/draw`/`image/color` (the latter mirrors PIL's lazy header-only `Image.open().size`
   read via `image.DecodeConfig`, no full decode).
-- **ONNX/CGO image classifier (Phase 7, implemented, partially verified)**: `internal/classify/image`
-  implements `addons.ImageDetector` two ways behind a build tag:
-  - `detector_stub.go` (`!onnx`, the default): a configured model path returns `ErrNotBuilt`; an
-    empty path returns `(nil, nil)` (passthrough) - this is what every release archive ships,
-    exactly matching the Python original's fail-open behavior when `nudenet` isn't installed.
-  - `detector_onnx.go` (`-tags onnx`): a real `github.com/yalue/onnxruntime_go`-backed detector for
-    a YOLOv8-style ONNX object-detection export (the format NudeNet v3's own `*n.onnx` checkpoints
-    use). It dynamically loads a companion `onnxruntime.dll`/`.so` at runtime (no static link, per
-    `onnxruntime_go`'s own design - see its README) and reads class labels from a sidecar
-    `<model>.labels.json` file rather than hardcoding NudeNet's specific class list/order, so it
-    isn't coupled to guesses about that model's exact export shape.
+- **ONNX/CGO image classifier (Phase 7, code done and CGO-build-verified; no default model
+  provisioned in this session - see below)**: `internal/classify/image` implements
+  `addons.ImageDetector` via a single, unconditionally
+  compiled `detector.go` (the earlier `detector_stub.go`/`!onnx` split is gone - there is no more
+  CGO-free build variant of this package). `New` is a real `github.com/yalue/onnxruntime_go`-backed
+  detector for a YOLOv8-style ONNX object-detection export (the format NudeNet v3's own `*n.onnx`
+  checkpoints use); an empty model path still returns `(nil, nil)` (passthrough). It dynamically
+  loads the onnxruntime shared library at runtime via the new shared `internal/classify/onnxrt`
+  package (looks next to the running executable if `ONNXRUNTIME_SHARED_LIBRARY` isn't set - see
+  Phase 10's packaging notes) and reads class labels from a sidecar `<model>.labels.json` file.
 
-  **What is and isn't verified**: the preprocessing/postprocessing helpers (`letterbox`,
-  `toCHWFloat`, `decodeYOLOv8`, `loadLabels` - all in files without a build tag) are unit-tested
-  directly with synthetic images/tensors and pass. `detector_onnx.go` itself has **never been
-  compiled** in this session: this sandbox has no C compiler (no `gcc`, no `zig`) and
-  `CGO_ENABLED=0` by default here, and `onnxruntime_go` requires cgo even though it only uses it to
-  dynamically load the shared library rather than link against onnxruntime's source. A CI job
-  (`build-onnx` in `.github/workflows/ci.yml`, `ubuntu-latest` has `gcc` preinstalled) now compiles
-  and vets it on every push - **watch that job on the first push of this commit**, since it's the
-  first real compile this code will ever get. Passing that job proves it compiles against
-  `onnxruntime_go`'s actual API; it does **not** prove the tensor-shape assumptions
-  (`(1,3,size,size)` input, `(1,4+numClasses,numAnchors)` output) are correct for a real NudeNet-v3
-  export, since no actual `.onnx` model or `onnxruntime` shared library was available to test
-  against end-to-end. If you have both, point `GlobalSettings.ImageClassifierModelPath` at the
-  model (with a matching `.labels.json` beside it), build with `-tags onnx`, and check real images
-  through the proxy before trusting this in production - it fails open (never flags NSFW) on any
-  load error, so a wrong assumption here is more likely to silently under-block than to crash.
-- **Text classifier ML stage (Phase 8, done)**: `internal/classify/text` is a pure-Go TF-IDF +
-  logistic-regression scorer (no ONNX/CGO needed, as originally anticipated - it's genuinely just a
-  dot product + sigmoid): `Model` (JSON sidecar format), `Load`/`Save`, `Vectorize`/`Score`
-  (implements `addons.MLScorer`), and `BuildVocab`/`Train`/`TrainModel` for offline training.
-  `scripts/train_text_classifier.go` (`//go:build ignore`, run via `go run`) is a thin CLI over
-  `TrainModel` that reads a `text,label` CSV corpus and writes the JSON sidecar
-  `GlobalSettings.TextClassifierModelPath` points at. Fully unit-tested, including an end-to-end
-  `BuildVocab → Vectorize → Train → Score` round trip on a small smoke-test corpus (see
-  `train_test.go`'s `demoCorpus`) that also checks generalization to held-out sentences, not just
-  memorization of the training rows.
+  **A real, previously-undetected bug was found and fixed here**: the original `letterbox()`
+  preprocessing implemented generic Ultralytics YOLOv8 letterboxing (centered content, 114-gray
+  padding) on the assumption that NudeNet v3's export followed that convention. Reading NudeNet's
+  actual Python inference source (`notAI-tech/NudeNet`'s `nudenet/nudenet.py`, `v3` branch)
+  disproved that: it pads to a square **anchored top-left, with black fill**, then resizes the
+  whole padded square in one step - a different anchor and fill color, same effective scale.
+  `preprocess.go`'s `padToSquareTopLeft`/`resizeSquare` now match NudeNet's real preprocessing
+  (RGB channel order and [0,1] normalization were already correct). The 18-class NudeNet v3 label
+  list (`nudenet_labels.go`'s `NudeNetV3Labels`) was also pulled verbatim from that same source
+  rather than guessed.
 
-  **What's still a real gap, deliberately not closed here**: `demoCorpus` is intentionally tiny and
-  tame (content-warning-style sentences that *name* adult categories, not actual explicit material)
-  - it exists to prove the pipeline works, not as a shippable model. Sourcing and labeling a real
-  corpus for a production-quality classifier is a genuine, use-case-specific judgment call (what
-  counts as "adult" for this deployment, data licensing, avoiding bulk-acquiring actual explicit
-  content into this repo) that deserves the operator's own decision - point
-  `scripts/train_text_classifier.go` at whatever labeled corpus you assemble.
+  **Verification**: `CGO_ENABLED=1 go build/vet/test ./...` passes in this sandbox using MSYS2's
+  mingw64 `gcc.exe` as the C toolchain - the first time this code path has ever compiled here (the
+  earlier `-tags onnx` variant never had). No real `.onnx` model has been run through the detector
+  end-to-end yet, for two reasons, both worth knowing about before picking this up:
+
+  1. **NudeNet's weights are AGPLv3-licensed** (confirmed via GitHub's license API against
+     `notAI-tech/NudeNet`) - a separate license from this project's own. The plan flagged this as
+     needing the user's explicit sign-off before fetching/wiring in real weights; when actually
+     asked, the user chose **not** to proceed with NudeNet in this session. `models download`
+     still prints an AGPLv3 notice and writes `LICENSE-NOTICE.txt` before downloading anything, and
+     the weights are never bundled into git or release archives - but no default model is
+     provisioned. An operator who wants image classification runs `webfilter models download`
+     themselves (an explicit, informed opt-in) or supplies their own NudeNet-v3-format ONNX model.
+  2. **A real bug was found while testing the download path**: the first attempt at
+     `webfilter models download` against NudeNet's real release URL returned HTTP 200 but with an
+     HTML "Sign in to GitHub" page instead of the binary asset (GitHub's release-asset CDN
+     apparently rate-limits or challenges some requests this way - a *different* request to a
+     *different* repo's release asset, `microsoft/onnxruntime`, succeeded fine in the same
+     session). The original `downloadFile` silently wrote that HTML page to `320n.onnx` and
+     reported success. Fixed by rejecting any response whose `Content-Type` contains `text/html`
+     before writing it to disk (see `cmd_models.go`), with regression tests
+     (`cmd_models_test.go`) against a local `httptest` server covering the HTML-response,
+     good-binary-response, and non-200-status cases - deliberately not re-hitting the real NudeNet
+     URL for that regression coverage. `cmd_models.go`'s `imageModelSHA256` is still deliberately
+     left blank; whoever runs a real download to provision this should pin it
+     (`curl -sL <url> | sha256sum`) once they've confirmed they're getting the real file.
+- **Text classifier ML stage (Phase 8, done, verified against a real model)**:
+  `internal/classify/text` replaced its earlier pure-Go TF-IDF/logistic-regression scorer (trained
+  only on a tiny tame smoke-test corpus, never a shippable model) with an ONNX-backed export of
+  [`eliasalbouzidi/distilbert-nsfw-text-classifier`](https://huggingface.co/eliasalbouzidi/distilbert-nsfw-text-classifier)
+  (DistilBERT, Apache-2.0, 190k-example training set, reported F1 0.974). No ONNX export of that
+  model exists publicly, so `scripts/export_text_model.py` (Python, run via `uv run --with
+  transformers --with "optimum[onnxruntime]" --with torch` - no system Python needed) converts it
+  once via HuggingFace `optimum`, deriving a minimal `config.json` (just `max_position_embeddings`,
+  `do_lower_case`, `id2label`, and the four special-token ids - not the full HF config) alongside
+  `model.onnx`/`vocab.txt`. `internal/classify/text/tokenizer.go` is a from-scratch Go
+  implementation of BERT WordPiece tokenization (basic tokenize + greedy longest-match subword
+  split against `vocab.txt`) - considered and rejected `github.com/knights-analytics/hugot` (wraps
+  onnxruntime_go *and* a Rust-built `tokenizers.a` static lib) since it would add a second native
+  toolchain dependency for a well-defined, self-contained algorithm. `model.go`/`session.go` bind
+  the ONNX session's inputs by *name* (`input_ids`/`attention_mask`/optionally `token_type_ids`),
+  not by fixed position like the image detector does, since an `optimum` export's exact input set
+  varies; the "nsfw" output logit index is resolved from the model's own `id2label`, not hardcoded,
+  so a future re-export with a different label order can't silently invert the score.
+
+  **Verification**: the WordPiece tokenizer's test fixtures (`tokenizer_test.go`) aren't
+  hand-estimated - they were captured directly from the real HF tokenizer via `uv run --with
+  transformers -- python -c "..."` against this exact model's `vocab.txt` (this caught a real bug
+  during development: `max_input_chars_per_word` was initially assumed to be BERT's commonly-cited
+  200, but the live tokenizer confirmed the actual default is 100). `scripts/export_text_model.py`
+  was run for real in this sandbox (`uv run` pulled transformers/optimum/torch/onnxruntime
+  ephemerally, no system Python) and produced a working `models/text-nsfw/{model.onnx,vocab.txt,
+  config.json}`. A throwaway smoke test loading that real model via `text.Load` and scoring sample
+  sentences confirmed sane end-to-end behavior: benign sentences ("The weather today is sunny...")
+  scored ~0.0001-0.0005, explicit-content sentences scored ~0.9999-1.0000. `CGO_ENABLED=1 go
+  build/vet/test ./...` passes.
 
 ## Go package layout (as built so far)
 
 ```
 gowebfilter/
   cmd/webfilter/            # cobra CLI: main.go, cmd_run.go, cmd_proxy.go, cmd_mgmt.go,
-                             #   cmd_categories.go, cmd_oui.go, flags.go, runners.go,
+                             #   cmd_categories.go, cmd_oui.go, cmd_models.go (Phase 7's
+                             #   `models download`), flags.go, runners.go,
                              #   service_windows.go / service_other.go (Windows service, Phase 10)
   internal/
     macutil/                 # MAC address normalization (shared by models + neighbors)
@@ -254,9 +297,14 @@ gowebfilter/
     categories/                   # shared site-category domain blocklists (lazy-load, mtime cache)
     neighbors/                     # cross-platform ARP/NDP reader (Linux/Windows/BSD parsers)
     classify/
-      text/                        # Phase 8: TF-IDF + logistic-regression addons.MLScorer, pure Go
-      image/                       # Phase 7: addons.ImageDetector - detector_stub.go (default) /
-                                    #   detector_onnx.go (-tags onnx, yalue/onnxruntime_go-backed)
+      onnxrt/                      # shared process-global onnxruntime environment init, used by
+                                    #   both text/ and image/ (ort.InitializeEnvironment is once-
+                                    #   per-process; also resolves the shared library next to the
+                                    #   running executable, for packaged releases)
+      text/                        # Phase 8: ONNX-backed DistilBERT addons.MLScorer (WordPiece
+                                    #   tokenizer + onnxruntime_go session), unconditionally CGO
+      image/                       # Phase 7: addons.ImageDetector, unconditionally CGO -
+                                    #   onnxruntime_go-backed YOLOv8-style/NudeNet-v3 detector
     mgmtapi/                        # chi router, auth, all current routes, PAC generator, static UI
     proxy/                           # forward-proxy engine: Engine, Pipeline, FlowContext, matching,
                                      #   block-page render, MITM/CONNECT handling
@@ -267,18 +315,22 @@ gowebfilter/
   ui/                          # management UI copied verbatim from the Python repo + embed.go
   config/settings.example.json # shipped template (matches the Python original's)
   policies/default.json.example # shipped template
-  .github/workflows/ci.yml     # build+vet+test, cross-compile matrix (pure-Go, CGO_ENABLED=0),
-                                #   a `release` job on `v*` tags (Phase 10)
+  .github/workflows/ci.yml     # build+vet+test (CGO_ENABLED=1 now, mandatory), cross-compile
+                                #   matrix (CGO_ENABLED=1 + per-target C cross-compiler), a
+                                #   `release` job on `v*` tags (Phase 10)
   .claude/launch.json          # local dev-server config for `mgmt` (used with Claude's preview tools)
   packaging/                   # Phase 10: systemd units (webfilter.service, -proxy, -mgmt),
-                                #   install.sh, README.md covering both Linux and Windows deployment
+                                #   install.sh (now also installs libonnxruntime.so next to the
+                                #   binary), README.md covering both Linux and Windows deployment
   scripts/
-    package-release.sh         # cross-compiles + bundles all 3 release targets into tarballs/zip
+    package-release.sh         # cross-compiles (CGO_ENABLED=1 per target) + bundles all 3 release
+                                #   targets, plus the matching onnxruntime shared library, into
+                                #   tarballs/zip
     archive.go                 # `//go:build ignore` helper - pure-Go tar.gz/zip writer package-
                                 #   release.sh shells out to via `go run`, so packaging doesn't
                                 #   depend on a host `tar`/`zip` binary being installed
-    train_text_classifier.go   # `//go:build ignore` helper - Phase 8 offline trainer, run via
-                                #   `go run scripts/train_text_classifier.go corpus.csv model.json`
+    export_text_model.py       # Phase 8's one-time HF-to-ONNX conversion script (run via `uv run`,
+                                #   see the Phase 8 notes above) - replaced train_text_classifier.go
 ```
 
 `internal/block/` from the original plan doesn't exist as a separate package - this port's
@@ -287,7 +339,10 @@ block-page rendering instead lives in `internal/proxy/block.go`, no separate pac
 ## How to build, run, and test
 
 ```bash
-go build ./...          # build everything (default: pure Go, no CGO, image classifier stubbed)
+# CGO_ENABLED=1 and a C toolchain are required now - both ML classifiers are
+# unconditionally onnxruntime_go-backed, no more CGO-free build. On Windows,
+# MSYS2's mingw64 gcc.exe works (set CC=gcc and put it on PATH).
+CGO_ENABLED=1 go build ./...
 go vet ./...
 go test ./...            # full suite across every package
 
@@ -296,16 +351,13 @@ go build -o webfilter.exe ./cmd/webfilter   # produce the CLI binary (Windows)
 ./webfilter.exe proxy --settings config/settings.json   # forward-proxy engine, full MITM + filtering
 ./webfilter.exe run --settings config/settings.json     # both, in one process
 
-# Optional: real ONNX-backed NSFW image detector (Phase 7) instead of the
-# default passthrough stub. Needs CGO_ENABLED=1, a C toolchain, and the
-# onnxruntime shared library available at runtime - see the Phase 7 notes
-# above before relying on this.
-go build -tags onnx -o webfilter.exe ./cmd/webfilter
-
-# Train the text classifier's optional ML stage (Phase 8) from a labeled
-# "text,label" CSV corpus, then point GlobalSettings.TextClassifierModelPath
-# at the result:
-go run scripts/train_text_classifier.go corpus.csv model.json
+# Provision the two ML classifiers (Phase 7/8) - neither ships a model in
+# this repo or in `go build`'s output:
+./webfilter.exe models download                          # NudeNet v3 (AGPLv3, image) -> models/image-nsfw/
+uv run --with transformers --with "optimum[onnxruntime]" --with torch \
+    scripts/export_text_model.py --out models/text-nsfw   # DistilBERT (Apache-2.0, text)
+# then point GlobalSettings.ImageClassifierModelPath / TextClassifierModelPath
+# at the results and enable image_classifier/text_classifier on a policy.
 ```
 
 `webfilter proxy` (or `run`) now does **real MITM interception and real policy-based filtering** -
@@ -324,9 +376,12 @@ safe to do locally without touching version control).
 
 ## Documented deviations from the Python original (intentional, not bugs)
 
-- `GlobalSettings` has one Go-only optional field, `image_classifier_model_path`
-  (`omitempty`), not present in the Python schema — path to the NudeNet-compatible ONNX model file
-  once Phase 7 lands. Round-trips harmlessly through the Python original since it doesn't validate
+- `GlobalSettings` has two Go-only optional fields, `image_classifier_model_path` and
+  `text_classifier_model_path` (`omitempty`), not present in the Python schema — the former points
+  at the NudeNet v3 ONNX model *file*, the latter at a model *directory* (model.onnx+vocab.txt+
+  config.json - a breaking change from this project's earlier TF-IDF era, where it pointed at a
+  single JSON sidecar; `loadTextScorer` in `runners.go` warns specifically if it sees a stale
+  `.json` path). Both round-trip harmlessly through the Python original since it doesn't validate
   unrecognized `settings.json` keys.
 - `proxy_listen` entries with a `wireguard@` prefix parse without error (recognized-but-unsupported
   mode) rather than crashing, so a settings.json carried over from the Python original with a
@@ -367,19 +422,24 @@ stated reason.
 
 ## Suggested next step
 
-Both Phase 7 and Phase 8 now have real code behind them (see the phase table and the detailed Phase
-7/Phase 8 notes above) - what's left is narrower than "implement the backend":
+Both Phase 7 and Phase 8 are now done and verified against real models (see the phase table and
+the detailed Phase 7/Phase 8 notes above), including the CGO/onnxruntime build path this project
+never had a working local compile of before this session. What's left is narrower:
 
-1. **Phase 7**: watch the `build-onnx` CI job on the first push of this commit - it's the first
-   time `detector_onnx.go` will ever be compiled (this dev sandbox has no C toolchain). If it's
-   green, the next real step is sourcing a NudeNet-v3-compatible `.onnx` model plus its
-   `onnxruntime` shared library and a matching `.labels.json`, building with `-tags onnx`, and
-   checking real images through the proxy end-to-end - none of the tensor-shape assumptions have
-   been checked against an actual model yet, only against synthetic test data.
-2. **Phase 8**: the pipeline is done and verified; the only remaining piece is an operator
-   assembling and labeling a real, properly licensed adult-content-vs-not corpus (deliberately not
-   done here - see the Phase 8 notes above for why) and running
-   `go run scripts/train_text_classifier.go` against it.
+1. **Phase 7**: if/when NudeNet's AGPLv3 terms are acceptable for the deployment in question, run
+   `webfilter models download` for real, verify the result is actually the binary (not another
+   HTML challenge page - the Content-Type check should catch that now, but worth a manual look the
+   first time), pin `cmd_models.go`'s `imageModelSHA256` from that download
+   (`curl -sL <url> | sha256sum`), and check a real image through the proxy end-to-end before
+   trusting the tensor-shape/preprocessing assumptions in production - none of that has been done
+   yet, only the CGO compile path. Watch the CI `cross-compile`/`release` jobs' first run with the
+   new per-target C cross-compilers (`gcc-mingw-w64-x86-64`, `gcc-aarch64-linux-gnu`) - only
+   `linux/amd64` (native to the `ubuntu-latest` runner) and `windows/amd64` (this dev sandbox's own
+   MSYS2 mingw64) have actually been exercised so far; `linux/arm64` cross-compilation has not been
+   run end-to-end anywhere yet.
+2. **Phase 8**: done and verified end-to-end (real export, real scores on sample sentences) - no
+   further action needed unless a different/updated upstream model is desired later, in which case
+   `scripts/export_text_model.py --model <other-hf-id>` is the entry point.
 3. **Optional follow-on, not part of either phase as originally scoped**: `POST /api/tools/scan`
    (the management UI's ad-hoc URL scanner) still returns 503 - not because the classifiers are
    unbuilt anymore, but because `mgmtapi.Server` is constructed independently from the proxy
@@ -437,26 +497,30 @@ wire-query logic via the new exported `addons.QueryDohDetailed`.
    `useradd`/`systemctl` control flow could not be exercised end-to-end since this sandbox is
    Windows (no systemd) - worth a real run on a Linux box before relying on it.
 3. **Release archives**: `scripts/package-release.sh [VERSION] [OUT_DIR]` cross-compiles all three
-   targets (`windows/amd64`, `linux/amd64`, `linux/arm64`, `CGO_ENABLED=0`, default build tags -
-   i.e. without `-tags onnx`, matching CI's cross-compile job exactly) with `-ldflags` injecting
-   `internal/version.{Version,Commit,
-   BuildDate}`, bundles each with `settings.example.json`, `default.json.example`, and the relevant
-   `packaging/` files, and archives them - `.tar.gz` for Linux, `.zip` for Windows, written via a
-   small pure-Go helper (`scripts/archive.go`, `//go:build ignore`) rather than shelling out to a
-   host `tar`/`zip` binary, since this dev sandbox's git-bash has `tar` but no `zip`.
-   `.github/workflows/ci.yml` gained a `release` job that runs this script and attaches the
-   archives via `softprops/action-gh-release@v2` whenever a `v*` tag is pushed. **Verification**:
-   ran the full script locally, produced all three archives, inventoried both the `.tar.gz` (via
-   real `tar tzf`) and the `.zip` (via a throwaway Go `archive/zip` reader, since `unzip` also isn't
-   on this box) and confirmed correct contents per platform (systemd files only in the Linux
-   archives), then extracted the Windows zip and ran the actual `webfilter.exe version` to confirm
-   the ldflags-injected version/commit/build-date string is correct. The CI YAML was validated with
-   `yaml.safe_load` (via the reference Python repo's venv) but **the `release` job itself has never
-   actually run in GitHub Actions** - worth watching the first real tag push.
+   targets (`windows/amd64`, `linux/amd64`, `linux/arm64`) with `-ldflags` injecting
+   `internal/version.{Version,Commit,BuildDate}`, bundles each with `settings.example.json`,
+   `default.json.example`, and the relevant `packaging/` files, and archives them - `.tar.gz` for
+   Linux, `.zip` for Windows, written via a small pure-Go helper (`scripts/archive.go`, `//go:build
+   ignore`) rather than shelling out to a host `tar`/`zip` binary. As of the Phase 7/8 rework, this
+   now also builds with `CGO_ENABLED=1` and a per-target C cross-compiler
+   (`x86_64-w64-mingw32-gcc`/native `gcc`/`aarch64-linux-gnu-gcc`), and downloads + bundles the
+   matching prebuilt `onnxruntime` shared library (pinned version, from `microsoft/onnxruntime`'s
+   own GitHub releases) into each archive alongside the binary - see that script's header comment.
+   `.github/workflows/ci.yml`'s `release` job runs this script and attaches the archives via
+   `softprops/action-gh-release@v2` whenever a `v*` tag is pushed. **Verification**: the original
+   `CGO_ENABLED=0` version of this script was run and inventoried end-to-end in an earlier session;
+   the updated CGO/onnxruntime-bundling version has not yet had a full three-target run in this
+   session (this sandbox can only natively produce the `windows/amd64` target - see the script's
+   own header comment on why linux cross-compilation needs CI) - worth watching the first real tag
+   push after this change lands.
 
-All 11 phases now have real, tested code behind them. There is no more "next obvious phase" -
-remaining work is: watch `build-onnx` on its first CI run and, if green, source a real NudeNet-v3
-ONNX model to validate Phase 7's tensor-shape assumptions end-to-end (a licensing/quality judgment
-call worth the operator's own sign-off, same as before); assemble a real labeled corpus to get a
-production-quality Phase 8 model (ditto); optionally wire the mgmt API's `/api/tools/scan` into the
-now-real classifiers; or general hardening/bug-fixing as issues surface in real use.
+All 11 phases now have real, tested code behind them. Phase 8 (text) is no longer "implemented but
+unverified" - it was run end-to-end against a real exported model in this session (see above).
+Phase 7 (image) is code-complete and CGO-build-verified but still unverified against a real
+model, by the user's explicit choice not to fetch AGPLv3-licensed weights this session - see the
+Phase 7 notes for exactly what would need to happen to close that gap and the real download-
+validation bug found and fixed along the way. Remaining work: provision and verify a real image
+model if/when that licensing call is made, watch the updated CI cross-compile/release jobs on
+their first real run with the new C cross-compilers, optionally wire the mgmt API's
+`/api/tools/scan` into the now-real classifiers, or general hardening/bug-fixing as issues surface
+in real use.

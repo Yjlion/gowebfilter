@@ -16,35 +16,48 @@ func solidImage(w, h int, c color.Color) *stdimage.NRGBA {
 	return img
 }
 
-func TestLetterboxOutputIsSquareOfRequestedSize(t *testing.T) {
+func TestPadToSquareTopLeftPadsWideImageBottomOnly(t *testing.T) {
+	// 400x200: the longer side (400) sets the square size, so the 200px
+	// tall image gets 200 rows of black padding added at the bottom only -
+	// content stays anchored at (0,0), unlike centered YOLOv8 letterboxing.
 	img := solidImage(400, 200, color.RGBA{R: 255, A: 255})
-	out := letterbox(img, 320)
-	if b := out.Bounds(); b.Dx() != 320 || b.Dy() != 320 {
-		t.Fatalf("letterbox() size = %dx%d, want 320x320", b.Dx(), b.Dy())
+	out := padToSquareTopLeft(img)
+	if b := out.Bounds(); b.Dx() != 400 || b.Dy() != 400 {
+		t.Fatalf("padToSquareTopLeft() size = %dx%d, want 400x400", b.Dx(), b.Dy())
+	}
+
+	topLeft := out.NRGBAAt(0, 0)
+	if topLeft.R != 255 {
+		t.Fatalf("padToSquareTopLeft() top-left pixel = %+v, want the source image's red (content anchored top-left)", topLeft)
+	}
+	bottomRight := out.NRGBAAt(399, 399)
+	if bottomRight.R != 0 || bottomRight.G != 0 || bottomRight.B != 0 {
+		t.Fatalf("padToSquareTopLeft() bottom-right pixel = %+v, want black padding", bottomRight)
 	}
 }
 
-func TestLetterboxPadsWideImageTopAndBottom(t *testing.T) {
-	// 400x200 into 320x320: scale = 320/400 = 0.8 -> 320x160, padded 80px
-	// top and bottom with the neutral fill color.
-	img := solidImage(400, 200, color.RGBA{R: 255, A: 255})
-	out := letterbox(img, 320)
-
-	corner := out.NRGBAAt(0, 0)
-	if corner.R != 114 || corner.G != 114 || corner.B != 114 {
-		t.Fatalf("letterbox() corner pixel = %+v, want the 114-gray fill color", corner)
-	}
-	center := out.NRGBAAt(160, 160)
-	if center.R != 255 {
-		t.Fatalf("letterbox() center pixel = %+v, want the source image's red", center)
-	}
-}
-
-func TestLetterboxHandlesDegenerateInput(t *testing.T) {
+func TestPadToSquareTopLeftHandlesDegenerateInput(t *testing.T) {
 	empty := stdimage.NewNRGBA(stdimage.Rect(0, 0, 0, 0))
-	out := letterbox(empty, 64)
-	if b := out.Bounds(); b.Dx() != 64 || b.Dy() != 64 {
-		t.Fatalf("letterbox() on empty input = %dx%d, want 64x64 (still produces a canvas)", b.Dx(), b.Dy())
+	out := padToSquareTopLeft(empty)
+	if b := out.Bounds(); b.Dx() != 1 || b.Dy() != 1 {
+		t.Fatalf("padToSquareTopLeft() on empty input = %dx%d, want 1x1 (still produces a canvas)", b.Dx(), b.Dy())
+	}
+}
+
+func TestResizeSquareOutputIsRequestedSize(t *testing.T) {
+	img := solidImage(400, 400, color.RGBA{R: 255, A: 255})
+	out := resizeSquare(img, 320)
+	if b := out.Bounds(); b.Dx() != 320 || b.Dy() != 320 {
+		t.Fatalf("resizeSquare() size = %dx%d, want 320x320", b.Dx(), b.Dy())
+	}
+}
+
+func TestResizeSquareOnAlreadyCorrectSizeIsIdentity(t *testing.T) {
+	img := solidImage(64, 64, color.RGBA{R: 200, G: 100, B: 50, A: 255})
+	out := resizeSquare(img, 64)
+	center := out.NRGBAAt(32, 32)
+	if center.R != 200 || center.G != 100 || center.B != 50 {
+		t.Fatalf("resizeSquare() at identity size changed pixel content: %+v", center)
 	}
 }
 

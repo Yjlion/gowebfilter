@@ -1,10 +1,9 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
-
-	classifytext "github.com/yjlion/gowebfilter/internal/classify/text"
 )
 
 func TestLoadTextScorerEmptyPathIsKeywordOnly(t *testing.T) {
@@ -13,31 +12,25 @@ func TestLoadTextScorerEmptyPathIsKeywordOnly(t *testing.T) {
 	}
 }
 
-func TestLoadTextScorerMissingFileFallsBackToNil(t *testing.T) {
-	got := loadTextScorer(filepath.Join(t.TempDir(), "does-not-exist.json"))
+func TestLoadTextScorerMissingDirFallsBackToNil(t *testing.T) {
+	got := loadTextScorer(filepath.Join(t.TempDir(), "does-not-exist-model-dir"))
 	if got != nil {
-		t.Fatalf("loadTextScorer() on a missing file = %v, want nil (fail open, not a crash)", got)
+		t.Fatalf("loadTextScorer() on a missing model dir = %v, want nil (fail open, not a crash)", got)
 	}
 }
 
-func TestLoadTextScorerValidModelLoads(t *testing.T) {
-	m := &classifytext.Model{
-		Vocab:     map[string]int{"porn": 0},
-		IDF:       []float64{1},
-		Coef:      []float64{10},
-		Intercept: -5,
-	}
+func TestLoadTextScorerStaleJSONPathWarnsAndFallsBackToNil(t *testing.T) {
+	// text_classifier_model_path used to point at a single TF-IDF JSON
+	// sidecar; it now points at a model directory. A leftover ".json" path
+	// from that older config should fail open with a specific, actionable
+	// warning rather than a generic load error.
 	path := filepath.Join(t.TempDir(), "model.json")
-	if err := m.Save(path); err != nil {
-		t.Fatalf("Save() error = %v", err)
+	if err := os.WriteFile(path, []byte("{}"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
 	}
-
-	scorer := loadTextScorer(path)
-	if scorer == nil {
-		t.Fatalf("loadTextScorer() = nil, want a loaded scorer")
-	}
-	if score, ok := scorer.Score("porn"); !ok || score < 0.5 {
-		t.Fatalf("loaded scorer.Score(\"porn\") = %v, %v, want >=0.5, true", score, ok)
+	got := loadTextScorer(path)
+	if got != nil {
+		t.Fatalf("loadTextScorer() on a stale .json path = %v, want nil", got)
 	}
 }
 
@@ -48,12 +41,12 @@ func TestLoadImageDetectorEmptyPathIsPassthrough(t *testing.T) {
 }
 
 func TestLoadImageDetectorMisconfiguredPathFallsBackToNil(t *testing.T) {
-	// In the default (non -tags onnx) build, any non-empty path fails to
-	// load (image.ErrNotBuilt) - loadImageDetector must still fall back to
-	// nil (passthrough) rather than propagating the error, matching
+	// A configured path that doesn't exist (no model has been provisioned
+	// via `webfilter models download`) must still fall back to nil
+	// (passthrough) rather than propagating the error, matching
 	// loadTextScorer's fail-open contract.
 	got := loadImageDetector(filepath.Join(t.TempDir(), "model.onnx"))
 	if got != nil {
-		t.Fatalf("loadImageDetector() on an unbuilt/missing backend = %v, want nil", got)
+		t.Fatalf("loadImageDetector() on a missing model = %v, want nil", got)
 	}
 }

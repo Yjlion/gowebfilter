@@ -10,6 +10,7 @@
 /config/settings.json
 /certs/
 /logs/
+/models/
 /policies/*.json
 !/policies/.gitkeep
 

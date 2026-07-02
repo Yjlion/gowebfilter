@@ -1,5 +1,3 @@
-//go:build onnx
-
 package image
 
 import (
@@ -9,50 +7,25 @@ import (
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 
 	ort "github.com/yalue/onnxruntime_go"
 
+	"github.com/yjlion/gowebfilter/internal/classify/onnxrt"
 	"github.com/yjlion/gowebfilter/internal/proxy/addons"
 )
-
-// This file is only compiled with `-tags onnx` (CGO_ENABLED=1 and a C
-// toolchain required - see detector_stub.go's doc comment and HANDOFF.md's
-// Phase 7 notes). It has not been build-verified in this project's dev
-// sandbox, which has neither a C compiler nor the onnxruntime shared
-// library available; the model-agnostic preprocessing/decoding it calls
-// into (letterbox, toCHWFloat, decodeYOLOv8, loadLabels) is unit-tested
-// directly and does not depend on this build tag.
-
-var (
-	onnxInitOnce sync.Once
-	onnxInitErr  error
-)
-
-// ensureEnvironment initializes onnxruntime's global environment exactly
-// once per process. ONNXRUNTIME_SHARED_LIBRARY, if set, points at the
-// onnxruntime.dll/.so/.dylib to dynamically load (onnxruntime_go does not
-// link against it at compile time); otherwise the library's own
-// platform-specific default search path is used.
-func ensureEnvironment() error {
-	onnxInitOnce.Do(func() {
-		if libPath := os.Getenv("ONNXRUNTIME_SHARED_LIBRARY"); libPath != "" {
-			ort.SetSharedLibraryPath(libPath)
-		}
-		onnxInitErr = ort.InitializeEnvironment()
-	})
-	return onnxInitErr
-}
 
 // detector is an onnxruntime-backed addons.ImageDetector for a YOLOv8-style
 // ONNX object-detection export (the format NudeNet v3's own "*n.onnx"
 // checkpoints use). Its output-tensor interpretation (decodeYOLOv8) is
 // model-agnostic; class labels and count come entirely from a sidecar
 // label file next to the model (see loadLabels), so this code makes no
-// assumption about NudeNet's specific class list or ordering.
+// assumption about NudeNet's specific class list or ordering. Preprocessing
+// (padToSquareTopLeft/resizeSquare in preprocess.go) does assume NudeNet
+// v3's specific top-left/black-pad convention, not generic YOLOv8 export
+// preprocessing - see that file's doc comment.
 type detector struct {
 	// onnxruntime does not document AdvancedSession.Run as safe for
 	// concurrent use from multiple goroutines sharing the same
@@ -75,7 +48,7 @@ type detector struct {
 // file - modelPath with its extension replaced by ".labels.json" - and
 // returns a ready-to-use addons.ImageDetector. An empty modelPath returns
 // (nil, nil): passthrough, matching addons.ImageClassifier's fail-open
-// contract for a deployment that hasn't configured Phase 7 at all.
+// contract for a deployment that hasn't configured a model path at all.
 //
 // The label file must be a JSON array or {index: label} object (see
 // loadLabels) whose length matches the model's output class count exactly
@@ -85,7 +58,7 @@ func New(modelPath string) (addons.ImageDetector, error) {
 	if modelPath == "" {
 		return nil, nil
 	}
-	if err := ensureEnvironment(); err != nil {
+	if err := onnxrt.EnsureEnvironment(); err != nil {
 		return nil, fmt.Errorf("image classifier: initialize onnxruntime: %w", err)
 	}
 
@@ -181,7 +154,7 @@ func (d *detector) Detect(imageBytes []byte) ([]addons.Detection, error) {
 	if err != nil {
 		return nil, fmt.Errorf("image classifier: decode image: %w", err)
 	}
-	square := letterbox(img, d.size)
+	square := resizeSquare(padToSquareTopLeft(img), d.size)
 	chw := toCHWFloat(square, d.size)
 
 	d.mu.Lock()
