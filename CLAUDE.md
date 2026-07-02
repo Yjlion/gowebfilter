@@ -97,6 +97,22 @@ writes straight through to `policies/{name}.json`.
   hardcoded hostname silently misses most real traffic. Use prefix/suffix
   matching (`isImageCDNHost`), not an exact-match set, for any CDN-style
   hostname family like this.
+- **Response bodies reaching addons are always identity-encoded.** The
+  engine strips the client's `Accept-Encoding` before the upstream fetch so
+  the stdlib Transport negotiates gzip itself and transparently decodes it
+  (see the comment in `internal/proxy/handler.go`'s `handleOneRequest`) —
+  don't "fix" that by forwarding the browser's header again, or every
+  content-inspecting addon (text_classifier, image_classifier's inline
+  scan, youtube_filter) silently starts scanning compressed bytes on
+  real-world traffic. `TestProxyDecodesGzipUpstream` guards this.
+- **NSFW images aren't only served as `image/*` responses.** Google Images
+  inlines its entire initial result grid as base64 `data:image/...` URIs
+  inside the search HTML (with JS-string escaping: `\/`, `\x3d`), so the
+  browser renders real thumbnails before the separately fetched — and
+  filtered — network copies arrive. image_classifier therefore also scans
+  HTML/CSS/JS/JSON bodies and rewrites matching data URIs in place — see
+  `filterInlineImages` in `internal/proxy/addons/image_classifier.go` and
+  its tests before touching the Content-Type gating.
 - **Settings changes need a restart; policy changes hot-reload.** Matches
   the Python original — don't expect a `PUT /api/settings` to take effect
   without restarting `webfilter run`.

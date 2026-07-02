@@ -217,6 +217,17 @@ func (e *Engine) handleOneRequest(w net.Conn, reader *bufio.Reader, req *http.Re
 		for _, h := range hopByHopHeaders {
 			req.Header.Del(h)
 		}
+		// Drop the client's Accept-Encoding (browsers advertise
+		// "gzip, deflate, br, zstd") so the stdlib Transport negotiates
+		// gzip itself and transparently decompresses the response:
+		// content-inspecting addons (text_classifier, image_classifier's
+		// inline data-URI scan, youtube_filter) must see decoded bytes,
+		// and the stdlib can't decode br/zstd. The upstream leg stays
+		// compressed on the wire; the client receives an identity body
+		// with Content-Length recomputed by writeFlowResponse. The
+		// Transport skips its auto-gzip for HEAD and Range requests,
+		// which is the correct behavior for those too.
+		req.Header.Del("Accept-Encoding")
 		resp, err := e.Transport.RoundTrip(req)
 		if err != nil {
 			if e.Pipeline != nil {
