@@ -127,7 +127,11 @@ func parseCA(dir string, certPEM, keyPEM []byte) (*CA, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !cert.PublicKey.(*ecdsa.PublicKey).Equal(&key.PublicKey) {
+	pub, ok := cert.PublicKey.(*ecdsa.PublicKey)
+	if !ok {
+		return nil, errors.New("CA certificate public key is not ECDSA")
+	}
+	if !pub.Equal(&key.PublicKey) {
 		return nil, errors.New("CA key does not match CA certificate")
 	}
 	return &CA{dir: dir, Cert: cert, Key: key, CertPEM: certPEM, KeyPEM: keyPEM}, nil
