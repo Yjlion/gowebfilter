@@ -23,8 +23,11 @@ import (
 // connection after handling the first 407).
 //
 // Credentials are stored in settings.json as a PBKDF2-SHA256 hash, the
-// same scheme used for management UI auth. SOCKS5 proxy auth is a
-// different sub-protocol this addon does not cover (unimplemented mode).
+// same scheme used for management UI auth. SOCKS5 proxy auth (RFC 1929
+// username/password) is a different sub-protocol negotiated during the
+// SOCKS handshake rather than over HTTP headers; this addon covers it via
+// SocksAuthRequired/AuthorizeSocks, validating the same credential store
+// and sharing the same per-connection authed bookkeeping.
 type ProxyAuthGate struct {
 	runtime *state.Runtime
 
@@ -87,6 +90,38 @@ func (g *ProxyAuthGate) AuthorizeConnect(req *http.Request, connID uint64) bool 
 	}
 	username, password, ok := parseBasic(req.Header.Get("Proxy-Authorization"))
 	if ok && username == s.ProxyAuthUsername && pwhash.Verify(password, s.ProxyAuthPasswordHash) {
+		g.markAuthed(connID)
+		return true
+	}
+	return false
+}
+
+// SocksAuthRequired reports whether SOCKS5 method selection must demand
+// username/password. Implements proxy.SocksAuthGate.
+func (g *ProxyAuthGate) SocksAuthRequired() bool {
+	if g.runtime == nil {
+		return false
+	}
+	s := g.runtime.Settings
+	return s.ProxyAuthEnabled && s.ProxyAuthPasswordHash != ""
+}
+
+// AuthorizeSocks validates RFC 1929 credentials from a SOCKS5 handshake,
+// remembering connID as authorized on success so requests tunneled over the
+// connection aren't re-challenged by HandleRequest. Implements
+// proxy.SocksAuthGate. When auth is disabled it authorizes unconditionally
+// (and still marks connID), mirroring AuthorizeConnect.
+func (g *ProxyAuthGate) AuthorizeSocks(username, password string, connID uint64) bool {
+	if g.runtime == nil {
+		g.markAuthed(connID)
+		return true
+	}
+	s := g.runtime.Settings
+	if !(s.ProxyAuthEnabled && s.ProxyAuthPasswordHash != "") {
+		g.markAuthed(connID)
+		return true
+	}
+	if username == s.ProxyAuthUsername && pwhash.Verify(password, s.ProxyAuthPasswordHash) {
 		g.markAuthed(connID)
 		return true
 	}

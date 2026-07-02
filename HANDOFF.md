@@ -110,9 +110,19 @@ Phase 7/8 sections below for why enabling stays an explicit operator choice.
 - **Minimal proxy engine (Phase 4)**: `internal/proxy/engine_test.go` covers plain HTTP forwarding
   (`httptest.Server` origin dialed through the proxy via `http.ProxyURL`), the CONNECT blind-splice
   tunnel (`httptest.NewTLSServer` origin, real TLS handshake over the tunnel verified against the
-  origin's cert), and that unsupported `proxy_listen` modes (e.g. `socks5@`) are skipped rather than
-  failing the whole engine. Also manually verified end-to-end with a real `curl -x` against
+  origin's cert), and that unsupported `proxy_listen` modes (e.g. `transparent@`) are skipped rather
+  than failing the whole engine. Also manually verified end-to-end with a real `curl -x` against
   `https://example.com` (both HTTP and HTTPS/CONNECT) through the built `webfilter proxy` binary.
+- **SOCKS5 listener**: a `socks5@host:port` `proxy_listen` entry is now served (not skipped). The
+  handshake (`internal/proxy/socks5.go`) implements RFC 1928 CONNECT + RFC 1929 username/password
+  auth; BIND/UDP-ASSOCIATE are rejected with reply `0x07`. After the SOCKS reply the connection joins
+  the *same* interception path as HTTP CONNECT via the shared `handleTunnel` (blind-splice for
+  MITM-excluded hosts, else a first-byte sniff: `0x16` → TLS MITM filtered as https, anything else →
+  plaintext HTTP filtered as http — SOCKS5 clients tunnel port-80 traffic directly, unlike CONNECT).
+  SOCKS auth reuses `ProxyAuthGate`'s credential store and per-connection authed bookkeeping via the
+  `SocksAuthGate` interface. `internal/proxy/socks5_test.go` covers plaintext forwarding, MITM leaf
+  issuance, bypass blind-splice, RFC 1929 auth (accept/reject/no-re-challenge), and the
+  command-not-supported reply, mirroring the CONNECT-path tests.
 - **MITM interception (Phase 5)**: `internal/proxy/engine_test.go`'s
   `TestMitmInterceptionIssuesOwnLeafCertificate` does a real CONNECT+TLS handshake through the
   engine against an `httptest.NewTLSServer` origin, captures the leaf certificate actually
@@ -202,10 +212,14 @@ Phase 7/8 sections below for why enabling stays an explicit operator choice.
   `FlowContext`/the hook interfaces (no import cycle - the engine never imports `addons`; wiring
   happens one level up, in `cmd/webfilter`). `ProxyAuthGate` additionally implements
   `proxy.ConnectGate` (the CONNECT-stage auth check, since that runs before any `FlowContext`
-  exists) and is constructed with the shared `*state.Runtime` directly for that reason.
+  exists) and is constructed with the shared `*state.Runtime` directly for that reason. It also
+  implements `proxy.SocksAuthGate` (RFC 1929 username/password), the SOCKS analogue of
+  `ConnectGate`, reusing the same credential store and per-connection authed map so the SOCKS5
+  listener authenticates against the same `proxy_auth_*` settings.
   `management_access.go`'s `dns_request` hook (pseudo-domain DNS answers for dns-mode/transparent/
   WireGuard deployments) has **no equivalent** - this engine doesn't run a DNS listener, and those
-  proxy_listen modes are unimplemented anyway.
+  proxy_listen modes are unimplemented (SOCKS5 is now implemented; see the SOCKS5 listener note in
+  the verification section above).
   `doh_filter.go` pulled in `github.com/miekg/dns` (new dependency) for RFC 8484 wireformat
   encode/decode + EDNS0/EDE parsing - hand-rolling that wire format wasn't worth it.
   `image_classifier.go` pulled in `github.com/disintegration/imaging` (new dependency, pure Go) for

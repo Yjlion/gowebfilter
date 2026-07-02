@@ -57,3 +57,14 @@ func (p *Pipeline) ConnectGateAddon() ConnectGate {
 	}
 	return nil
 }
+
+// SocksAuthGateAddon returns the first addon in the pipeline implementing
+// SocksAuthGate (ProxyAuthGate, in practice), or nil if none do.
+func (p *Pipeline) SocksAuthGateAddon() SocksAuthGate {
+	for _, a := range p.addons {
+		if sg, ok := a.(SocksAuthGate); ok {
+			return sg
+		}
+	}
+	return nil
+}
