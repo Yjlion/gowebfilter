@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -200,5 +201,60 @@ func TestIndexJSONIsValidAfterUpdate(t *testing.T) {
 	}
 	if len(parsed.Categories) != 1 || parsed.Categories[0].Name != "gambling" {
 		t.Errorf("categories = %+v", parsed.Categories)
+	}
+}
+
+func TestWriteCategoriesRejectsInvalidArchiveCategoryNames(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+	}{
+		{name: ".."},
+		{name: "nested/evil"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			parent := t.TempDir()
+			dir := filepath.Join(parent, "categories")
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatalf("mkdir categories: %v", err)
+			}
+
+			outsideFile := filepath.Join(parent, "outside.txt")
+			if err := os.WriteFile(outsideFile, []byte("keep me"), 0o644); err != nil {
+				t.Fatalf("write outside sentinel: %v", err)
+			}
+			insideFile := filepath.Join(dir, "existing.txt")
+			if err := os.WriteFile(insideFile, []byte("existing"), 0o644); err != nil {
+				t.Fatalf("write inside sentinel: %v", err)
+			}
+
+			_, err := WriteCategories(dir, "src", map[string][]byte{tc.name: []byte("evil.example\n")}, nil)
+			if err == nil {
+				t.Fatalf("WriteCategories with category name %q succeeded, want error", tc.name)
+			}
+			if !strings.Contains(err.Error(), "invalid archive category name") {
+				t.Fatalf("WriteCategories error = %q, want invalid archive category name", err)
+			}
+
+			outsideData, err := os.ReadFile(outsideFile)
+			if err != nil {
+				t.Fatalf("outside sentinel should still exist: %v", err)
+			}
+			if string(outsideData) != "keep me" {
+				t.Fatalf("outside sentinel = %q, want unchanged", outsideData)
+			}
+			insideData, err := os.ReadFile(insideFile)
+			if err != nil {
+				t.Fatalf("inside sentinel should still exist: %v", err)
+			}
+			if string(insideData) != "existing" {
+				t.Fatalf("inside sentinel = %q, want unchanged", insideData)
+			}
+			if _, err := os.Stat(filepath.Join(parent, "evil")); !os.IsNotExist(err) {
+				t.Fatalf("unexpected path outside destination was created; stat err = %v", err)
+			}
+			if _, err := os.Stat(filepath.Join(dir, "nested")); !os.IsNotExist(err) {
+				t.Fatalf("unexpected nested category path was created; stat err = %v", err)
+			}
+		})
 	}
 }

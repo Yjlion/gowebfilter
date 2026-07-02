@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // DefaultUpdateURL is the IPFire squidGuard blocklist tarball, the same
@@ -105,6 +106,25 @@ func cleanDomainList(data []byte) []string {
 	return lines
 }
 
+// validCategoryName reports whether name is safe to use as a single
+// category directory name below the categories destination. Archive category
+// names are intentionally limited to a conservative portable allowlist.
+func validCategoryName(name string) bool {
+	if name == "" || name == "." || name == ".." {
+		return false
+	}
+	if strings.ContainsAny(name, `/\`) || strings.ContainsRune(name, filepath.Separator) {
+		return false
+	}
+	for _, r := range name {
+		if r == '_' || r == '-' || r == '.' || unicode.IsLetter(r) || unicode.IsDigit(r) {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
 // WriteCategories cleans each category's domain list and writes
 // destDir/<name>/domains + destDir/index.json, matching the format
 // Store.List/IndexMeta read. If keep is non-empty, only category names
@@ -131,6 +151,9 @@ func WriteCategories(destDir, sourceURL string, lists map[string][]byte, keep ma
 	for name, data := range lists {
 		if len(keep) > 0 && !keep[name] {
 			continue
+		}
+		if !validCategoryName(name) {
+			return nil, fmt.Errorf("invalid archive category name %q", name)
 		}
 		domainLines := cleanDomainList(data)
 		catStageDir := filepath.Join(stageDir, name)
