@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -160,11 +161,11 @@ func blindSplice(conn net.Conn, targetHost string) {
 // order. tunnelHost is set only for MITM'd connections (the CONNECT
 // target, e.g. "example.com:443"); empty for plain-HTTP forwarding, where
 // each request already carries an absolute-URI request-target.
-func (e *Engine) serveRequestLoop(w io.Writer, reader *bufio.Reader, first *http.Request, connID uint64, clientIP, proxySockName, tunnelHost string) {
+func (e *Engine) serveRequestLoop(w net.Conn, reader *bufio.Reader, first *http.Request, connID uint64, clientIP, proxySockName, tunnelHost string) {
 	req := first
 	for {
-		e.handleOneRequest(w, req, connID, clientIP, proxySockName, tunnelHost)
-		if req.Close {
+		hijacked := e.handleOneRequest(w, reader, req, connID, clientIP, proxySockName, tunnelHost)
+		if hijacked || req.Close {
 			return
 		}
 		next, err := http.ReadRequest(reader)
@@ -175,7 +176,11 @@ func (e *Engine) serveRequestLoop(w io.Writer, reader *bufio.Reader, first *http
 	}
 }
 
-func (e *Engine) handleOneRequest(w io.Writer, req *http.Request, connID uint64, clientIP, proxySockName, tunnelHost string) {
+// handleOneRequest handles a single request read off reader/w and reports
+// whether it hijacked the connection (a successful WebSocket upgrade,
+// spliced raw from this point on) - the caller must stop its keep-alive
+// loop in that case, the same way it already does for req.Close.
+func (e *Engine) handleOneRequest(w net.Conn, reader *bufio.Reader, req *http.Request, connID uint64, clientIP, proxySockName, tunnelHost string) (hijacked bool) {
 	if tunnelHost != "" {
 		req.URL.Scheme = "https"
 		if req.URL.Host == "" {
@@ -203,6 +208,11 @@ func (e *Engine) handleOneRequest(w io.Writer, req *http.Request, connID uint64,
 		e.Pipeline.RunRequest(fc)
 	}
 
+	if fc.Response == nil && isWebSocketUpgrade(req) {
+		e.tunnelWebSocket(w, reader, req)
+		return true
+	}
+
 	if fc.Response == nil {
 		for _, h := range hopByHopHeaders {
 			req.Header.Del(h)
@@ -226,6 +236,94 @@ func (e *Engine) handleOneRequest(w io.Writer, req *http.Request, connID uint64,
 	}
 
 	writeFlowResponse(w, fc)
+	return false
+}
+
+// isWebSocketUpgrade reports whether req is an HTTP/1.1 WebSocket upgrade
+// handshake (RFC 6455 §4.1: Connection: Upgrade + Upgrade: websocket).
+func isWebSocketUpgrade(req *http.Request) bool {
+	return strings.EqualFold(req.Header.Get("Upgrade"), "websocket") &&
+		headerTokenPresent(req.Header.Get("Connection"), "upgrade")
+}
+
+// headerTokenPresent checks a comma-separated header value (e.g.
+// "keep-alive, Upgrade") for a case-insensitive token match.
+func headerTokenPresent(header, token string) bool {
+	for _, part := range strings.Split(header, ",") {
+		if strings.EqualFold(strings.TrimSpace(part), token) {
+			return true
+		}
+	}
+	return false
+}
+
+// tunnelWebSocket handles a WebSocket upgrade request. http.Transport's
+// RoundTrip cannot represent a protocol switch (it always expects a normal
+// HTTP response), so this dials the target directly, replays the original
+// request verbatim (including the Connection/Upgrade headers regular
+// forwarding strips), and - on a 101 response - splices raw bytes
+// bidirectionally between client and origin for the rest of the
+// connection's life, the same passthrough tradeoff as the CONNECT blind
+// splice for MITM-excluded hosts: WS frames are opaque to every addon from
+// this point on.
+func (e *Engine) tunnelWebSocket(w net.Conn, reader *bufio.Reader, req *http.Request) {
+	addr := req.URL.Host
+	if _, _, err := net.SplitHostPort(addr); err != nil {
+		if req.URL.Scheme == "https" {
+			addr = net.JoinHostPort(addr, "443")
+		} else {
+			addr = net.JoinHostPort(addr, "80")
+		}
+	}
+
+	var upstream net.Conn
+	var err error
+	if req.URL.Scheme == "https" {
+		tlsCfg := &tls.Config{ServerName: req.URL.Hostname()}
+		if e.Transport != nil && e.Transport.TLSClientConfig != nil {
+			tlsCfg = e.Transport.TLSClientConfig.Clone()
+			tlsCfg.ServerName = req.URL.Hostname()
+		}
+		upstream, err = tls.DialWithDialer(&net.Dialer{Timeout: 10 * time.Second}, "tcp", addr, tlsCfg)
+	} else {
+		upstream, err = net.DialTimeout("tcp", addr, 10*time.Second)
+	}
+	if err != nil {
+		writeErrorResponse(w, http.StatusBadGateway, "proxy: "+err.Error())
+		return
+	}
+	defer upstream.Close()
+
+	if err := req.Write(upstream); err != nil {
+		return
+	}
+
+	upstreamReader := bufio.NewReader(upstream)
+	resp, err := http.ReadResponse(upstreamReader, req)
+	if err != nil {
+		writeErrorResponse(w, http.StatusBadGateway, "proxy: "+err.Error())
+		return
+	}
+
+	if resp.StatusCode != http.StatusSwitchingProtocols {
+		resp.Write(w)
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+		return
+	}
+	if err := resp.Write(w); err != nil {
+		return
+	}
+
+	done := make(chan struct{})
+	go func() {
+		io.Copy(upstream, reader)
+		upstream.Close()
+		close(done)
+	}()
+	io.Copy(w, upstreamReader)
+	w.Close()
+	<-done
 }
 
 func write407(conn net.Conn) {
