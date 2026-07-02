@@ -34,19 +34,10 @@ func TestLoadTextScorerStaleJSONPathWarnsAndFallsBackToNil(t *testing.T) {
 	}
 }
 
-func TestLoadImageDetectorEmptyPathIsPassthrough(t *testing.T) {
-	if got := loadImageDetector(""); got != nil {
-		t.Fatalf("loadImageDetector(\"\") = %v, want nil", got)
-	}
-}
-
-func TestLoadImageDetectorMisconfiguredPathFallsBackToNil(t *testing.T) {
-	// A configured path that doesn't exist (no model has been provisioned
-	// via `webfilter models download`) must still fall back to nil
-	// (passthrough) rather than propagating the error, matching
-	// loadTextScorer's fail-open contract.
-	got := loadImageDetector(filepath.Join(t.TempDir(), "model.onnx"))
-	if got != nil {
-		t.Fatalf("loadImageDetector() on a missing model = %v, want nil", got)
+func TestLoadImageDetectorAlwaysLoads(t *testing.T) {
+	// The image classifier's model is embedded in the binary (no download,
+	// no config path) - it should always load successfully.
+	if got := loadImageDetector(); got == nil {
+		t.Fatal("loadImageDetector() = nil, want a loaded detector (model is embedded)")
 	}
 }

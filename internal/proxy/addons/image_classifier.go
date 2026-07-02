@@ -17,28 +17,14 @@ import (
 	"github.com/yjlion/gowebfilter/internal/proxy"
 )
 
-// Detection is one NSFW hit (mirrors NudeNet's detect() output: a class
-// label plus confidence score).
-type Detection struct {
-	Class string
-	Score float64
-}
-
-// ImageDetector scores image bytes for NSFW content. The ONNX/NudeNet-
-// equivalent backend (project plan Phase 7) implements this; a nil
-// Detector on ImageClassifier means "never NSFW" - matches the Python
-// original's fail-open behavior when the nudenet package isn't available.
+// ImageDetector scores image bytes for NSFW content, returning a
+// probability in [0,1] (ok=false if scoring failed/unavailable) - mirrors
+// MLScorer's shape. The pure-Go GantMan/nsfw_model backend
+// (internal/classify/image) implements this; a nil Detector on
+// ImageClassifier means "never NSFW" - matches the Python original's
+// fail-open behavior when the nudenet package isn't available.
 type ImageDetector interface {
-	Detect(imageBytes []byte) ([]Detection, error)
-}
-
-// nsfwLabels are NudeNet 3.x's class labels for explicit exposure.
-var nsfwLabels = map[string]bool{
-	"FEMALE_GENITALIA_EXPOSED": true,
-	"MALE_GENITALIA_EXPOSED":   true,
-	"FEMALE_BREAST_EXPOSED":    true,
-	"BUTTOCKS_EXPOSED":         true,
-	"ANUS_EXPOSED":             true,
+	Score(imageBytes []byte) (score float64, ok bool)
 }
 
 // minImageBytes is a cheap floor to discard genuine tracking pixels/
@@ -61,16 +47,8 @@ func isNSFW(detector ImageDetector, imageBytes []byte, threshold float64) bool {
 	if detector == nil {
 		return false
 	}
-	detections, err := detector.Detect(imageBytes)
-	if err != nil {
-		return false
-	}
-	for _, d := range detections {
-		if nsfwLabels[d.Class] && d.Score >= threshold {
-			return true
-		}
-	}
-	return false
+	score, ok := detector.Score(imageBytes)
+	return ok && score >= threshold
 }
 
 // blurImage heavily blurs the entire image, radius scaled to its size.

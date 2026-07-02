@@ -46,14 +46,6 @@ type GlobalSettings struct {
 	ProxyAuthUsername     string `json:"proxy_auth_username"`
 	ProxyAuthPasswordHash string `json:"proxy_auth_password_hash"`
 
-	// ImageClassifierModelPath is a Go-port-only field (documented
-	// deviation): path to the NudeNet v3 ONNX model file (see `webfilter
-	// models download`), not present in the Python schema. Empty means
-	// passthrough (no image classification). Round-trips harmlessly
-	// through the Python original since unrecognized settings.json fields
-	// aren't validated against there.
-	ImageClassifierModelPath string `json:"image_classifier_model_path,omitempty"`
-
 	// OuiPath is a Go-port-only optional field (documented deviation): path
 	// to the IEEE OUI vendor lookup table (internal/neighbors.DefaultOuiPath
 	// - "./data/oui.txt" - when empty), refreshed by `webfilter oui update`.

@@ -2,19 +2,21 @@
 
 WebFilter Proxy ships as a single binary per OS/arch (Windows x86_64,
 Linux x86_64/arm64) plus one bundled shared library - there is no Python
-runtime, virtualenv, or package to install. The two NSFW classifiers
-(`internal/classify/{text,image}`) are onnxruntime-backed, and
-onnxruntime_go loads its shared library dynamically rather than statically
-linking it, so each release archive includes `onnxruntime.dll` (Windows) or
-`libonnxruntime.so` (Linux) alongside the `webfilter` binary - keep them in
-the same directory (the binary looks next to itself automatically; set
-`ONNXRUNTIME_SHARED_LIBRARY` to override). Deployment is just: put the
-binary and that shared library somewhere together, give it a working
-directory containing `config/settings.json` (and `policies/`, `certs/`,
-`categories/`, `logs/`, `data/`, `models/` - all created on first run if
-missing, except `models/` which needs `webfilter models download` /
-`scripts/export_text_model.py` - see the repo root README), and run it as a
-long-lived process.
+runtime, virtualenv, or package to install. The text classifier
+(`internal/classify/text`) is onnxruntime-backed, and onnxruntime_go loads
+its shared library dynamically rather than statically linking it, so each
+release archive includes `onnxruntime.dll` (Windows) or `libonnxruntime.so`
+(Linux) alongside the `webfilter` binary - keep them in the same directory
+(the binary looks next to itself automatically; set
+`ONNXRUNTIME_SHARED_LIBRARY` to override). The image classifier
+(`internal/classify/image`) is pure Go with its model embedded in the
+binary - nothing to bundle or provision for it. Deployment is just: put the
+binary and the onnxruntime shared library somewhere together, give it a
+working directory containing `config/settings.json` (and `policies/`,
+`certs/`, `categories/`, `logs/`, `data/`, `models/` - all created on first
+run if missing, except `models/` which needs
+`scripts/export_text_model.py` if you want the text classifier's ML stage -
+see the repo root README), and run it as a long-lived process.
 
 This directory contains the pieces needed to run it as an actual system
 service rather than a foreground process.

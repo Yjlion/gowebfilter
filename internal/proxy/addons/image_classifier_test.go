@@ -12,14 +12,14 @@ import (
 	"github.com/yjlion/gowebfilter/internal/proxy/addons"
 )
 
-// fakeDetector always reports the given class/score for every image.
+// fakeDetector always reports the given score for every image.
 type fakeDetector struct {
-	detections []addons.Detection
-	err        error
+	score float64
+	ok    bool
 }
 
-func (d fakeDetector) Detect(imageBytes []byte) ([]addons.Detection, error) {
-	return d.detections, d.err
+func (d fakeDetector) Score(imageBytes []byte) (float64, bool) {
+	return d.score, d.ok
 }
 
 // testJPEG builds a solid-color JPEG of the given size, padded past the
@@ -57,9 +57,7 @@ func TestImageClassifierBlursNSFWImage(t *testing.T) {
 	fc.ResponseBody = body
 	fc.Policy = policy
 
-	ic := addons.ImageClassifier{Detector: fakeDetector{detections: []addons.Detection{
-		{Class: "FEMALE_BREAST_EXPOSED", Score: 0.9},
-	}}}
+	ic := addons.ImageClassifier{Detector: fakeDetector{score: 0.9, ok: true}}
 	ic.HandleResponse(fc)
 
 	if fc.WFAction != "modified" || fc.WFComponent != "image_classifier" {
@@ -91,9 +89,7 @@ func TestImageClassifierCheckerboardAction(t *testing.T) {
 	fc.ResponseBody = body
 	fc.Policy = policy
 
-	ic := addons.ImageClassifier{Detector: fakeDetector{detections: []addons.Detection{
-		{Class: "ANUS_EXPOSED", Score: 0.9},
-	}}}
+	ic := addons.ImageClassifier{Detector: fakeDetector{score: 0.9, ok: true}}
 	ic.HandleResponse(fc)
 
 	if fc.Response.Header.Get("Content-Type") != "image/png" {
@@ -118,9 +114,7 @@ func TestImageClassifierBlockAction(t *testing.T) {
 	fc.ResponseBody = body
 	fc.Policy = policy
 
-	ic := addons.ImageClassifier{Detector: fakeDetector{detections: []addons.Detection{
-		{Class: "FEMALE_GENITALIA_EXPOSED", Score: 0.9},
-	}}}
+	ic := addons.ImageClassifier{Detector: fakeDetector{score: 0.9, ok: true}}
 	ic.HandleResponse(fc)
 
 	if fc.Response.Header.Get("Content-Type") != "image/gif" {
@@ -141,13 +135,28 @@ func TestImageClassifierSkipsBelowThreshold(t *testing.T) {
 	fc.ResponseBody = body
 	fc.Policy = policy
 
-	ic := addons.ImageClassifier{Detector: fakeDetector{detections: []addons.Detection{
-		{Class: "FEMALE_BREAST_EXPOSED", Score: 0.5}, // below threshold
-	}}}
+	ic := addons.ImageClassifier{Detector: fakeDetector{score: 0.5, ok: true}} // below threshold
 	ic.HandleResponse(fc)
 
 	if !bytes.Equal(fc.ResponseBody, body) {
-		t.Error("did not expect modification for a detection below threshold")
+		t.Error("did not expect modification for a score below threshold")
+	}
+}
+
+func TestImageClassifierSkipsWhenNotOK(t *testing.T) {
+	rt := newTestRuntime(t)
+	body := testJPEG(t, 200, 200)
+	policy, resp := newImageFlow(t, body)
+	fc := newFlow(t, rt, "http://example.com/pic.jpg")
+	fc.Response = resp
+	fc.ResponseBody = body
+	fc.Policy = policy
+
+	ic := addons.ImageClassifier{Detector: fakeDetector{score: 0.99, ok: false}} // scoring failed/unavailable
+	ic.HandleResponse(fc)
+
+	if !bytes.Equal(fc.ResponseBody, body) {
+		t.Error("did not expect modification when the detector reports ok=false")
 	}
 }
 
@@ -160,9 +169,7 @@ func TestImageClassifierSkipsSmallImages(t *testing.T) {
 	fc.ResponseBody = body
 	fc.Policy = policy
 
-	ic := addons.ImageClassifier{Detector: fakeDetector{detections: []addons.Detection{
-		{Class: "FEMALE_BREAST_EXPOSED", Score: 0.99},
-	}}}
+	ic := addons.ImageClassifier{Detector: fakeDetector{score: 0.99, ok: true}}
 	ic.HandleResponse(fc)
 
 	if !bytes.Equal(fc.ResponseBody, body) {
@@ -179,9 +186,7 @@ func TestImageClassifierSkipsTinyByteFloor(t *testing.T) {
 	fc.ResponseBody = body
 	fc.Policy = policy
 
-	ic := addons.ImageClassifier{Detector: fakeDetector{detections: []addons.Detection{
-		{Class: "FEMALE_BREAST_EXPOSED", Score: 0.99},
-	}}}
+	ic := addons.ImageClassifier{Detector: fakeDetector{score: 0.99, ok: true}}
 	ic.HandleResponse(fc)
 
 	if !bytes.Equal(fc.ResponseBody, body) {
@@ -201,7 +206,7 @@ func TestImageClassifierNilDetectorNeverBlocks(t *testing.T) {
 	addons.ImageClassifier{}.HandleResponse(fc) // no Detector wired
 
 	if !bytes.Equal(fc.ResponseBody, body) {
-		t.Error("expected a nil Detector to never modify the image (Phase 7 not wired in)")
+		t.Error("expected a nil Detector to never modify the image")
 	}
 }
 
@@ -215,9 +220,7 @@ func TestImageClassifierDisabledIsNoop(t *testing.T) {
 	fc.ResponseBody = body
 	fc.Policy = policy
 
-	ic := addons.ImageClassifier{Detector: fakeDetector{detections: []addons.Detection{
-		{Class: "FEMALE_BREAST_EXPOSED", Score: 0.99},
-	}}}
+	ic := addons.ImageClassifier{Detector: fakeDetector{score: 0.99, ok: true}}
 	ic.HandleResponse(fc)
 
 	if !bytes.Equal(fc.ResponseBody, body) {

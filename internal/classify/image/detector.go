@@ -1,167 +1,150 @@
+// Package image implements the NSFW image classifier for
+// internal/proxy/addons.ImageClassifier: GantMan/nsfw_model (MobileNetV2,
+// MIT-licensed - https://github.com/GantMan/nsfw_model), embedded directly
+// in the binary (model.bin, fp16-quantized weights + a flattened op list -
+// see scripts/nsfw-model/convert.py) and executed by a from-scratch pure-Go
+// inference engine (nn.go). No CGO, no ONNX Runtime, no model download -
+// this package works immediately after `go build`.
+//
+// Ported from github.com/Yjlion/privoxy-nsfw-guard (same author,
+// MIT-licensed): the model conversion pipeline, the inference engine, and
+// the skin-region prefilter (skinprefilter.go) are the same design,
+// verified there against real onnxruntime output (max class-probability
+// diff <=0.018, same argmax - see model_test.go's ported fixture test).
 package image
 
 import (
 	"bytes"
+	_ "embed"
 	"fmt"
 	stdimage "image"
+	"image/draw"
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
-	"path/filepath"
-	"strings"
 	"sync"
 
-	ort "github.com/yalue/onnxruntime_go"
+	xdraw "golang.org/x/image/draw"
 
-	"github.com/yjlion/gowebfilter/internal/classify/onnxrt"
 	"github.com/yjlion/gowebfilter/internal/proxy/addons"
 )
 
-// detector is an onnxruntime-backed addons.ImageDetector for a YOLOv8-style
-// ONNX object-detection export (the format NudeNet v3's own "*n.onnx"
-// checkpoints use). Its output-tensor interpretation (decodeYOLOv8) is
-// model-agnostic; class labels and count come entirely from a sidecar
-// label file next to the model (see loadLabels), so this code makes no
-// assumption about NudeNet's specific class list or ordering. Preprocessing
-// (padToSquareTopLeft/resizeSquare in preprocess.go) does assume NudeNet
-// v3's specific top-left/black-pad convention, not generic YOLOv8 export
-// preprocessing - see that file's doc comment.
-type detector struct {
-	// onnxruntime does not document AdvancedSession.Run as safe for
-	// concurrent use from multiple goroutines sharing the same
-	// input/output tensors, so Detect serializes calls. Acceptable here:
-	// NSFW scanning only runs on image/* responses, already a small
-	// fraction of proxied traffic.
-	mu sync.Mutex
+//go:embed model.bin
+var modelBlob []byte
 
-	session *ort.AdvancedSession
-	input   *ort.Tensor[float32]
-	output  *ort.Tensor[float32]
+var (
+	modelOnce sync.Once
+	theModel  *nnModel
+	modelErr  error
+)
 
-	size       int // square input side length (both width and height)
-	numClasses int
-	numAnchors int
-	labels     []string
+// classifier returns the embedded model, loading it on first use.
+func classifier() (*nnModel, error) {
+	modelOnce.Do(func() {
+		theModel, modelErr = loadNNModel(modelBlob)
+	})
+	return theModel, modelErr
 }
 
-// New loads modelPath (a YOLOv8-style ONNX export) plus a sibling label
-// file - modelPath with its extension replaced by ".labels.json" - and
-// returns a ready-to-use addons.ImageDetector. An empty modelPath returns
-// (nil, nil): passthrough, matching addons.ImageClassifier's fail-open
-// contract for a deployment that hasn't configured a model path at all.
-//
-// The label file must be a JSON array or {index: label} object (see
-// loadLabels) whose length matches the model's output class count exactly
-// - this is deliberately strict, since a silently-mismatched label file
-// would attach the wrong class name to a real detection.
-func New(modelPath string) (addons.ImageDetector, error) {
-	if modelPath == "" {
-		return nil, nil
-	}
-	if err := onnxrt.EnsureEnvironment(); err != nil {
-		return nil, fmt.Errorf("image classifier: initialize onnxruntime: %w", err)
+// Scores holds GantMan/nsfw_model's five per-class probabilities.
+type Scores struct {
+	Drawings float64
+	Hentai   float64
+	Neutral  float64
+	Porn     float64
+	Sexy     float64
+}
+
+// sexyWeight weights the "sexy" class (revealing but not explicit) in the
+// combined NSFW score - matches privoxy-nsfw-guard's own default.
+const sexyWeight = 0.5
+
+// nsfw combines the unsafe classes into one score. Drawings and neutral are
+// safe; sexy is weighted down since it's revealing rather than explicit.
+func (s Scores) nsfw() float64 {
+	return s.Porn + s.Hentai + sexyWeight*s.Sexy
+}
+
+// predict classifies img. The image is bilinearly resized to 224x224 and
+// fed as [0,1] RGB in NCHW; the graph does its own [-1,1] normalization.
+func predict(m *nnModel, img stdimage.Image) (Scores, error) {
+	const dim = 224
+	resized := stdimage.NewRGBA(stdimage.Rect(0, 0, dim, dim))
+	xdraw.BiLinear.Scale(resized, resized.Bounds(), img, img.Bounds(), draw.Src, nil)
+
+	x := newTensor(1, 3, dim, dim)
+	plane := dim * dim
+	for y := 0; y < dim; y++ {
+		row := resized.Pix[y*resized.Stride:]
+		for px := 0; px < dim; px++ {
+			i := y*dim + px
+			x.Data[i] = float32(row[px*4]) / 255
+			x.Data[plane+i] = float32(row[px*4+1]) / 255
+			x.Data[2*plane+i] = float32(row[px*4+2]) / 255
+		}
 	}
 
-	labelsPath := strings.TrimSuffix(modelPath, filepath.Ext(modelPath)) + ".labels.json"
-	labels, err := loadLabels(labelsPath)
+	out, err := m.Run(x)
 	if err != nil {
-		return nil, fmt.Errorf("image classifier: %w", err)
+		return Scores{}, err
 	}
-
-	inputInfo, outputInfo, err := ort.GetInputOutputInfo(modelPath)
-	if err != nil {
-		return nil, fmt.Errorf("image classifier: inspect model %s: %w", modelPath, err)
+	if len(out.Data) < 5 {
+		return Scores{}, fmt.Errorf("model returned %d values, want 5", len(out.Data))
 	}
-	if len(inputInfo) != 1 || len(outputInfo) != 1 {
-		return nil, fmt.Errorf("image classifier: model %s must have exactly 1 input and 1 output tensor, has %d and %d",
-			modelPath, len(inputInfo), len(outputInfo))
-	}
-	if inputInfo[0].DataType != ort.TensorElementDataTypeFloat {
-		return nil, fmt.Errorf("image classifier: input %q has element type %s, want float32",
-			inputInfo[0].Name, inputInfo[0].DataType)
-	}
-	if outputInfo[0].DataType != ort.TensorElementDataTypeFloat {
-		return nil, fmt.Errorf("image classifier: output %q has element type %s, want float32",
-			outputInfo[0].Name, outputInfo[0].DataType)
-	}
-
-	inDims := concreteDims(inputInfo[0].Dimensions)
-	if len(inDims) != 4 || inDims[1] != 3 || inDims[2] != inDims[3] {
-		return nil, fmt.Errorf("image classifier: input shape %v is not the expected (1,3,size,size)", inDims)
-	}
-	size := int(inDims[2])
-
-	outDims := concreteDims(outputInfo[0].Dimensions)
-	if len(outDims) != 3 || outDims[1] <= 4 {
-		return nil, fmt.Errorf("image classifier: output shape %v is not the expected (1,4+numClasses,numAnchors)", outDims)
-	}
-	numClasses := int(outDims[1]) - 4
-	numAnchors := int(outDims[2])
-	if numClasses != len(labels) {
-		return nil, fmt.Errorf("image classifier: model has %d output classes but label file %s has %d entries",
-			numClasses, labelsPath, len(labels))
-	}
-
-	inputTensor, err := ort.NewEmptyTensor[float32](ort.NewShape(1, 3, int64(size), int64(size)))
-	if err != nil {
-		return nil, fmt.Errorf("image classifier: allocate input tensor: %w", err)
-	}
-	outputTensor, err := ort.NewEmptyTensor[float32](ort.NewShape(1, int64(4+numClasses), int64(numAnchors)))
-	if err != nil {
-		inputTensor.Destroy()
-		return nil, fmt.Errorf("image classifier: allocate output tensor: %w", err)
-	}
-
-	session, err := ort.NewAdvancedSession(modelPath,
-		[]string{inputInfo[0].Name}, []string{outputInfo[0].Name},
-		[]ort.Value{inputTensor}, []ort.Value{outputTensor}, nil)
-	if err != nil {
-		inputTensor.Destroy()
-		outputTensor.Destroy()
-		return nil, fmt.Errorf("image classifier: create session for %s: %w", modelPath, err)
-	}
-
-	return &detector{
-		session:    session,
-		input:      inputTensor,
-		output:     outputTensor,
-		size:       size,
-		numClasses: numClasses,
-		numAnchors: numAnchors,
-		labels:     labels,
+	return Scores{
+		Drawings: float64(out.Data[0]),
+		Hentai:   float64(out.Data[1]),
+		Neutral:  float64(out.Data[2]),
+		Porn:     float64(out.Data[3]),
+		Sexy:     float64(out.Data[4]),
 	}, nil
 }
 
-// concreteDims copies dims, replacing any non-positive entry (a dynamic
-// axis, almost always the batch dimension) with 1. Spatial/channel
-// dimensions are expected to already be concrete for a NudeNet-style
-// fixed-input-size export; New rejects the shape afterward if they aren't
-// what's expected rather than guessing at them here.
-func concreteDims(dims ort.Shape) []int64 {
-	out := make([]int64, len(dims))
-	for i, d := range dims {
-		if d <= 0 {
-			d = 1
-		}
-		out[i] = d
-	}
-	return out
+// prefilterSkinRatio is the minimum skin-region ratio (see
+// skinprefilter.go's Analyze) below which Score skips the classifier
+// entirely - matches privoxy-nsfw-guard's "hybrid" default. Logos,
+// screenshots, scenery and most product shots have ~0% skin and never pay
+// for inference.
+const prefilterSkinRatio = 0.07
+
+// detector implements addons.ImageDetector via the embedded classifier.
+type detector struct {
+	mu sync.Mutex // classifier() itself is safe for concurrent use, but Run allocates per-call - serializing keeps peak memory predictable under concurrent requests
 }
 
-// Detect implements addons.ImageDetector.
-func (d *detector) Detect(imageBytes []byte) ([]addons.Detection, error) {
+// New returns a ready-to-use addons.ImageDetector backed by the embedded
+// GantMan/nsfw_model classifier. It cannot fail in a normal build (the
+// model is compiled in); an error here means a corrupt build.
+func New() (addons.ImageDetector, error) {
+	if _, err := classifier(); err != nil {
+		return nil, fmt.Errorf("image classifier: load embedded model: %w", err)
+	}
+	return &detector{}, nil
+}
+
+// Score implements addons.ImageDetector. It first runs a cheap skin-region
+// heuristic (skinprefilter.go); only images with a meaningful skin ratio
+// reach the MobileNetV2 classifier, which then decides the final score.
+func (d *detector) Score(imageBytes []byte) (float64, bool) {
 	img, _, err := stdimage.Decode(bytes.NewReader(imageBytes))
 	if err != nil {
-		return nil, fmt.Errorf("image classifier: decode image: %w", err)
+		return 0, false
 	}
-	square := resizeSquare(padToSquareTopLeft(img), d.size)
-	chw := toCHWFloat(square, d.size)
+
+	if analyzeSkin(img).SkinRatio < prefilterSkinRatio {
+		return 0, true
+	}
+
+	m, err := classifier()
+	if err != nil {
+		return 0, false
+	}
 
 	d.mu.Lock()
-	defer d.mu.Unlock()
-	copy(d.input.GetData(), chw)
-	if err := d.session.Run(); err != nil {
-		return nil, fmt.Errorf("image classifier: run inference: %w", err)
+	scores, err := predict(m, img)
+	d.mu.Unlock()
+	if err != nil {
+		return 0, false
 	}
-	return decodeYOLOv8(d.output.GetData(), d.numClasses, d.numAnchors, d.labels, 0.1), nil
+	return scores.nsfw(), true
 }

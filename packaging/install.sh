@@ -78,7 +78,7 @@ if [[ -f "$ORT_LIB" ]]; then
   install -m 0755 "$ORT_LIB" "$PREFIX/libonnxruntime.so"
   echo "[install] installed libonnxruntime.so"
 else
-  echo "[install] warning: libonnxruntime.so not found next to $BINARY - the NSFW classifiers will fail to load unless ONNXRUNTIME_SHARED_LIBRARY points at one" >&2
+  echo "[install] warning: libonnxruntime.so not found next to $BINARY - the text classifier's ML stage will fail to load unless ONNXRUNTIME_SHARED_LIBRARY points at one (the image classifier is unaffected, it's pure Go)" >&2
 fi
 
 if [[ ! -f "$PREFIX/config/settings.json" ]] && [[ -f "$REPO_ROOT/config/settings.example.json" ]]; then

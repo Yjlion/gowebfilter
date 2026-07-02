@@ -49,7 +49,7 @@ func buildProxyEngine(settingsPath string) (*proxy.Engine, *state.Runtime, error
 		addons.SafeSearch{},
 		addons.YouTubeFilter{},
 		addons.TextClassifier{Scorer: loadTextScorer(rt.Settings.TextClassifierModelPath)},
-		addons.ImageClassifier{Detector: loadImageDetector(rt.Settings.ImageClassifierModelPath)},
+		addons.ImageClassifier{Detector: loadImageDetector()},
 		addons.RequestLogger{},
 	})
 
@@ -169,17 +169,15 @@ func loadTextScorer(modelPath string) addons.MLScorer {
 	return m
 }
 
-// loadImageDetector loads the ONNX-backed NSFW image detector, if
-// configured. A missing path means passthrough (addons.ImageDetector nil);
-// a configured path that fails to load logs a warning and still falls back
-// to passthrough rather than aborting startup.
-func loadImageDetector(modelPath string) addons.ImageDetector {
-	if modelPath == "" {
-		return nil
-	}
-	d, err := image.New(modelPath)
+// loadImageDetector loads the embedded NSFW image detector
+// (internal/classify/image - GantMan/nsfw_model, MIT-licensed, no CGO, no
+// model download needed). It can only fail on a corrupt build, in which
+// case it logs a warning and falls back to passthrough rather than
+// aborting startup.
+func loadImageDetector() addons.ImageDetector {
+	d, err := image.New()
 	if err != nil {
-		slog.Warn("image_classifier: failed to load NSFW detector, falling back to passthrough", "path", modelPath, "err", err)
+		slog.Warn("image_classifier: failed to load embedded NSFW detector, falling back to passthrough", "err", err)
 		return nil
 	}
 	return d
