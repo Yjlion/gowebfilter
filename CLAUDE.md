@@ -136,6 +136,20 @@ writes straight through to `policies/{name}.json`.
   backend is always compiled in, so a fresh install fails open
   (keyword-only) rather than silently doing nothing once a model path is
   configured but the directory doesn't exist yet.
+- **The text classifier's ML stage needs three separate things or it
+  silently degrades to keyword-only** (which requires 3 hits from a small
+  wordlist and blocks almost nothing): (1) `text_classifier_model_path`
+  set in `config/settings.json` (the example sets `./models/text-nsfw`; an
+  empty value skips the ML stage without any warning), (2) the model dir
+  provisioned, and (3) **an onnxruntime shared library new enough for
+  onnxruntime_go** (API 26 / ORT ≥1.23; `package-release.sh` pins 1.27.0)
+  next to `webfilter.exe` or via `ONNXRUNTIME_SHARED_LIBRARY`. On Windows
+  the fallback search otherwise finds `C:\Windows\System32\onnxruntime.dll`
+  — the OS-bundled ORT 1.17, which fails to initialize ("API version [26]
+  is not available") and the addon falls back to keyword-only with only a
+  startup log warning. To confirm the ML stage is actually live, fetch a
+  page through the proxy whose text has *zero* keyword-list matches and
+  check for a `text_classifier` entry in `GET /api/logs?kind=blocks`.
 
 ## When testing against a live running instance
 
