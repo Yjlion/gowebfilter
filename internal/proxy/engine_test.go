@@ -207,7 +207,7 @@ func TestConnectBlindSplice(t *testing.T) {
 
 func TestListenSkipsUnsupportedModes(t *testing.T) {
 	eng := &proxy.Engine{Settings: models.GlobalSettings{
-		ProxyListen: []string{"socks5@127.0.0.1:0", "regular@127.0.0.1:0"},
+		ProxyListen: []string{"transparent@127.0.0.1:0", "regular@127.0.0.1:0"},
 	}}
 	listeners, err := eng.Listen()
 	if err != nil {
@@ -219,16 +219,43 @@ func TestListenSkipsUnsupportedModes(t *testing.T) {
 		}
 	}()
 	if len(listeners) != 1 {
-		t.Fatalf("len(listeners) = %d, want 1 (socks5 entry should be skipped)", len(listeners))
+		t.Fatalf("len(listeners) = %d, want 1 (transparent entry should be skipped)", len(listeners))
+	}
+}
+
+// TestListenBindsSocks5 verifies socks5-mode entries are now served (bound)
+// alongside regular ones, each tagged with its mode.
+func TestListenBindsSocks5(t *testing.T) {
+	eng := &proxy.Engine{Settings: models.GlobalSettings{
+		ProxyListen: []string{"socks5@127.0.0.1:0", "regular@127.0.0.1:0"},
+	}}
+	listeners, err := eng.Listen()
+	if err != nil {
+		t.Fatalf("Listen: %v", err)
+	}
+	defer func() {
+		for _, l := range listeners {
+			l.Close()
+		}
+	}()
+	if len(listeners) != 2 {
+		t.Fatalf("len(listeners) = %d, want 2 (socks5 + regular both bound)", len(listeners))
+	}
+	modes := map[string]bool{}
+	for _, l := range listeners {
+		modes[l.Mode] = true
+	}
+	if !modes["socks5"] || !modes["regular"] {
+		t.Fatalf("bound modes = %v, want both socks5 and regular", modes)
 	}
 }
 
 func TestListenErrorsWhenNoSupportedEntries(t *testing.T) {
 	eng := &proxy.Engine{Settings: models.GlobalSettings{
-		ProxyListen: []string{"socks5@127.0.0.1:0", "tun"},
+		ProxyListen: []string{"transparent@127.0.0.1:0", "tun"},
 	}}
 	if _, err := eng.Listen(); err == nil {
-		t.Fatal("Listen: expected error when no regular-mode entries are configured, got nil")
+		t.Fatal("Listen: expected error when no supported entries are configured, got nil")
 	}
 }
 

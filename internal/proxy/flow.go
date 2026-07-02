@@ -108,3 +108,25 @@ type ConnectGate interface {
 	// connection) closes - mirrors client_disconnected.
 	ClientDisconnected(connID uint64)
 }
+
+// SocksAuthGate authenticates SOCKS5 clients (RFC 1929 username/password),
+// the SOCKS analogue of ConnectGate.AuthorizeConnect. Like AuthorizeConnect
+// it runs at handshake time, before any per-flow FlowContext exists, so the
+// engine calls it directly rather than through the Request/Response pipeline.
+// Only ProxyAuthGate implements this - it's the same credential store as the
+// HTTP 407 gate, just reached over a different sub-protocol.
+type SocksAuthGate interface {
+	Addon
+	// SocksAuthRequired reports whether the SOCKS5 method-selection step
+	// must demand username/password (method 0x02) rather than offering
+	// no-auth (0x00).
+	SocksAuthRequired() bool
+	// AuthorizeSocks validates RFC 1929 credentials. On success the addon
+	// should remember connID as authorized (the same bookkeeping
+	// AuthorizeConnect does) so requests tunneled over the SOCKS connection
+	// aren't re-challenged by the request-phase gate.
+	AuthorizeSocks(username, password string, connID uint64) bool
+	// ClientDisconnected releases any per-connection state for connID once
+	// the SOCKS connection closes.
+	ClientDisconnected(connID uint64)
+}

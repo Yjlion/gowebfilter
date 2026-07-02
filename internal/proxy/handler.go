@@ -64,17 +64,18 @@ func (e *Engine) serveConn(conn net.Conn, connID uint64) {
 	}
 
 	if req.Method == http.MethodConnect {
-		e.handleConnect(conn, req, connID, clientIP, proxySockName)
+		e.handleConnect(conn, reader, req, connID, clientIP, proxySockName)
 		return
 	}
 
-	e.serveRequestLoop(conn, reader, req, connID, clientIP, proxySockName, "")
+	e.serveRequestLoop(conn, reader, req, connID, clientIP, proxySockName, "", "")
 }
 
-// handleConnect processes one CONNECT request: an auth gate, then either a
-// blind-splice passthrough (for policy-aggregated MITM-excluded hosts) or
-// full TLS interception using a leaf certificate issued by the runtime CA.
-func (e *Engine) handleConnect(conn net.Conn, req *http.Request, connID uint64, clientIP, proxySockName string) {
+// handleConnect processes one CONNECT request: an auth gate, then hands the
+// tunnel off to handleTunnel (blind-splice or MITM). reader is the buffered
+// reader the CONNECT request was read from; any bytes the client pipelines
+// after it (e.g. a TLS ClientHello) stay buffered there and must not be lost.
+func (e *Engine) handleConnect(conn net.Conn, reader *bufio.Reader, req *http.Request, connID uint64, clientIP, proxySockName string) {
 	targetHost := req.Host
 	if _, _, err := net.SplitHostPort(targetHost); err != nil {
 		targetHost = net.JoinHostPort(targetHost, "443")
@@ -93,78 +94,144 @@ func (e *Engine) handleConnect(conn net.Conn, req *http.Request, connID uint64, 
 		defer gate.ClientDisconnected(connID)
 	}
 
-	if e.Runtime != nil && e.Runtime.ShouldBypassMitm(hostOnly) {
-		blindSplice(conn, targetHost)
-		return
+	// The CONNECT readiness signal is an HTTP status line: "200 Connection
+	// Established" on success, or a 5xx error response if the upstream dial
+	// failed on the blind-splice path.
+	ready := func(dialErr error) error {
+		if dialErr != nil {
+			writeErrorResponse(conn, http.StatusServiceUnavailable, "proxy: "+dialErr.Error())
+			return dialErr
+		}
+		_, err := conn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
+		return err
 	}
-	if e.Runtime == nil {
-		blindSplice(conn, targetHost)
-		return
-	}
-
-	if _, err := conn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n")); err != nil {
-		return
-	}
-
-	tlsConn := tls.Server(conn, &tls.Config{
-		// Fall back to the CONNECT target when the ClientHello carries no
-		// SNI - true for IP-literal HTTPS targets, since crypto/tls (like
-		// every TLS client) never sends SNI for a literal IP address per
-		// RFC 6066. LeafIssuer.GetCertificate alone would reject those.
-		GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-			name := hello.ServerName
-			if name == "" {
-				name = hostOnly
-			}
-			return e.Runtime.LeafIssuer.CertificateFor(name)
-		},
-		NextProtos: []string{"http/1.1"},
-	})
-	defer tlsConn.Close()
-
-	tr := bufio.NewReader(tlsConn)
-	first, err := http.ReadRequest(tr)
-	if err != nil {
-		return
-	}
-	e.serveRequestLoop(tlsConn, tr, first, connID, clientIP, proxySockName, targetHost)
+	e.handleTunnel(conn, reader, targetHost, hostOnly, connID, clientIP, proxySockName, ready)
 }
 
+// tunnelReady signals the client that a tunnel to targetHost is established
+// (or failed), using the protocol-appropriate reply: an HTTP status line for
+// CONNECT, or a SOCKS5 reply for SOCKS. A non-nil dialErr means the upstream
+// dial failed (blind-splice path only) and the callback should emit the
+// corresponding failure reply. It returns a non-nil error when the tunnel
+// must not proceed (write failure, or a signalled dial failure), in which
+// case the caller stops.
+type tunnelReady func(dialErr error) error
+
+// handleTunnel is the shared post-handshake tunnel path for both CONNECT and
+// SOCKS5, entered once the target host is resolved and the client has been
+// authenticated. It either blind-splices (MITM-excluded hosts, or no runtime)
+// or performs interception: after signalling readiness it sniffs the first
+// client byte to distinguish a TLS ClientHello (0x16) - decrypted via a leaf
+// issued by the runtime CA and filtered as https - from plaintext HTTP, which
+// is filtered directly as http. reader must be the buffered reader wrapping
+// conn, so bytes already read during the handshake (or peeked here) aren't
+// lost. ready sends the protocol-specific readiness reply.
+func (e *Engine) handleTunnel(conn net.Conn, reader *bufio.Reader, targetHost, hostOnly string, connID uint64, clientIP, proxySockName string, ready tunnelReady) {
+	if e.Runtime == nil || e.Runtime.ShouldBypassMitm(hostOnly) {
+		blindSplice(conn, targetHost, ready)
+		return
+	}
+
+	if err := ready(nil); err != nil {
+		return
+	}
+
+	// Peek the first byte to choose interception mode. A TLS record begins
+	// with the handshake content type 0x16; anything else on a proxy tunnel
+	// is plaintext HTTP (SOCKS5 clients tunnel port-80 traffic this way -
+	// CONNECT is TLS in practice, but the same sniff handles it correctly).
+	b, err := reader.Peek(1)
+	if err != nil {
+		return
+	}
+	src := bufConn{r: reader, Conn: conn}
+
+	if b[0] == 0x16 {
+		tlsConn := tls.Server(src, &tls.Config{
+			// Fall back to the tunnel target when the ClientHello carries no
+			// SNI - true for IP-literal HTTPS targets, since crypto/tls (like
+			// every TLS client) never sends SNI for a literal IP address per
+			// RFC 6066. LeafIssuer.GetCertificate alone would reject those.
+			GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+				name := hello.ServerName
+				if name == "" {
+					name = hostOnly
+				}
+				return e.Runtime.LeafIssuer.CertificateFor(name)
+			},
+			NextProtos: []string{"http/1.1"},
+		})
+		defer tlsConn.Close()
+
+		tr := bufio.NewReader(tlsConn)
+		first, err := http.ReadRequest(tr)
+		if err != nil {
+			return
+		}
+		e.serveRequestLoop(tlsConn, tr, first, connID, clientIP, proxySockName, targetHost, "https")
+		return
+	}
+
+	first, err := http.ReadRequest(reader)
+	if err != nil {
+		return
+	}
+	e.serveRequestLoop(src, reader, first, connID, clientIP, proxySockName, targetHost, "http")
+}
+
+// bufConn is a net.Conn that reads through a bufio.Reader - so bytes already
+// buffered during the handshake or first-byte sniff aren't lost - while
+// delegating writes, deadlines, and address methods to the underlying conn.
+type bufConn struct {
+	r *bufio.Reader
+	net.Conn
+}
+
+func (c bufConn) Read(p []byte) (int, error) { return c.r.Read(p) }
+
 // blindSplice dials targetHost and copies bytes in both directions
-// without decrypting anything - used for MITM-excluded hosts. Blocks
-// until the tunnel closes so the caller's connection cleanup doesn't race
-// the copy goroutines.
-func blindSplice(conn net.Conn, targetHost string) {
+// without decrypting anything - used for MITM-excluded hosts. It signals the
+// client via ready (success once dialed, failure if the dial fails) and
+// blocks until the tunnel closes so the caller's connection cleanup doesn't
+// race the copy goroutines.
+func blindSplice(conn net.Conn, targetHost string, ready tunnelReady) {
 	destConn, err := net.DialTimeout("tcp", targetHost, 10*time.Second)
 	if err != nil {
-		writeErrorResponse(conn, http.StatusServiceUnavailable, "proxy: "+err.Error())
+		_ = ready(err)
 		return
 	}
 	defer destConn.Close()
-	if _, err := conn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n")); err != nil {
+	if err := ready(nil); err != nil {
 		return
 	}
+	spliceConns(conn, destConn)
+}
 
+// spliceConns copies bytes bidirectionally between a and b until either side
+// closes, then waits for both directions to finish.
+func spliceConns(a, b net.Conn) {
 	done := make(chan struct{})
 	go func() {
-		io.Copy(destConn, conn)
-		destConn.Close()
+		io.Copy(b, a)
+		b.Close()
 		close(done)
 	}()
-	io.Copy(conn, destConn)
-	conn.Close()
+	io.Copy(a, b)
+	a.Close()
 	<-done
 }
 
 // serveRequestLoop handles first (already read) and every subsequent
 // keep-alive request on the same connection, in HTTP/1.1 request/response
-// order. tunnelHost is set only for MITM'd connections (the CONNECT
-// target, e.g. "example.com:443"); empty for plain-HTTP forwarding, where
-// each request already carries an absolute-URI request-target.
-func (e *Engine) serveRequestLoop(w net.Conn, reader *bufio.Reader, first *http.Request, connID uint64, clientIP, proxySockName, tunnelHost string) {
+// order. tunnelHost/tunnelScheme are set only for MITM'd connections: the
+// tunnel target (e.g. "example.com:443") and the scheme to reconstruct
+// origin-form request URLs with ("https" for TLS, "http" for a plaintext
+// SOCKS tunnel). Both are empty for plain-HTTP forwarding, where each request
+// already carries an absolute-URI request-target.
+func (e *Engine) serveRequestLoop(w net.Conn, reader *bufio.Reader, first *http.Request, connID uint64, clientIP, proxySockName, tunnelHost, tunnelScheme string) {
 	req := first
 	for {
-		hijacked := e.handleOneRequest(w, reader, req, connID, clientIP, proxySockName, tunnelHost)
+		hijacked := e.handleOneRequest(w, reader, req, connID, clientIP, proxySockName, tunnelHost, tunnelScheme)
 		if hijacked || req.Close {
 			return
 		}
@@ -180,9 +247,9 @@ func (e *Engine) serveRequestLoop(w net.Conn, reader *bufio.Reader, first *http.
 // whether it hijacked the connection (a successful WebSocket upgrade,
 // spliced raw from this point on) - the caller must stop its keep-alive
 // loop in that case, the same way it already does for req.Close.
-func (e *Engine) handleOneRequest(w net.Conn, reader *bufio.Reader, req *http.Request, connID uint64, clientIP, proxySockName, tunnelHost string) (hijacked bool) {
-	if tunnelHost != "" {
-		req.URL.Scheme = "https"
+func (e *Engine) handleOneRequest(w net.Conn, reader *bufio.Reader, req *http.Request, connID uint64, clientIP, proxySockName, tunnelHost, tunnelScheme string) (hijacked bool) {
+	if tunnelScheme != "" {
+		req.URL.Scheme = tunnelScheme
 		if req.URL.Host == "" {
 			host := req.Host
 			if host == "" {
