@@ -77,6 +77,24 @@ func TestSafeSearchBlocksImageCDNWholesale(t *testing.T) {
 	}
 }
 
+func TestSafeSearchBlocksImageCDNShardedHosts(t *testing.T) {
+	rt := newTestRuntime(t)
+	policy := enabledPolicyWithSafeSearch(map[string]models.SafeSearchEngineConfig{
+		"google": {Enabled: true, BlockImagesTab: true},
+	})
+
+	for _, host := range []string{"encrypted-tbn1.gstatic.com", "encrypted-tbn2.gstatic.com", "encrypted-tbn3.gstatic.com"} {
+		fc := newFlow(t, rt, "http://"+host+"/images?q=x")
+		fc.Policy = &policy
+
+		addons.SafeSearch{}.HandleRequest(fc)
+
+		if fc.Response == nil {
+			t.Errorf("expected %s to be blocked wholesale like encrypted-tbn0", host)
+		}
+	}
+}
+
 func TestSafeSearchEngineDisabledSkipsEnforcement(t *testing.T) {
 	rt := newTestRuntime(t)
 	fc := newFlow(t, rt, "http://www.google.com/search?q=cats")

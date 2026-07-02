@@ -34,6 +34,19 @@ type searchEngine struct {
 	videosParamKey  string
 	videosParamVal  string
 	imageCDNDomains map[string]bool
+	// imageCDNPrefix/imageCDNSuffix match a sharded family of image-CDN
+	// hostnames (e.g. Google load-balances thumbnails across
+	// encrypted-tbn0.gstatic.com .. encrypted-tbnN.gstatic.com), where
+	// imageCDNDomains' exact-match set can't enumerate every shard.
+	imageCDNPrefix string
+	imageCDNSuffix string
+}
+
+func isImageCDNHost(e *searchEngine, host string) bool {
+	if e.imageCDNDomains[host] {
+		return true
+	}
+	return e.imageCDNPrefix != "" && strings.HasPrefix(host, e.imageCDNPrefix) && strings.HasSuffix(host, e.imageCDNSuffix)
 }
 
 func set(vals ...string) map[string]bool {
@@ -60,6 +73,8 @@ var searchEngines = []searchEngine{
 		videosParamKey:  "tbm",
 		videosParamVal:  "vid",
 		imageCDNDomains: set("encrypted-tbn0.gstatic.com"),
+		imageCDNPrefix:  "encrypted-tbn",
+		imageCDNSuffix:  ".gstatic.com",
 	},
 	{
 		name:            "bing",
@@ -113,7 +128,7 @@ func matchEngine(host string) *searchEngine {
 		if e.domains[host] {
 			return e
 		}
-		if e.imageCDNDomains[host] {
+		if isImageCDNHost(e, host) {
 			return e
 		}
 		if e.domainSuffix != "" && strings.Contains(host, e.domainSuffix) {
@@ -185,7 +200,7 @@ func (SafeSearch) HandleRequest(fc *proxy.FlowContext) {
 
 	// Image CDN domains: block wholesale when image-tab blocking is active
 	// for the parent engine (every path on these hosts serves image content).
-	if engine.imageCDNDomains[host] {
+	if isImageCDNHost(engine, host) {
 		if blockImages {
 			fc.Block("Image search blocked by policy", "safesearch")
 		}
