@@ -78,6 +78,45 @@ func TestScheduleIsActiveNowOutsideTimeRange(t *testing.T) {
 	}
 }
 
+func TestScheduleIsActiveAtOvernightSameDay(t *testing.T) {
+	s := models.ScheduleConfig{
+		Enabled: true,
+		ActiveWindows: []models.TimeWindow{
+			{Days: []int{0}, Start: "22:00", End: "06:00"},
+		},
+	}
+	now := time.Date(2026, 6, 29, 23, 30, 0, 0, time.Local) // Monday
+	if !s.IsActiveAt(now) {
+		t.Errorf("expected active late on the configured start day")
+	}
+}
+
+func TestScheduleIsActiveAtOvernightNextMorning(t *testing.T) {
+	s := models.ScheduleConfig{
+		Enabled: true,
+		ActiveWindows: []models.TimeWindow{
+			{Days: []int{0}, Start: "22:00", End: "06:00"},
+		},
+	}
+	now := time.Date(2026, 6, 30, 5, 30, 0, 0, time.Local) // Tuesday
+	if !s.IsActiveAt(now) {
+		t.Errorf("expected active early on the morning after the configured start day")
+	}
+}
+
+func TestScheduleIsActiveAtOvernightWrongMorning(t *testing.T) {
+	s := models.ScheduleConfig{
+		Enabled: true,
+		ActiveWindows: []models.TimeWindow{
+			{Days: []int{0}, Start: "22:00", End: "06:00"},
+		},
+	}
+	now := time.Date(2026, 7, 1, 5, 30, 0, 0, time.Local) // Wednesday
+	if s.IsActiveAt(now) {
+		t.Errorf("expected inactive on a morning not covered by the previous configured day")
+	}
+}
+
 func TestTimeWindowNormalizeDayWrap(t *testing.T) {
 	w := models.TimeWindow{Days: []int{-1, 7, 8}}
 	w.Normalize()
