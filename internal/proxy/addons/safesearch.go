@@ -28,6 +28,7 @@ type searchEngine struct {
 	imagesPaths     []string
 	videosPaths     []string
 	aiDomains       map[string]bool
+	aiPaths         []string
 	imagesParamKey  string
 	imagesParamVal  string
 	videosParamKey  string
@@ -77,7 +78,7 @@ var searchEngines = []searchEngine{
 		safeParamKey:   "kp",
 		safeParamValue: "1",
 		pathPrefix:     "/",
-		aiDomains:      set("duckduckgo.com"),
+		aiPaths:        []string{"/duckchat"},
 		imagesParamKey: "iar",
 		imagesParamVal: "images",
 		videosParamKey: "iar",
@@ -191,10 +192,19 @@ func (SafeSearch) HandleRequest(fc *proxy.FlowContext) {
 		return
 	}
 
-	// Block AI search engines/tabs.
+	// Block AI search engines/tabs: either a dedicated AI-only domain
+	// (Gemini, Copilot) or a specific path on the engine's own domain
+	// (DuckDuckGo's AI Chat lives at /duckchat on duckduckgo.com itself,
+	// so it must be scoped by path rather than blocking the whole domain).
 	if blockAI {
 		for aiDomain := range engine.aiDomains {
 			if host == aiDomain || strings.HasSuffix(host, "."+aiDomain) {
+				fc.Block("AI search blocked by policy", "safesearch")
+				return
+			}
+		}
+		for _, p := range engine.aiPaths {
+			if strings.HasPrefix(path, p) {
 				fc.Block("AI search blocked by policy", "safesearch")
 				return
 			}

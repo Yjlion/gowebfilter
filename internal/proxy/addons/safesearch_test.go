@@ -92,6 +92,39 @@ func TestSafeSearchEngineDisabledSkipsEnforcement(t *testing.T) {
 	}
 }
 
+func TestSafeSearchDuckDuckGoBlockAiTabDoesNotBlockPlainSearch(t *testing.T) {
+	rt := newTestRuntime(t)
+	fc := newFlow(t, rt, "http://duckduckgo.com/?q=cats")
+	policy := enabledPolicyWithSafeSearch(map[string]models.SafeSearchEngineConfig{
+		"duckduckgo": {Enabled: true, BlockAiTab: true},
+	})
+	fc.Policy = &policy
+
+	addons.SafeSearch{}.HandleRequest(fc)
+
+	if fc.Response != nil {
+		t.Fatal("plain DuckDuckGo search must not be blocked by block_ai_tab")
+	}
+	if got := fc.Request.URL.Query().Get("kp"); got != "1" {
+		t.Errorf("kp param = %q, want 1", got)
+	}
+}
+
+func TestSafeSearchDuckDuckGoBlocksAiChatPath(t *testing.T) {
+	rt := newTestRuntime(t)
+	fc := newFlow(t, rt, "http://duckduckgo.com/duckchat?q=hi")
+	policy := enabledPolicyWithSafeSearch(map[string]models.SafeSearchEngineConfig{
+		"duckduckgo": {Enabled: true, BlockAiTab: true},
+	})
+	fc.Policy = &policy
+
+	addons.SafeSearch{}.HandleRequest(fc)
+
+	if fc.Response == nil {
+		t.Fatal("expected DuckDuckGo AI chat path to be blocked")
+	}
+}
+
 func TestSafeSearchUnlistedEngineIsNoop(t *testing.T) {
 	rt := newTestRuntime(t)
 	fc := newFlow(t, rt, "http://unrelated.com/search?q=cats")
