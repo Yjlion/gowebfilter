@@ -1,9 +1,17 @@
 package certs_test
 
 import (
+	"crypto/ecdsa"
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
 	"net"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -29,6 +37,60 @@ func TestLoadOrCreateCAGeneratesAndPersists(t *testing.T) {
 	if ca1.Cert.SerialNumber.Cmp(ca2.Cert.SerialNumber) != 0 {
 		t.Errorf("second load generated a different CA (serial mismatch) - should have loaded the persisted one")
 	}
+}
+
+func TestLoadOrCreateCARegeneratesWhenExistingCertUsesRSAKey(t *testing.T) {
+	dir := t.TempDir()
+	keyMaterial, err := certs.LoadOrCreateCA(t.TempDir())
+	if err != nil {
+		t.Fatalf("LoadOrCreateCA (key material): %v", err)
+	}
+	rsaCertPEM, rsaSerial := testRSACACertPEM(t)
+
+	if err := os.WriteFile(filepath.Join(dir, "ca.crt"), rsaCertPEM, 0o644); err != nil {
+		t.Fatalf("write RSA CA cert: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "ca.key"), keyMaterial.KeyPEM, 0o600); err != nil {
+		t.Fatalf("write CA key material: %v", err)
+	}
+
+	ca, err := certs.LoadOrCreateCA(dir)
+	if err != nil {
+		t.Fatalf("LoadOrCreateCA should regenerate after rejecting RSA CA cert without panic: %v", err)
+	}
+	if ca.Cert.SerialNumber.Cmp(rsaSerial) == 0 {
+		t.Fatalf("LoadOrCreateCA loaded RSA CA cert; want regeneration with an ECDSA CA")
+	}
+	if _, ok := ca.Cert.PublicKey.(*ecdsa.PublicKey); !ok {
+		t.Fatalf("regenerated CA public key type = %T, want *ecdsa.PublicKey", ca.Cert.PublicKey)
+	}
+}
+
+func testRSACACertPEM(t *testing.T) ([]byte, *big.Int) {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate RSA key: %v", err)
+	}
+	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if err != nil {
+		t.Fatalf("generate serial: %v", err)
+	}
+	now := time.Now()
+	tmpl := &x509.Certificate{
+		SerialNumber:          serial,
+		Subject:               pkix.Name{CommonName: "RSA Test Root CA"},
+		NotBefore:             now.Add(-time.Minute),
+		NotAfter:              now.Add(time.Hour),
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign | x509.KeyUsageDigitalSignature,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatalf("create RSA CA cert: %v", err)
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), serial
 }
 
 func TestLeafIssuerIssuesCertSignedByCA(t *testing.T) {
