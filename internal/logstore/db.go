@@ -45,15 +45,27 @@ CREATE TABLE IF NOT EXISTS blocks (
   client_ip TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_blocks_ts ON blocks(ts);
+
+CREATE TABLE IF NOT EXISTS policy_changes (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts          INTEGER NOT NULL,
+  action      TEXT,
+  policy_name TEXT,
+  old_name    TEXT,
+  client_ip   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_policy_changes_ts ON policy_changes(ts);
 `
 
-// RequestColumns and BlockColumns list each table's columns in insertion/
-// export order (excluding the internal "id" primary key), mirroring the
-// Python original's REQUEST_COLUMNS/BLOCK_COLUMNS tuples exactly - used for
-// both INSERT statements and CSV/XLSX export headers.
+// RequestColumns, BlockColumns, and PolicyChangeColumns list each table's
+// columns in insertion/export order (excluding the internal "id" primary
+// key). RequestColumns/BlockColumns mirror the Python original's
+// REQUEST_COLUMNS/BLOCK_COLUMNS tuples exactly - used for both INSERT
+// statements and CSV/XLSX export headers.
 var (
-	RequestColumns = []string{"ts", "method", "host", "path", "status", "action", "component", "policy", "client_ip", "user_agent"}
-	BlockColumns   = []string{"ts", "domain", "url", "reason", "component", "policy", "client_ip"}
+	RequestColumns      = []string{"ts", "method", "host", "path", "status", "action", "component", "policy", "client_ip", "user_agent"}
+	BlockColumns        = []string{"ts", "domain", "url", "reason", "component", "policy", "client_ip"}
+	PolicyChangeColumns = []string{"ts", "action", "policy_name", "old_name", "client_ip"}
 )
 
 // Store is a configured logstore instance: one persistent write connection

@@ -2,13 +2,26 @@ package mgmtapi
 
 import (
 	"errors"
+	"net"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/yjlion/gowebfilter/internal/config"
+	"github.com/yjlion/gowebfilter/internal/logstore"
 	"github.com/yjlion/gowebfilter/internal/models"
 )
+
+// adminClientIP extracts the caller's IP from a management API request,
+// stripping the port. Falls back to the raw RemoteAddr if it isn't in
+// host:port form (e.g. under some test transports).
+func adminClientIP(r *http.Request) string {
+	if h, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		return h
+	}
+	return r.RemoteAddr
+}
 
 func (s *Server) handleListPolicies(w http.ResponseWriter, r *http.Request) {
 	list, err := s.Policies.List()
@@ -47,6 +60,9 @@ func (s *Server) handleCreatePolicy(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	_ = s.Logs.LogPolicyChange(logstore.PolicyChangeEntry{
+		TS: time.Now().Unix(), Action: "created", PolicyName: p.Name, ClientIP: adminClientIP(r),
+	})
 	writeJSON(w, http.StatusCreated, p)
 }
 
@@ -68,6 +84,13 @@ func (s *Server) handleUpdatePolicy(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	oldName := ""
+	if name != p.Name {
+		oldName = name
+	}
+	_ = s.Logs.LogPolicyChange(logstore.PolicyChangeEntry{
+		TS: time.Now().Unix(), Action: "updated", PolicyName: p.Name, OldName: oldName, ClientIP: adminClientIP(r),
+	})
 	writeJSON(w, http.StatusOK, p)
 }
 
@@ -81,5 +104,8 @@ func (s *Server) handleDeletePolicy(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	_ = s.Logs.LogPolicyChange(logstore.PolicyChangeEntry{
+		TS: time.Now().Unix(), Action: "deleted", PolicyName: name, ClientIP: adminClientIP(r),
+	})
 	w.WriteHeader(http.StatusNoContent)
 }

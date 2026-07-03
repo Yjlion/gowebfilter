@@ -194,6 +194,27 @@ func TestPolicyCRUDFlow(t *testing.T) {
 	if dresp.StatusCode != http.StatusNoContent {
 		t.Fatalf("delete status = %d, want 204", dresp.StatusCode)
 	}
+
+	// The create/update(rename)/delete sequence above must leave a matching
+	// audit trail in the policy_changes log.
+	var logBody struct {
+		Entries []map[string]any `json:"entries"`
+	}
+	getJSON(t, client, ts.URL+"/api/logs?kind=policy_changes", &logBody)
+	if len(logBody.Entries) != 3 {
+		t.Fatalf("policy_changes entries = %d, want 3: %+v", len(logBody.Entries), logBody.Entries)
+	}
+	// Tail() returns newest first.
+	deleted, updated, created := logBody.Entries[0], logBody.Entries[1], logBody.Entries[2]
+	if created["action"] != "created" || created["policy_name"] != "kids" {
+		t.Errorf("oldest entry = %+v, want created/kids", created)
+	}
+	if updated["action"] != "updated" || updated["policy_name"] != "kids-renamed" || updated["old_name"] != "kids" {
+		t.Errorf("middle entry = %+v, want updated/kids-renamed with old_name=kids", updated)
+	}
+	if deleted["action"] != "deleted" || deleted["policy_name"] != "kids-renamed" {
+		t.Errorf("newest entry = %+v, want deleted/kids-renamed", deleted)
+	}
 }
 
 func TestPolicyUpdateAcceptsBrowserNumericStrings(t *testing.T) {

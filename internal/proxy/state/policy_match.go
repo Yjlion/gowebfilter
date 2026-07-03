@@ -31,6 +31,12 @@ type PolicyMatch struct {
 // MatchPolicy matches a client IP to a policy by specificity, most specific
 // first: MAC, exact IP, CIDR, then catch-all. It mirrors Runtime.GetPolicy but
 // takes an explicit time and MAC lookup function for tests and simulations.
+//
+// Within each tier, a policy with an active time schedule (Schedule.Enabled
+// && currently inside a window) takes priority over a policy without one -
+// the schedule-less policy acts as the fallback for the rest of the time.
+// Administratively inactive policies (Inactive) and schedule-inactive
+// policies are excluded from every tier entirely.
 func MatchPolicy(policies []models.Policy, clientIP string, now time.Time, lookupMAC func(string) string) PolicyMatch {
 	result := PolicyMatch{PolicyIndex: -1, Tier: PolicyMatchNone}
 	if idx := strings.IndexByte(clientIP, '%'); idx != -1 {
@@ -52,75 +58,128 @@ func MatchPolicy(policies []models.Policy, clientIP string, now time.Time, looku
 	if hasMacPolicy && lookupMAC != nil {
 		if mac := lookupMAC(clientIP); mac != "" {
 			result.ResolvedMAC = mac
+			scheduled, fallback := -1, -1
 			for i := range policies {
 				p := &policies[i]
-				if !p.Schedule.IsActiveAt(now) {
+				if p.Inactive || !p.Schedule.IsActiveAt(now) {
 					continue
 				}
-				if containsString(p.SourceMACs, mac) {
-					return matchedPolicy(i, *p, PolicyMatchMAC, mac, result.ResolvedMAC, inactive)
+				if !containsString(p.SourceMACs, mac) {
+					continue
+				}
+				if p.Schedule.Enabled {
+					if scheduled < 0 {
+						scheduled = i
+					}
+				} else if fallback < 0 {
+					fallback = i
+				}
+			}
+			if idx := firstOf(scheduled, fallback); idx >= 0 {
+				return matchedPolicy(idx, policies[idx], PolicyMatchMAC, mac, result.ResolvedMAC, inactive)
+			}
+		}
+	}
+
+	{
+		scheduled, fallback := -1, -1
+		scheduledSrc, fallbackSrc := "", ""
+		for i := range policies {
+			p := &policies[i]
+			if p.Inactive || !p.Schedule.IsActiveAt(now) {
+				continue
+			}
+			for _, src := range p.SourceIPs {
+				if strings.Contains(src, "/") {
+					continue
+				}
+				target := net.ParseIP(strings.TrimSpace(src))
+				if target == nil || !addr.Equal(target) {
+					continue
+				}
+				if p.Schedule.Enabled {
+					if scheduled < 0 {
+						scheduled, scheduledSrc = i, src
+					}
+				} else if fallback < 0 {
+					fallback, fallbackSrc = i, src
+				}
+				break
+			}
+		}
+		if scheduled >= 0 {
+			return matchedPolicy(scheduled, policies[scheduled], PolicyMatchExactIP, scheduledSrc, result.ResolvedMAC, inactive)
+		}
+		if fallback >= 0 {
+			return matchedPolicy(fallback, policies[fallback], PolicyMatchExactIP, fallbackSrc, result.ResolvedMAC, inactive)
+		}
+	}
+
+	{
+		bestScheduledIndex, bestScheduledPrefix := -1, -1
+		bestScheduledSrc := ""
+		bestFallbackIndex, bestFallbackPrefix := -1, -1
+		bestFallbackSrc := ""
+		for i := range policies {
+			p := &policies[i]
+			if p.Inactive || !p.Schedule.IsActiveAt(now) {
+				continue
+			}
+			for _, src := range p.SourceIPs {
+				if !strings.Contains(src, "/") {
+					continue
+				}
+				_, ipnet, err := net.ParseCIDR(strings.TrimSpace(src))
+				if err != nil || !ipnet.Contains(addr) {
+					continue
+				}
+				ones, _ := ipnet.Mask.Size()
+				if p.Schedule.Enabled {
+					if ones > bestScheduledPrefix {
+						bestScheduledIndex, bestScheduledPrefix, bestScheduledSrc = i, ones, src
+					}
+				} else if ones > bestFallbackPrefix {
+					bestFallbackIndex, bestFallbackPrefix, bestFallbackSrc = i, ones, src
 				}
 			}
 		}
-	}
-
-	for i := range policies {
-		p := &policies[i]
-		if !p.Schedule.IsActiveAt(now) {
-			continue
+		if bestScheduledIndex >= 0 {
+			return matchedPolicy(bestScheduledIndex, policies[bestScheduledIndex], PolicyMatchCIDR, bestScheduledSrc, result.ResolvedMAC, inactive)
 		}
-		for _, src := range p.SourceIPs {
-			if strings.Contains(src, "/") {
-				continue
-			}
-			target := net.ParseIP(strings.TrimSpace(src))
-			if target == nil {
-				continue
-			}
-			if addr.Equal(target) {
-				return matchedPolicy(i, *p, PolicyMatchExactIP, src, result.ResolvedMAC, inactive)
-			}
+		if bestFallbackIndex >= 0 {
+			return matchedPolicy(bestFallbackIndex, policies[bestFallbackIndex], PolicyMatchCIDR, bestFallbackSrc, result.ResolvedMAC, inactive)
 		}
 	}
 
-	bestIndex := -1
-	bestPrefix := -1
-	bestSource := ""
-	for i := range policies {
-		p := &policies[i]
-		if !p.Schedule.IsActiveAt(now) {
-			continue
-		}
-		for _, src := range p.SourceIPs {
-			if !strings.Contains(src, "/") {
+	{
+		scheduled, fallback := -1, -1
+		for i := range policies {
+			p := &policies[i]
+			if p.Inactive || len(p.SourceIPs) != 0 || !p.Schedule.IsActiveAt(now) {
 				continue
 			}
-			_, ipnet, err := net.ParseCIDR(strings.TrimSpace(src))
-			if err != nil {
-				continue
-			}
-			if !ipnet.Contains(addr) {
-				continue
-			}
-			if ones, _ := ipnet.Mask.Size(); ones > bestPrefix {
-				bestIndex = i
-				bestPrefix = ones
-				bestSource = src
+			if p.Schedule.Enabled {
+				if scheduled < 0 {
+					scheduled = i
+				}
+			} else if fallback < 0 {
+				fallback = i
 			}
 		}
-	}
-	if bestIndex >= 0 {
-		return matchedPolicy(bestIndex, policies[bestIndex], PolicyMatchCIDR, bestSource, result.ResolvedMAC, inactive)
+		if idx := firstOf(scheduled, fallback); idx >= 0 {
+			return matchedPolicy(idx, policies[idx], PolicyMatchCatchAll, "", result.ResolvedMAC, inactive)
+		}
 	}
 
-	for i := range policies {
-		p := &policies[i]
-		if len(p.SourceIPs) == 0 && p.Schedule.IsActiveAt(now) {
-			return matchedPolicy(i, *p, PolicyMatchCatchAll, "", result.ResolvedMAC, inactive)
-		}
-	}
 	result.InactivePolicies = inactive
 	return result
+}
+
+func firstOf(scheduled, fallback int) int {
+	if scheduled >= 0 {
+		return scheduled
+	}
+	return fallback
 }
 
 func matchedPolicy(index int, p models.Policy, tier, source, mac string, inactive []string) PolicyMatch {
@@ -130,7 +189,7 @@ func matchedPolicy(index int, p models.Policy, tier, source, mac string, inactiv
 func inactivePolicyNames(policies []models.Policy, now time.Time) []string {
 	out := []string{}
 	for i := range policies {
-		if !policies[i].Schedule.IsActiveAt(now) {
+		if policies[i].Inactive || !policies[i].Schedule.IsActiveAt(now) {
 			out = append(out, policies[i].Name)
 		}
 	}

@@ -91,6 +91,9 @@
             <button @click="tab='requests'; load()"
                     :class="tab==='requests' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'"
                     class="px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors" data-i18n="logs.allRequests">All Requests</button>
+            <button @click="tab='policy_changes'; load()"
+                    :class="tab==='policy_changes' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'"
+                    class="px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors" data-i18n="logs.policyChanges">Policy Changes</button>
             <span class="ml-auto text-xs text-gray-400 self-center" x-text="$t('logs.shown').replace('{n}', filtered.length)"></span>
           </div>
 
@@ -132,6 +135,7 @@
                 <th class="px-6 py-3 text-xs font-medium text-gray-500 uppercase" data-i18n="th.path">Path</th>
                 <th class="px-6 py-3 text-xs font-medium text-gray-500 uppercase" data-i18n="th.status">Status</th>
                 <th class="px-6 py-3 text-xs font-medium text-gray-500 uppercase" data-i18n="th.action">Action</th>
+                <th class="px-6 py-3 text-xs font-medium text-gray-500 uppercase" data-i18n="th.policy">Policy</th>
                 <th class="px-6 py-3 text-xs font-medium text-gray-500 uppercase" data-i18n="th.client">Client</th>
                 <th class="px-6 py-3 text-xs font-medium text-gray-500 uppercase" data-i18n="th.userAgent">User Agent</th>
               </tr></thead>
@@ -149,8 +153,37 @@
                             x-text="r.action==='ok' ? $t('action.allowed') : $t('action.' + r.action, r.action)"></span>
                       <span x-show="r.component" class="ml-1 text-xs text-gray-400" x-text="r.component"></span>
                     </td>
+                    <td class="px-6 py-2 text-gray-600" x-text="r.policy"></td>
                     <td class="px-6 py-2 font-mono text-xs text-gray-500" x-text="r.client_ip"></td>
                     <td class="px-6 py-2 font-mono text-xs text-gray-400 max-w-xs truncate" :title="r.user_agent" x-text="r.user_agent || '—'"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Policy Changes -->
+          <div x-show="tab==='policy_changes'" x-cloak class="overflow-x-auto">
+            <div x-show="filtered.length===0" class="px-6 py-10 text-center text-gray-400 text-sm" data-i18n="logs.noPolicyChanges">No policy changes.</div>
+            <table x-show="filtered.length>0" class="w-full text-sm">
+              <thead><tr class="border-b border-gray-100 text-left">
+                <th class="px-6 py-3 text-xs font-medium text-gray-500 uppercase" data-i18n="th.time">Time</th>
+                <th class="px-6 py-3 text-xs font-medium text-gray-500 uppercase" data-i18n="th.action">Action</th>
+                <th class="px-6 py-3 text-xs font-medium text-gray-500 uppercase" data-i18n="th.policy">Policy</th>
+                <th class="px-6 py-3 text-xs font-medium text-gray-500 uppercase" data-i18n="th.previousName">Previous Name</th>
+                <th class="px-6 py-3 text-xs font-medium text-gray-500 uppercase" data-i18n="th.client">Client</th>
+              </tr></thead>
+              <tbody>
+                <template x-for="(c,i) in filtered" :key="i">
+                  <tr class="border-b border-gray-50">
+                    <td class="px-6 py-2 text-gray-400 text-xs whitespace-nowrap" x-text="fmt(c.ts)"></td>
+                    <td class="px-6 py-2">
+                      <span class="badge" :class="c.action==='deleted' ? 'bg-red-100 text-red-700' : c.action==='updated' ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'"
+                            x-text="$t('action.' + c.action, c.action)"></span>
+                    </td>
+                    <td class="px-6 py-2 font-mono text-xs text-gray-800" x-text="c.policy_name"></td>
+                    <td class="px-6 py-2 font-mono text-xs text-gray-500" x-text="c.old_name || '—'"></td>
+                    <td class="px-6 py-2 font-mono text-xs text-gray-500" x-text="c.client_ip"></td>
                   </tr>
                 </template>
               </tbody>

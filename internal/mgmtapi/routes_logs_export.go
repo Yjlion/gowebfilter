@@ -37,8 +37,8 @@ func (s *Server) handleLogsExport(w http.ResponseWriter, r *http.Request) {
 		format = "csv"
 	}
 
-	if kind != "requests" && kind != "blocks" {
-		writeJSONError(w, http.StatusBadRequest, `kind must be one of ['requests', 'blocks']`)
+	if kind != "requests" && kind != "blocks" && kind != "policy_changes" {
+		writeJSONError(w, http.StatusBadRequest, `kind must be one of ['requests', 'blocks', 'policy_changes']`)
 		return
 	}
 	if format != "csv" && format != "xlsx" {
@@ -58,8 +58,11 @@ func (s *Server) handleLogsExport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	columns := logstore.RequestColumns
-	if kind == "blocks" {
+	switch kind {
+	case "blocks":
 		columns = logstore.BlockColumns
+	case "policy_changes":
+		columns = logstore.PolicyChangeColumns
 	}
 	filenameBase := kind + "-" + time.Now().UTC().Format("20060102-150405")
 
