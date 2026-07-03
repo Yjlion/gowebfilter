@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"net"
@@ -8,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"time"
 
 	"github.com/gogpu/systray"
 	"github.com/spf13/cobra"
@@ -37,7 +39,8 @@ func runTray(settingsPath string) error {
 	if err != nil {
 		return err
 	}
-	mgmtURL := "http://" + net.JoinHostPort(loopbackHost(settings.MgmtHost), fmt.Sprint(settings.MgmtPort))
+	mgmtAddr := net.JoinHostPort(loopbackHost(settings.MgmtHost), fmt.Sprint(settings.MgmtPort))
+	mgmtURL := "http://" + mgmtAddr
 	settingsDir := filepath.Dir(settingsPath)
 
 	tray := systray.New()
@@ -48,7 +51,27 @@ func runTray(settingsPath string) error {
 	menu.AddSeparator()
 	addServiceItems(tray, menu)
 	menu.AddSeparator()
+
+	// If nothing is already listening on the mgmt port - no Windows service
+	// running, no separately-started `webfilter run`/`mgmt` - "Open
+	// Management UI" would just open a dead link, and the tray would be
+	// pure chrome around nothing. So the tray runs the proxy + management
+	// server itself in-process in that case, same as `webfilter run`.
+	// Skipped when something's already there so the tray doesn't fight an
+	// existing service/process for the ports.
+	cancelEmbedded := func() {}
+	if !mgmtReachable(mgmtAddr) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancelEmbedded = cancel
+		go func() {
+			if err := runProxyAndMgmt(ctx, settingsPath); err != nil && ctx.Err() == nil {
+				tray.ShowNotification("WebFilter Proxy failed to start", err.Error())
+			}
+		}()
+	}
+
 	menu.Add("Quit Tray", func() {
+		cancelEmbedded()
 		tray.Remove()
 		os.Exit(0)
 	})
@@ -59,6 +82,19 @@ func runTray(settingsPath string) error {
 		OnClick(func() { _ = openTarget(mgmtURL) }).
 		Show()
 	return tray.Run()
+}
+
+// mgmtReachable does a quick TCP dial to see whether something (a Windows
+// service, or a separately-running `webfilter run`/`mgmt`) is already
+// serving the management API, so the tray knows whether it needs to start
+// its own copy of the proxy + management server.
+func mgmtReachable(addr string) bool {
+	conn, err := net.DialTimeout("tcp", addr, 300*time.Millisecond)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
 }
 
 func loopbackHost(host string) string {
