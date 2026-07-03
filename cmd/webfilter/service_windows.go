@@ -251,24 +251,35 @@ func stopWindowsService(name string) error {
 }
 
 func statusWindowsService(name string) error {
-	m, err := openManager()
+	state, err := queryWindowsServiceState(name)
 	if err != nil {
 		return err
+	}
+	fmt.Printf("Service %q: %s\n", name, serviceStateString(state))
+	return nil
+}
+
+// queryWindowsServiceState is the shared lookup behind statusWindowsService
+// (CLI: prints the result) and the tray's "Service Status" menu item (shows
+// it in a balloon notification instead).
+func queryWindowsServiceState(name string) (svc.State, error) {
+	m, err := openManager()
+	if err != nil {
+		return 0, err
 	}
 	defer m.Disconnect()
 
 	s, err := m.OpenService(name)
 	if err != nil {
-		return fmt.Errorf("open service %q: %w", name, err)
+		return 0, fmt.Errorf("open service %q: %w", name, err)
 	}
 	defer s.Close()
 
 	status, err := s.Query()
 	if err != nil {
-		return fmt.Errorf("query service %q status: %w", name, err)
+		return 0, fmt.Errorf("query service %q status: %w", name, err)
 	}
-	fmt.Printf("Service %q: %s\n", name, serviceStateString(status.State))
-	return nil
+	return status.State, nil
 }
 
 func serviceStateString(state svc.State) string {
