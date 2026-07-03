@@ -26,6 +26,7 @@ func main() {
 		newRunCmd(),
 		newProxyCmd(),
 		newMgmtCmd(),
+		newTrayCmd(),
 		newCategoriesCmd(),
 		newOuiCmd(),
 		newServiceCmd(),

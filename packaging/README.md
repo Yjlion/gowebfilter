@@ -4,10 +4,12 @@ WebFilter Proxy ships as a single binary per OS/arch (Windows x86_64,
 Linux x86_64/arm64) - there is no Python runtime, virtualenv, package, or
 native ML shared library to install. The text classifier is an embedded
 pure-Go Bayesian scorer, and the image classifier is pure Go with its model
-embedded in the binary. Deployment is just: put the binary somewhere, give
-it a working directory containing `config/settings.json` (and `policies/`,
-`certs/`, `categories/`, `logs/`, `data/` - created on first run if
-missing), and run it as a long-lived process.
+embedded in the binary. Deployment is just: put the binary somewhere and
+run it as a long-lived process. On first start, WebFilter creates
+`config/settings.json` and `policies/default.json` if they are missing, then
+creates `certs/`, `logs/`, and other runtime directories as needed. Release
+archives include `categories/`, plus example settings/policy files for
+reference.
 
 This directory contains the pieces needed to run it as an actual system
 service rather than a foreground process.
@@ -73,6 +75,38 @@ account.
 
 As with Linux, once it's running, open `http://localhost:8000` for the
 management UI and trust the generated `certs\ca.crt`.
+
+## Optional desktop tray
+
+Interactive desktop sessions can run:
+
+```powershell
+webfilter.exe tray --settings C:\path\to\config\settings.json
+```
+
+The tray opens the management UI, config folder, and certificate folder, and
+on Windows can delegate start/stop/status actions to the built-in service
+commands. The tray is optional; service/headless operation does not depend
+on it.
+
+## TUN / tun2socks capture
+
+TUN capture is configured in the management UI under Settings ->
+`TUN / tun2socks`. It is disabled by default. When enabled, WebFilter starts
+a TUN device and routes captured traffic through the filtering proxy.
+Leave `proxy_target` blank to use WebFilter's local SOCKS5 listener
+(`socks5@127.0.0.1:1080` by default), or set an explicit
+`scheme://host:port` target if you understand the routing implications.
+Normal policy
+routing, MITM, logging, category filtering, SafeSearch, and classifiers
+still apply.
+
+Windows requires an elevated Administrator process and `wintun.dll`.
+Place the matching architecture DLL beside `webfilter.exe` or in `System32`.
+If the DLL is missing, WebFilter stays up and reports TUN as unavailable
+instead of exiting.
+Linux requires root or equivalent capabilities for TUN and route changes.
+macOS route setup is not wired in this release.
 
 ## Building a release archive locally
 

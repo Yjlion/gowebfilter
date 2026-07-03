@@ -9,6 +9,7 @@ import (
 
 	"github.com/yjlion/gowebfilter/internal/models"
 	"github.com/yjlion/gowebfilter/internal/pwhash"
+	tun "github.com/yjlion/gowebfilter/internal/tun2socks"
 )
 
 // settingsOverlay is models.GlobalSettings without its custom
@@ -105,6 +106,10 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	if merged.ProxyAuthEnabled && merged.ProxyAuthPasswordHash == "" {
 		writeJSONError(w, http.StatusBadRequest, "Set a proxy auth password before enabling proxy authentication.")
+		return
+	}
+	if err := tun.ValidateConfig(merged.Tun2Socks); err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 

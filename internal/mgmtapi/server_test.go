@@ -128,11 +128,11 @@ func TestPolicyCRUDFlow(t *testing.T) {
 	_, ts := newTestServer(t)
 	client := ts.Client()
 
-	// List: empty initially.
+	// First-run bootstrap creates the default policy.
 	var list []models.Policy
 	getJSON(t, client, ts.URL+"/api/policies", &list)
-	if len(list) != 0 {
-		t.Fatalf("initial list = %v, want empty", list)
+	if len(list) != 1 || list[0].Name != "default" {
+		t.Fatalf("initial list = %v, want bootstrapped default policy", list)
 	}
 
 	// Create.

@@ -46,6 +46,8 @@ type GlobalSettings struct {
 	ProxyAuthUsername     string `json:"proxy_auth_username"`
 	ProxyAuthPasswordHash string `json:"proxy_auth_password_hash"`
 
+	Tun2Socks Tun2SocksConfig `json:"tun2socks"`
+
 	// OuiPath is a Go-port-only optional field (documented deviation): path
 	// to an optional IEEE OUI vendor lookup table override. When empty, the
 	// app uses the embedded lookup table; `webfilter oui update` can still
@@ -61,11 +63,69 @@ type GlobalSettings struct {
 	TextClassifierModelPath string `json:"text_classifier_model_path,omitempty"`
 }
 
+type Tun2SocksConfig struct {
+	Enabled       bool     `json:"enabled"`
+	DeviceName    string   `json:"device_name"`
+	InterfaceName string   `json:"interface_name"`
+	TunAddress    string   `json:"tun_address"`
+	TunGateway    string   `json:"tun_gateway"`
+	TunNetmask    string   `json:"tun_netmask"`
+	DNSServers    []string `json:"dns_servers"`
+	AutoRoutes    bool     `json:"auto_routes"`
+	BypassCIDRs   []string `json:"bypass_cidrs"`
+	ProxyTarget   string   `json:"proxy_target"`
+}
+
+func NewTun2SocksConfig() Tun2SocksConfig {
+	return Tun2SocksConfig{
+		DeviceName:  "webfilter-tun",
+		TunAddress:  "198.18.0.1",
+		TunGateway:  "198.18.0.1",
+		TunNetmask:  "255.254.0.0",
+		DNSServers:  []string{},
+		AutoRoutes:  true,
+		BypassCIDRs: []string{"127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"},
+	}
+}
+
+type tun2SocksConfigAlias Tun2SocksConfig
+
+func (c *Tun2SocksConfig) UnmarshalJSON(data []byte) error {
+	*c = NewTun2SocksConfig()
+	if err := json.Unmarshal(data, (*tun2SocksConfigAlias)(c)); err != nil {
+		return err
+	}
+	c.DeviceName = trimSpace(c.DeviceName)
+	c.InterfaceName = trimSpace(c.InterfaceName)
+	c.TunAddress = trimSpace(c.TunAddress)
+	c.TunGateway = trimSpace(c.TunGateway)
+	c.TunNetmask = trimSpace(c.TunNetmask)
+	c.ProxyTarget = trimSpace(c.ProxyTarget)
+	c.DNSServers = cleanStringSlice(c.DNSServers)
+	c.BypassCIDRs = cleanStringSlice(c.BypassCIDRs)
+	if c.DeviceName == "" {
+		c.DeviceName = "webfilter-tun"
+	}
+	if c.TunAddress == "" {
+		c.TunAddress = "198.18.0.1"
+	}
+	if c.TunGateway == "" {
+		c.TunGateway = c.TunAddress
+	}
+	if c.TunNetmask == "" {
+		c.TunNetmask = "255.254.0.0"
+	}
+	if len(c.BypassCIDRs) == 0 {
+		c.BypassCIDRs = []string{"127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}
+	}
+	return nil
+}
+
 // NewGlobalSettings returns GlobalSettings with every field at its
 // documented Python default.
 func NewGlobalSettings() GlobalSettings {
 	return GlobalSettings{
-		ProxyListen:      []string{"0.0.0.0:8080"},
+		ProxyListen:      []string{"0.0.0.0:8080", "socks5@127.0.0.1:1080"},
 		MgmtHost:         "0.0.0.0",
 		MgmtPort:         8000,
 		CertDir:          "./certs",
@@ -79,6 +139,7 @@ func NewGlobalSettings() GlobalSettings {
 		PacDirectHosts:   []string{},
 		PacDirectIPs:     []string{},
 		MgmtHostname:     "web.filter",
+		Tun2Socks:        NewTun2SocksConfig(),
 	}
 }
 
@@ -91,7 +152,7 @@ func (s *GlobalSettings) UnmarshalJSON(data []byte) error {
 	}
 	s.migrateLegacy(data)
 	if len(s.ProxyListen) == 0 {
-		s.ProxyListen = []string{"0.0.0.0:8080"}
+		s.ProxyListen = []string{"0.0.0.0:8080", "socks5@127.0.0.1:1080"}
 	} else {
 		cleaned := make([]string, 0, len(s.ProxyListen))
 		for _, v := range s.ProxyListen {
@@ -100,11 +161,21 @@ func (s *GlobalSettings) UnmarshalJSON(data []byte) error {
 			}
 		}
 		if len(cleaned) == 0 {
-			cleaned = []string{"0.0.0.0:8080"}
+			cleaned = []string{"0.0.0.0:8080", "socks5@127.0.0.1:1080"}
 		}
 		s.ProxyListen = cleaned
 	}
 	return nil
+}
+
+func cleanStringSlice(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		if t := trimSpace(v); t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 // legacySettingsFields captures the pre-proxy_listen flat schema
@@ -160,4 +231,14 @@ func (s GlobalSettings) PrimaryProxyPort() int {
 		}
 	}
 	return 8080
+}
+
+func (s GlobalSettings) PrimarySocks5Port() int {
+	for _, entry := range s.ProxyListen {
+		mode, _, port := ParseListen(entry)
+		if mode == "socks5" && port != 0 {
+			return port
+		}
+	}
+	return 0
 }

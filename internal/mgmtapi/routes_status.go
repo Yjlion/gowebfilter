@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+
+	tun "github.com/yjlion/gowebfilter/internal/tun2socks"
 )
 
 type statusResponse struct {
@@ -14,6 +16,7 @@ type statusResponse struct {
 	MgmtPort       int              `json:"mgmt_port"`
 	RecentBlocks   []map[string]any `json:"recent_blocks"`
 	RecentRequests []map[string]any `json:"recent_requests"`
+	Tun2Socks      tun.Status       `json:"tun2socks"`
 }
 
 const recentActivityLimit = 50
@@ -29,7 +32,12 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		MgmtPort:       cfg.MgmtPort,
 		RecentBlocks:   s.Logs.Tail("blocks", recentActivityLimit),
 		RecentRequests: s.Logs.Tail("requests", recentActivityLimit),
+		Tun2Socks:      tun.Inspect(cfg),
 	})
+}
+
+func (s *Server) handleTun2SocksStatus(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, tun.Inspect(s.Settings()))
 }
 
 // isPortOpen checks whether something is already listening on 127.0.0.1 (or

@@ -9,10 +9,12 @@ import (
 
 	"github.com/yjlion/gowebfilter/internal/classify/image"
 	"github.com/yjlion/gowebfilter/internal/classify/textbayes"
+	"github.com/yjlion/gowebfilter/internal/config"
 	"github.com/yjlion/gowebfilter/internal/mgmtapi"
 	"github.com/yjlion/gowebfilter/internal/proxy"
 	"github.com/yjlion/gowebfilter/internal/proxy/addons"
 	"github.com/yjlion/gowebfilter/internal/proxy/state"
+	tun "github.com/yjlion/gowebfilter/internal/tun2socks"
 )
 
 // errNotImplemented marks subcommands whose real implementation lands in a
@@ -31,6 +33,9 @@ func errNotImplemented(what string) error {
 // classification), with request logging last so it observes the final
 // decision.
 func buildProxyEngine(settingsPath string) (*proxy.Engine, *state.Runtime, error) {
+	if err := config.BootstrapRuntimeFiles(settingsPath); err != nil {
+		return nil, nil, err
+	}
 	rt, err := state.New(settingsPath)
 	if err != nil {
 		return nil, nil, err
@@ -69,7 +74,7 @@ func runProxy(ctx context.Context, settingsPath string) error {
 		return fmt.Errorf("start proxy engine: %w", err)
 	}
 	defer rt.Logs.Close()
-	return eng.Run(ctx)
+	return runEngineWithTun(ctx, eng, rt)
 }
 
 // runMgmt starts only the management HTTP server (API + embedded UI).
@@ -125,7 +130,7 @@ func runProxyAndMgmt(ctx context.Context, settingsPath string) error {
 	mgmtSrv.OnCARotated = rt.LeafIssuer.Clear
 
 	errCh := make(chan error, 2)
-	go func() { errCh <- eng.Run(ctx) }()
+	go func() { errCh <- runEngineWithTun(ctx, eng, rt) }()
 	go func() { errCh <- serveMgmt(ctx, mgmtSrv) }()
 
 	var firstErr error
@@ -136,6 +141,37 @@ func runProxyAndMgmt(ctx context.Context, settingsPath string) error {
 		}
 	}
 	return firstErr
+}
+
+func runEngineWithTun(ctx context.Context, eng *proxy.Engine, rt *state.Runtime) error {
+	ensureTunSocksListener(eng)
+	listeners, err := eng.Listen()
+	if err != nil {
+		return err
+	}
+	if rt != nil {
+		rt.Start(ctx)
+	}
+	tunMgr := tun.NewManager(eng.Settings)
+	if err := tunMgr.Start(ctx); err != nil {
+		if tun.IsStartupSkipped(err) {
+			slog.Warn("tun2socks not started", "err", err)
+			return eng.Serve(ctx, listeners)
+		}
+		for _, ln := range listeners {
+			_ = ln.Close()
+		}
+		return err
+	}
+	return eng.Serve(ctx, listeners)
+}
+
+func ensureTunSocksListener(eng *proxy.Engine) {
+	if eng == nil || !eng.Settings.Tun2Socks.Enabled || eng.Settings.PrimarySocks5Port() != 0 {
+		return
+	}
+	eng.Settings.ProxyListen = append(eng.Settings.ProxyListen, "socks5@127.0.0.1:1080")
+	slog.Info("tun2socks: added local SOCKS5 listener for TUN capture", "addr", "127.0.0.1:1080")
 }
 
 // loadTextScorer loads the embedded pure-Go Bayesian adult-text scorer. It

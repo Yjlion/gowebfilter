@@ -14,6 +14,52 @@ import (
 	"github.com/yjlion/gowebfilter/internal/models"
 )
 
+// BootstrapRuntimeFiles creates a usable first-run settings.json and
+// policies/default.json if they are missing. It never overwrites existing
+// files, so packaged examples and live runtime state remain user-owned.
+func BootstrapRuntimeFiles(settingsPath string) error {
+	if _, err := os.Stat(settingsPath); os.IsNotExist(err) {
+		settings := NewBootstrapSettings(settingsPath)
+		if err := SaveSettings(settingsPath, settings); err != nil {
+			return fmt.Errorf("bootstrap settings: %w", err)
+		}
+	} else if err != nil {
+		return fmt.Errorf("stat settings: %w", err)
+	}
+
+	settings, err := LoadSettings(settingsPath)
+	if err != nil {
+		return err
+	}
+	defaultPolicyPath := filepath.Join(settings.PoliciesDir, "default.json")
+	if _, err := os.Stat(defaultPolicyPath); os.IsNotExist(err) {
+		p := models.NewPolicy()
+		p.Name = "default"
+		if err := (&PolicyStore{Dir: settings.PoliciesDir}).write(defaultPolicyPath, p); err != nil {
+			return fmt.Errorf("bootstrap default policy: %w", err)
+		}
+	} else if err != nil {
+		return fmt.Errorf("stat default policy: %w", err)
+	}
+	return nil
+}
+
+func NewBootstrapSettings(settingsPath string) models.GlobalSettings {
+	settings := models.NewGlobalSettings()
+	root := filepath.Dir(settingsPath)
+	if filepath.Base(root) == "config" {
+		root = filepath.Dir(root)
+	}
+	if abs, err := filepath.Abs(root); err == nil {
+		root = abs
+	}
+	settings.CertDir = filepath.Join(root, "certs")
+	settings.PoliciesDir = filepath.Join(root, "policies")
+	settings.CategoriesDir = filepath.Join(root, "categories")
+	settings.LogsDir = filepath.Join(root, "logs")
+	return settings
+}
+
 // LoadSettings reads and parses settings.json. If the file doesn't exist,
 // returns NewGlobalSettings() (documented defaults) with no error - the
 // Python original's settings.example.json is copied by hand or the

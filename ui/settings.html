@@ -110,6 +110,105 @@
           <p class="text-xs text-gray-400" data-i18n="set.listenFormat">Format: host:port. Examples: 0.0.0.0:8080 (all IPv4), [::]:8080 (all IPv6), [::1]:8080 (IPv6 localhost), 192.168.1.10:3128.</p>
         </div>
 
+        <!-- TUN / tun2socks -->
+        <div class="bg-card rounded-xl shadow-sm border border-gray-100 p-6 space-y-4 mb-4">
+          <div>
+            <h2 class="text-sm font-semibold text-gray-900">TUN / tun2socks</h2>
+            <p class="text-xs text-gray-500 mt-0.5">Capture this machine's traffic through a TUN interface and send it into the local SOCKS5 proxy. Restart after saving changes.</p>
+          </div>
+          <div class="grid grid-cols-2 gap-3 text-xs">
+            <div class="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+              <div class="text-gray-500">Runtime</div>
+              <div class="font-medium" x-text="status.tun2socks && status.tun2socks.running ? 'Running' : 'Stopped'"></div>
+            </div>
+            <div class="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+              <div class="text-gray-500">Platform</div>
+              <div class="font-medium" x-text="status.tun2socks ? `${status.tun2socks.platform}${status.tun2socks.supported ? '' : ' (unsupported)'}` : 'unknown'"></div>
+            </div>
+            <div class="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+              <div class="text-gray-500">Privilege</div>
+              <div class="font-medium" x-text="status.tun2socks && status.tun2socks.privilege_ok ? status.tun2socks.privilege : 'needs admin/root'"></div>
+            </div>
+            <div class="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+              <div class="text-gray-500">Proxy target</div>
+              <div class="font-mono" x-text="status.tun2socks && status.tun2socks.required_proxy ? status.tun2socks.required_proxy : 'auto'"></div>
+            </div>
+          </div>
+          <div x-show="status.tun2socks && status.tun2socks.last_error" x-cloak
+               class="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2"
+               x-text="status.tun2socks.last_error"></div>
+          <label class="flex items-center gap-3 cursor-pointer">
+            <input type="checkbox" class="w-4 h-4 accent-blue-600" x-model="settings.tun2socks.enabled" />
+            <span class="text-sm text-gray-700">Enable TUN capture on startup</span>
+          </label>
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="text-xs font-medium text-gray-700 block mb-1">Device name</label>
+              <input type="text" x-model="settings.tun2socks.device_name" placeholder="webfilter-tun"
+                     class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label class="text-xs font-medium text-gray-700 block mb-1">Outbound interface <span class="text-gray-400">(optional)</span></label>
+              <input type="text" x-model="settings.tun2socks.interface_name" placeholder="Wi-Fi / eth0"
+                     class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label class="text-xs font-medium text-gray-700 block mb-1">TUN address</label>
+              <input type="text" x-model="settings.tun2socks.tun_address" placeholder="198.18.0.1"
+                     class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label class="text-xs font-medium text-gray-700 block mb-1">Gateway</label>
+              <input type="text" x-model="settings.tun2socks.tun_gateway" placeholder="198.18.0.1"
+                     class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label class="text-xs font-medium text-gray-700 block mb-1">Netmask</label>
+              <input type="text" x-model="settings.tun2socks.tun_netmask" placeholder="255.254.0.0"
+                     class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label class="text-xs font-medium text-gray-700 block mb-1">Proxy target <span class="text-gray-400">(optional)</span></label>
+              <input type="text" x-model="settings.tun2socks.proxy_target" placeholder="auto: socks5://127.0.0.1:1080"
+                     class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+          </div>
+          <label class="flex items-center gap-3 cursor-pointer">
+            <input type="checkbox" class="w-4 h-4 accent-blue-600" x-model="settings.tun2socks.auto_routes" />
+            <span class="text-sm text-gray-700">Configure TUN address, DNS, and default route automatically</span>
+          </label>
+          <div>
+            <label class="text-xs font-medium text-gray-700 block mb-1">DNS servers</label>
+            <div class="space-y-2">
+              <template x-for="(dns, i) in settings.tun2socks.dns_servers" :key="i">
+                <div class="flex items-center gap-2">
+                  <input type="text" x-model="settings.tun2socks.dns_servers[i]" placeholder="1.1.1.3"
+                         class="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  <button type="button" @click="settings.tun2socks.dns_servers.splice(i, 1)"
+                          class="px-2 py-2 text-gray-400 hover:text-red-500" title="Remove">x</button>
+                </div>
+              </template>
+              <button type="button" @click="settings.tun2socks.dns_servers.push('')"
+                      class="text-sm text-blue-600 hover:text-blue-800 font-medium">+ Add DNS server</button>
+            </div>
+          </div>
+          <div>
+            <label class="text-xs font-medium text-gray-700 block mb-1">Bypass CIDRs</label>
+            <div class="space-y-2">
+              <template x-for="(cidr, i) in settings.tun2socks.bypass_cidrs" :key="i">
+                <div class="flex items-center gap-2">
+                  <input type="text" x-model="settings.tun2socks.bypass_cidrs[i]" placeholder="192.168.0.0/16"
+                         class="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  <button type="button" @click="settings.tun2socks.bypass_cidrs.splice(i, 1)"
+                          class="px-2 py-2 text-gray-400 hover:text-red-500" title="Remove">x</button>
+                </div>
+              </template>
+              <button type="button" @click="settings.tun2socks.bypass_cidrs.push('')"
+                      class="text-sm text-blue-600 hover:text-blue-800 font-medium">+ Add bypass CIDR</button>
+            </div>
+          </div>
+        </div>
+
         <!-- WireGuard panel -->
         <div x-show="wg.enabled" x-cloak class="bg-card rounded-xl shadow-sm border border-gray-100 p-6 space-y-4 mb-4">
           <div>
@@ -392,8 +491,8 @@
   <script>
     function settingsPage() {
       return {
-        settings: { proxy_listen: ['0.0.0.0:8080'], mgmt_host: '0.0.0.0', mgmt_port: 8000, cert_dir: './certs', policies_dir: './policies', logs_dir: './logs', categories_dir: './categories', log_blocks: true, log_requests: true, log_retention_days: 30, default_policy: null, auth_enabled: false, has_password: false, pac_proxy_host: '', pac_direct_hosts: [], pac_direct_ips: [], mgmt_hostname: 'web.filter', upstream_proxy: '', upstream_auth: '', ui_language: 'en', proxy_auth_enabled: false, proxy_auth_username: '', has_proxy_auth: false },
-        status: { proxy_port: null },
+        settings: { proxy_listen: ['0.0.0.0:8080', 'socks5@127.0.0.1:1080'], mgmt_host: '0.0.0.0', mgmt_port: 8000, cert_dir: './certs', policies_dir: './policies', logs_dir: './logs', categories_dir: './categories', log_blocks: true, log_requests: true, log_retention_days: 30, default_policy: null, auth_enabled: false, has_password: false, pac_proxy_host: '', pac_direct_hosts: [], pac_direct_ips: [], mgmt_hostname: 'web.filter', upstream_proxy: '', upstream_auth: '', ui_language: 'en', proxy_auth_enabled: false, proxy_auth_username: '', has_proxy_auth: false, tun2socks: { enabled: false, device_name: 'webfilter-tun', interface_name: '', tun_address: '198.18.0.1', tun_gateway: '198.18.0.1', tun_netmask: '255.254.0.0', dns_servers: [], auto_routes: true, bypass_cidrs: ['127.0.0.0/8', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'], proxy_target: '' } },
+        status: { proxy_port: null, tun2socks: { running: false, platform: 'unknown', supported: false, privilege_ok: false, required_proxy: '' } },
         newPassword: '',
         newProxyAuthPassword: '',
         alert: '',
@@ -479,6 +578,7 @@
               if (!Array.isArray(s.pac_direct_hosts)) s.pac_direct_hosts = [];
               if (!Array.isArray(s.pac_direct_ips)) s.pac_direct_ips = [];
               if (!s.mgmt_hostname) s.mgmt_hostname = 'web.filter';
+              s.tun2socks = this.normalizeTun(s.tun2socks);
               this.settings = s;
             }
           } catch (e) {}
@@ -506,6 +606,10 @@
             payload.pac_direct_hosts = payload.pac_direct_hosts.map(h => (h || '').trim()).filter(Boolean);
           if (Array.isArray(payload.pac_direct_ips))
             payload.pac_direct_ips = payload.pac_direct_ips.map(h => (h || '').trim()).filter(Boolean);
+          if (payload.tun2socks) {
+            payload.tun2socks.dns_servers = (payload.tun2socks.dns_servers || []).map(h => (h || '').trim()).filter(Boolean);
+            payload.tun2socks.bypass_cidrs = (payload.tun2socks.bypass_cidrs || []).map(h => (h || '').trim()).filter(Boolean);
+          }
           if (this.newPassword) payload.new_password = this.newPassword;
           if (this.newProxyAuthPassword !== '') payload.new_proxy_auth_password = this.newProxyAuthPassword;
           try {
@@ -577,6 +681,14 @@
             this.alertType = 'error';
           }
           setTimeout(() => { this.alert = ''; }, 5000);
+        },
+
+        normalizeTun(t) {
+          const d = { enabled: false, device_name: 'webfilter-tun', interface_name: '', tun_address: '198.18.0.1', tun_gateway: '198.18.0.1', tun_netmask: '255.254.0.0', dns_servers: [], auto_routes: true, bypass_cidrs: ['127.0.0.0/8', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'], proxy_target: '' };
+          const out = { ...d, ...(t || {}) };
+          if (!Array.isArray(out.dns_servers)) out.dns_servers = d.dns_servers;
+          if (!Array.isArray(out.bypass_cidrs)) out.bypass_cidrs = d.bypass_cidrs;
+          return out;
         },
 
         async logout() { await fetch('/api/logout', { method: 'POST' }); location.href = 'login.html'; },

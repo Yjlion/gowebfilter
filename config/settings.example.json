@@ -1,6 +1,7 @@
 {
   "proxy_listen": [
-    "0.0.0.0:8080"
+    "0.0.0.0:8080",
+    "socks5@127.0.0.1:1080"
   ],
   "mgmt_host": "0.0.0.0",
   "mgmt_port": 8000,
@@ -17,5 +18,22 @@
   "secret_key": "",
   "pac_direct_ips": [],
   "mgmt_hostname": "web.filter",
-  "mgmt_hostname_ip": ""
+  "mgmt_hostname_ip": "",
+  "tun2socks": {
+    "enabled": false,
+    "device_name": "webfilter-tun",
+    "interface_name": "",
+    "tun_address": "198.18.0.1",
+    "tun_gateway": "198.18.0.1",
+    "tun_netmask": "255.254.0.0",
+    "dns_servers": [],
+    "auto_routes": true,
+    "bypass_cidrs": [
+      "127.0.0.0/8",
+      "10.0.0.0/8",
+      "172.16.0.0/12",
+      "192.168.0.0/16"
+    ],
+    "proxy_target": ""
+  }
 }

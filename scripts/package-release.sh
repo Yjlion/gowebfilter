@@ -36,6 +36,11 @@ TARGETS=(
 rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR"
 
+if [[ ! -f categories/index.json ]]; then
+  echo "[package] categories/index.json missing; downloading category lists ..."
+  CGO_ENABLED=0 go run ./cmd/webfilter categories update --settings config/settings.example.json
+fi
+
 for target in "${TARGETS[@]}"; do
   IFS=: read -r goos goarch ext <<<"$target"
   name="webfilter-${VERSION}-${goos}-${goarch}"
@@ -49,7 +54,17 @@ for target in "${TARGETS[@]}"; do
 
   [[ -f config/settings.example.json ]] && cp config/settings.example.json "$stage/"
   [[ -f policies/default.json.example ]] && cp policies/default.json.example "$stage/"
+  [[ -d categories ]] && cp -R categories "$stage/"
   cp packaging/README.md "$stage/"
+  if [[ "$goos" == "windows" ]]; then
+    if [[ -f wintun.dll ]]; then
+      cp wintun.dll "$stage/"
+    elif [[ -f packaging/wintun.dll ]]; then
+      cp packaging/wintun.dll "$stage/"
+    else
+      echo "[package] warning: wintun.dll not found; Windows TUN mode will require users to add it beside webfilter.exe"
+    fi
+  fi
   if [[ "$goos" == "linux" ]]; then
     cp packaging/webfilter.service packaging/webfilter-proxy.service \
       packaging/webfilter-mgmt.service packaging/install.sh "$stage/"

@@ -46,6 +46,9 @@ type Server struct {
 // store, and CA rooted at whatever directories that settings file
 // specifies.
 func NewServer(settingsPath string) (*Server, error) {
+	if err := config.BootstrapRuntimeFiles(settingsPath); err != nil {
+		return nil, err
+	}
 	s, err := config.LoadSettings(settingsPath)
 	if err != nil {
 		return nil, err
@@ -100,6 +103,7 @@ func (s *Server) Router() *chi.Mux {
 	r.Post("/api/logout", s.handleLogout)
 
 	r.Get("/api/status", s.handleStatus)
+	r.Get("/api/tun2socks/status", s.handleTun2SocksStatus)
 
 	r.Get("/api/policies", s.handleListPolicies)
 	r.Post("/api/policies", s.handleCreatePolicy)
