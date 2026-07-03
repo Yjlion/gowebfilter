@@ -1,22 +1,13 @@
 # Deploying WebFilter Proxy
 
 WebFilter Proxy ships as a single binary per OS/arch (Windows x86_64,
-Linux x86_64/arm64) plus one bundled shared library - there is no Python
-runtime, virtualenv, or package to install. The text classifier
-(`internal/classify/text`) is onnxruntime-backed, and onnxruntime_go loads
-its shared library dynamically rather than statically linking it, so each
-release archive includes `onnxruntime.dll` (Windows) or `libonnxruntime.so`
-(Linux) alongside the `webfilter` binary - keep them in the same directory
-(the binary looks next to itself automatically; set
-`ONNXRUNTIME_SHARED_LIBRARY` to override). The image classifier
-(`internal/classify/image`) is pure Go with its model embedded in the
-binary - nothing to bundle or provision for it. Deployment is just: put the
-binary and the onnxruntime shared library somewhere together, give it a
-working directory containing `config/settings.json` (and `policies/`,
-`certs/`, `categories/`, `logs/`, `data/`, `models/` - all created on first
-run if missing, except `models/` which needs
-`scripts/export_text_model.py` if you want the text classifier's ML stage -
-see the repo root README), and run it as a long-lived process.
+Linux x86_64/arm64) - there is no Python runtime, virtualenv, package, or
+native ML shared library to install. The text classifier is an embedded
+pure-Go Bayesian scorer, and the image classifier is pure Go with its model
+embedded in the binary. Deployment is just: put the binary somewhere, give
+it a working directory containing `config/settings.json` (and `policies/`,
+`certs/`, `categories/`, `logs/`, `data/` - created on first run if
+missing), and run it as a long-lived process.
 
 This directory contains the pieces needed to run it as an actual system
 service rather than a foreground process.
@@ -65,9 +56,7 @@ by hand if you'd rather not run the installer - just adjust the `User`,
 ## Windows (native service)
 
 The binary has built-in Windows service support - no NSSM or other wrapper
-needed. Keep `onnxruntime.dll` in the same directory as `webfilter.exe`
-(the release archive already extracts them together; if you relocate the
-exe, bring the DLL with it). From an elevated (Administrator) prompt:
+needed. From an elevated (Administrator) prompt:
 
 ```powershell
 webfilter.exe service install --settings C:\path\to\config\settings.json

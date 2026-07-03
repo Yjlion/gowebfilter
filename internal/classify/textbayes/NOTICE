@@ -1,0 +1,14 @@
+Embedded adult-text Bayesian scorer data notice
+
+The seed adult vocabulary is curated from concepts present in the English
+LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words project:
+
+  https://github.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words
+
+That project is licensed under Creative Commons Attribution 4.0
+International (CC-BY-4.0) and is copyrighted by Shutterstock, Inc.
+
+The e2guardian and Redwood pornography lists named in the implementation
+plan were reviewed as references only. Their raw data is not embedded in
+this package by default because redistribution compatibility was not
+confirmed for this project.

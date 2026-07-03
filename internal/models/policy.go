@@ -13,6 +13,9 @@ package models
 
 import (
 	"encoding/json"
+	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/yjlion/gowebfilter/internal/macutil"
 )
@@ -66,7 +69,33 @@ type textClassifierConfigAlias TextClassifierConfig
 
 func (c *TextClassifierConfig) UnmarshalJSON(data []byte) error {
 	*c = NewTextClassifierConfig()
-	return json.Unmarshal(data, (*textClassifierConfigAlias)(c))
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if v, ok := raw["enabled"]; ok {
+		if err := json.Unmarshal(v, &c.Enabled); err != nil {
+			return err
+		}
+	}
+	if v, ok := raw["threshold"]; ok {
+		f, err := decodeJSONFloat(v)
+		if err != nil {
+			return fmt.Errorf("text_classifier.threshold: %w", err)
+		}
+		c.Threshold = f
+	}
+	if v, ok := raw["exclude"]; ok {
+		if err := json.Unmarshal(v, &c.Exclude); err != nil {
+			return err
+		}
+	}
+	if v, ok := raw["include_only"]; ok {
+		if err := json.Unmarshal(v, &c.IncludeOnly); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // ---- ImageClassifierConfig ----
@@ -102,7 +131,45 @@ type imageClassifierConfigAlias ImageClassifierConfig
 
 func (c *ImageClassifierConfig) UnmarshalJSON(data []byte) error {
 	*c = NewImageClassifierConfig()
-	return json.Unmarshal(data, (*imageClassifierConfigAlias)(c))
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if v, ok := raw["enabled"]; ok {
+		if err := json.Unmarshal(v, &c.Enabled); err != nil {
+			return err
+		}
+	}
+	if v, ok := raw["action"]; ok {
+		if err := json.Unmarshal(v, &c.Action); err != nil {
+			return err
+		}
+	}
+	if v, ok := raw["threshold"]; ok {
+		f, err := decodeJSONFloat(v)
+		if err != nil {
+			return fmt.Errorf("image_classifier.threshold: %w", err)
+		}
+		c.Threshold = f
+	}
+	if v, ok := raw["min_dimension"]; ok {
+		i, err := decodeJSONInt(v)
+		if err != nil {
+			return fmt.Errorf("image_classifier.min_dimension: %w", err)
+		}
+		c.MinDimension = i
+	}
+	if v, ok := raw["exclude"]; ok {
+		if err := json.Unmarshal(v, &c.Exclude); err != nil {
+			return err
+		}
+	}
+	if v, ok := raw["include_only"]; ok {
+		if err := json.Unmarshal(v, &c.IncludeOnly); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // ---- SafeSearch ----
@@ -402,4 +469,36 @@ func trimSpace(s string) string {
 
 func isSpace(b byte) bool {
 	return b == ' ' || b == '\t' || b == '\n' || b == '\r'
+}
+
+func decodeJSONFloat(raw json.RawMessage) (float64, error) {
+	var f float64
+	if err := json.Unmarshal(raw, &f); err == nil {
+		return f, nil
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return 0, err
+	}
+	f, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+	if err != nil {
+		return 0, err
+	}
+	return f, nil
+}
+
+func decodeJSONInt(raw json.RawMessage) (int, error) {
+	var i int
+	if err := json.Unmarshal(raw, &i); err == nil {
+		return i, nil
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return 0, err
+	}
+	i, err := strconv.Atoi(strings.TrimSpace(s))
+	if err != nil {
+		return 0, err
+	}
+	return i, nil
 }

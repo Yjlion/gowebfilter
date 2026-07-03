@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/yjlion/gowebfilter/internal/classify/textbayes"
 	"github.com/yjlion/gowebfilter/internal/models"
 	"github.com/yjlion/gowebfilter/internal/proxy/addons"
 )
@@ -49,11 +50,28 @@ func TestTextClassifierAllowsBenignPage(t *testing.T) {
 	}
 }
 
-func TestTextClassifierSkipsTinyPages(t *testing.T) {
+func TestTextClassifierBlocksTinyPageWithMultipleKeywordHits(t *testing.T) {
 	rt := newTestRuntime(t)
 	fc := newFlow(t, rt, "http://example.com/page")
 	fc.Response = &http.Response{Header: http.Header{"Content-Type": []string{"text/html"}}}
-	fc.ResponseBody = []byte("<html>porn xxx hentai</html>") // has keywords but too short after stripping
+	fc.ResponseBody = []byte("<html>porn xxx hentai</html>")
+	policy := models.NewPolicy()
+	policy.TextClassifier = models.NewTextClassifierConfig()
+	policy.TextClassifier.Enabled = true
+	fc.Policy = &policy
+
+	addons.TextClassifier{}.HandleResponse(fc)
+
+	if !strings.Contains(string(fc.ResponseBody), "Access Blocked") {
+		t.Error("expected tiny page with multiple high-confidence keyword hits to be blocked")
+	}
+}
+
+func TestTextClassifierSkipsTinyPageWithWeakEvidence(t *testing.T) {
+	rt := newTestRuntime(t)
+	fc := newFlow(t, rt, "http://example.com/page")
+	fc.Response = &http.Response{Header: http.Header{"Content-Type": []string{"text/html"}}}
+	fc.ResponseBody = []byte("<html>single mention of porn</html>")
 	policy := models.NewPolicy()
 	policy.TextClassifier = models.NewTextClassifierConfig()
 	policy.TextClassifier.Enabled = true
@@ -63,7 +81,7 @@ func TestTextClassifierSkipsTinyPages(t *testing.T) {
 	addons.TextClassifier{}.HandleResponse(fc)
 
 	if string(fc.ResponseBody) != original {
-		t.Error("expected pages under the 100-char floor to be skipped regardless of keyword hits")
+		t.Error("expected tiny page with weak evidence to be skipped")
 	}
 }
 
@@ -102,6 +120,70 @@ func TestTextClassifierMLScorerUsedBelowKeywordThreshold(t *testing.T) {
 
 	if !strings.Contains(string(fc.ResponseBody), "Access Blocked") {
 		t.Error("expected the ML scorer to push a single-keyword-hit page over threshold")
+	}
+}
+
+func TestTextClassifierBayesianScorerBlocksBelowKeywordThreshold(t *testing.T) {
+	rt := newTestRuntime(t)
+	html := "<html><body>" + strings.Repeat("Browse adult video galleries and live webcam shows. ", 3) + "</body></html>"
+	fc := newFlow(t, rt, "http://example.com/page")
+	fc.Response = &http.Response{Header: http.Header{"Content-Type": []string{"text/html"}}}
+	fc.ResponseBody = []byte(html)
+	policy := models.NewPolicy()
+	policy.TextClassifier = models.NewTextClassifierConfig()
+	policy.TextClassifier.Enabled = true
+	policy.TextClassifier.Threshold = 0.8
+	fc.Policy = &policy
+
+	scorer, err := textbayes.New()
+	if err != nil {
+		t.Fatalf("textbayes.New: %v", err)
+	}
+	tc := addons.TextClassifier{Scorer: scorer}
+	tc.HandleResponse(fc)
+
+	if !strings.Contains(string(fc.ResponseBody), "Access Blocked") {
+		t.Error("expected the embedded Bayesian scorer to block adult text below the keyword pre-filter threshold")
+	}
+}
+
+func TestTextClassifierIncludeOnlyAndExcludeStillGateScoring(t *testing.T) {
+	rt := newTestRuntime(t)
+	html := "<html><body>" + strings.Repeat("adult video galleries and live webcam shows. ", 4) + "</body></html>"
+	for _, tc := range []struct {
+		name string
+		cfg  func(*models.Policy)
+	}{
+		{
+			name: "exclude",
+			cfg:  func(p *models.Policy) { p.TextClassifier.Exclude = []string{"example.com"} },
+		},
+		{
+			name: "include_only_miss",
+			cfg:  func(p *models.Policy) { p.TextClassifier.IncludeOnly = []string{"other.example"} },
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fc := newFlow(t, rt, "http://example.com/page")
+			fc.Response = &http.Response{Header: http.Header{"Content-Type": []string{"text/html"}}}
+			fc.ResponseBody = []byte(html)
+			policy := models.NewPolicy()
+			policy.TextClassifier = models.NewTextClassifierConfig()
+			policy.TextClassifier.Enabled = true
+			tc.cfg(&policy)
+			fc.Policy = &policy
+			original := string(fc.ResponseBody)
+
+			scorer, err := textbayes.New()
+			if err != nil {
+				t.Fatalf("textbayes.New: %v", err)
+			}
+			addons.TextClassifier{Scorer: scorer}.HandleResponse(fc)
+
+			if string(fc.ResponseBody) != original {
+				t.Fatal("expected include/exclude gating to skip text classification")
+			}
+		})
 	}
 }
 

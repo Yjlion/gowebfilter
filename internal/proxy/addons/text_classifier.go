@@ -100,6 +100,10 @@ func (tc TextClassifier) HandleResponse(fc *proxy.FlowContext) {
 	}
 
 	text := stripHTML(string(fc.ResponseBody))
+	if keywordScore(text) >= 1.0 {
+		fc.Block("Adult text content detected", "text_classifier")
+		return
+	}
 	if len(text) < 100 { // skip tiny pages
 		return
 	}

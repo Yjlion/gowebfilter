@@ -8,17 +8,16 @@ require (
 	github.com/go-chi/chi/v5 v5.3.0
 	github.com/miekg/dns v1.1.72
 	github.com/spf13/cobra v1.10.2
-	github.com/yalue/onnxruntime_go v1.31.0
 	golang.org/x/crypto v0.53.0
 	golang.org/x/image v0.0.0-20191009234506-e7c1f5e7dbb8
 	golang.org/x/net v0.55.0
 	golang.org/x/sys v0.46.0
-	golang.org/x/text v0.38.0
 	modernc.org/sqlite v1.53.0
 )
 
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect

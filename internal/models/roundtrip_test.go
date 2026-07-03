@@ -256,6 +256,27 @@ func TestPolicySourceMACsNormalization(t *testing.T) {
 	}
 }
 
+func TestPolicyClassifierNumericStrings(t *testing.T) {
+	data := []byte(`{
+		"name": "browser-payload",
+		"text_classifier": {"enabled": true, "threshold": "0.55", "exclude": [], "include_only": []},
+		"image_classifier": {"enabled": true, "action": "blur", "threshold": "0.45", "min_dimension": "128", "exclude": [], "include_only": []}
+	}`)
+	var p models.Policy
+	if err := json.Unmarshal(data, &p); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if p.TextClassifier.Threshold != 0.55 {
+		t.Errorf("TextClassifier.Threshold = %v, want 0.55", p.TextClassifier.Threshold)
+	}
+	if p.ImageClassifier.Threshold != 0.45 {
+		t.Errorf("ImageClassifier.Threshold = %v, want 0.45", p.ImageClassifier.Threshold)
+	}
+	if p.ImageClassifier.MinDimension != 128 {
+		t.Errorf("ImageClassifier.MinDimension = %v, want 128", p.ImageClassifier.MinDimension)
+	}
+}
+
 func TestSettingsLegacyProxyPortMigration(t *testing.T) {
 	data := []byte(`{"proxy_port": 9090, "listen_host": "127.0.0.1"}`)
 	var s models.GlobalSettings

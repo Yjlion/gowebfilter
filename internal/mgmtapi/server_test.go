@@ -196,6 +196,49 @@ func TestPolicyCRUDFlow(t *testing.T) {
 	}
 }
 
+func TestPolicyUpdateAcceptsBrowserNumericStrings(t *testing.T) {
+	_, ts := newTestServer(t)
+	client := ts.Client()
+
+	p := models.NewPolicy()
+	p.Name = "adult-text"
+	body, _ := json.Marshal(p)
+	resp, err := client.Post(ts.URL+"/api/policies", "application/json", strings.NewReader(string(body)))
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create status = %d, want 201", resp.StatusCode)
+	}
+
+	payload := `{
+		"name": "adult-text",
+		"source_ips": [],
+		"source_macs": [],
+		"text_classifier": {"enabled": true, "threshold": "0.5", "exclude": [], "include_only": []},
+		"image_classifier": {"enabled": false, "action": "blur", "threshold": "0.4", "min_dimension": "100", "exclude": [], "include_only": []}
+	}`
+	req, _ := http.NewRequest(http.MethodPut, ts.URL+"/api/policies/adult-text", strings.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	uresp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("PUT: %v", err)
+	}
+	defer uresp.Body.Close()
+	if uresp.StatusCode != http.StatusOK {
+		data, _ := io.ReadAll(uresp.Body)
+		t.Fatalf("update status = %d, want 200; body=%s", uresp.StatusCode, data)
+	}
+	var got models.Policy
+	if err := json.NewDecoder(uresp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if got.TextClassifier.Threshold != 0.5 {
+		t.Fatalf("TextClassifier.Threshold = %v, want 0.5", got.TextClassifier.Threshold)
+	}
+}
+
 func TestSettingsGetStripsSecretsAndAddsHasFlags(t *testing.T) {
 	s, ts := newTestServer(t)
 	cfg := s.Settings()

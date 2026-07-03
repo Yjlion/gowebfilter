@@ -9,7 +9,7 @@ import (
 	"github.com/yjlion/gowebfilter/internal/models"
 )
 
-func TestClassifierHealthReportsKeywordOnlyDefault(t *testing.T) {
+func TestClassifierHealthReportsEmbeddedClassifiers(t *testing.T) {
 	_, ts := newTestServer(t)
 
 	var body map[string]any
@@ -18,8 +18,8 @@ func TestClassifierHealthReportsKeywordOnlyDefault(t *testing.T) {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
 	textHealth := body["text_classifier"].(map[string]any)
-	if textHealth["status"] != "keyword_only" || textHealth["ml_enabled"] != false {
-		t.Fatalf("text_classifier = %v, want keyword_only with ml_enabled=false", textHealth)
+	if textHealth["status"] != "available" || textHealth["ml_enabled"] != true {
+		t.Fatalf("text_classifier = %v, want available with ml_enabled=true", textHealth)
 	}
 	imageHealth := body["image_classifier"].(map[string]any)
 	if imageHealth["status"] != "available" {
