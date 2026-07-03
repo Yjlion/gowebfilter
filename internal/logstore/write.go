@@ -29,6 +29,17 @@ type BlockEntry struct {
 	ClientIP  string
 }
 
+// PolicyChangeEntry is one row of the policy_changes table, written by the
+// management API whenever a policy is created, updated, or deleted. OldName
+// is only set on an update that renames the policy.
+type PolicyChangeEntry struct {
+	TS         int64
+	Action     string // "created" | "updated" | "deleted"
+	PolicyName string
+	OldName    string
+	ClientIP   string
+}
+
 // LogRequest inserts a request row. No-op if log_requests is disabled or
 // the store wasn't configured for it.
 func (s *Store) LogRequest(e RequestEntry) error {
@@ -47,6 +58,15 @@ func (s *Store) LogBlock(e BlockEntry) error {
 	}
 	return s.insert("blocks", BlockColumns, []any{
 		e.TS, e.Domain, e.URL, e.Reason, e.Component, e.Policy, e.ClientIP,
+	})
+}
+
+// LogPolicyChange inserts a policy_changes row. Unlike LogRequest/LogBlock,
+// this is never gated by a settings toggle - policy-change auditing is
+// always on.
+func (s *Store) LogPolicyChange(e PolicyChangeEntry) error {
+	return s.insert("policy_changes", PolicyChangeColumns, []any{
+		e.TS, e.Action, e.PolicyName, e.OldName, e.ClientIP,
 	})
 }
 

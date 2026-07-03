@@ -124,6 +124,75 @@ func TestMatchPolicyReportsInactivePolicies(t *testing.T) {
 	}
 }
 
+func mondayMorning() time.Time { return time.Date(2026, 7, 6, 10, 0, 0, 0, time.Local) } // Monday
+func mondayEvening() time.Time { return time.Date(2026, 7, 6, 20, 0, 0, 0, time.Local) } // Monday, outside 09:00-17:00
+
+func weekdaySchedule() models.ScheduleConfig {
+	return models.ScheduleConfig{
+		Enabled: true,
+		ActiveWindows: []models.TimeWindow{
+			{Days: []int{0}, Start: "09:00", End: "17:00"},
+		},
+	}
+}
+
+func TestMatchPolicyScheduledExactIPWinsOverFallback(t *testing.T) {
+	scheduled := policyNamed("bedtime", "192.168.1.5")
+	scheduled.Schedule = weekdaySchedule()
+	fallback := policyNamed("default", "192.168.1.5")
+	policies := []models.Policy{fallback, scheduled}
+
+	inWindow := MatchPolicy(policies, "192.168.1.5", mondayMorning(), nil)
+	if inWindow.PolicyName != "bedtime" {
+		t.Fatalf("during window: match = %+v, want scheduled policy to win", inWindow)
+	}
+
+	outOfWindow := MatchPolicy(policies, "192.168.1.5", mondayEvening(), nil)
+	if outOfWindow.PolicyName != "default" {
+		t.Fatalf("outside window: match = %+v, want fallback policy to win", outOfWindow)
+	}
+}
+
+func TestMatchPolicyScheduledCIDRWinsOverFallbackRegardlessOfPrefix(t *testing.T) {
+	// The fallback policy has the narrower/more specific CIDR, but the
+	// scheduled policy must still win while its window is active.
+	scheduled := policyNamed("bedtime", "192.168.1.0/24")
+	scheduled.Schedule = weekdaySchedule()
+	fallback := policyNamed("default", "192.168.1.0/28")
+	policies := []models.Policy{fallback, scheduled}
+
+	inWindow := MatchPolicy(policies, "192.168.1.5", mondayMorning(), nil)
+	if inWindow.PolicyName != "bedtime" {
+		t.Fatalf("during window: match = %+v, want scheduled policy to win over narrower fallback CIDR", inWindow)
+	}
+
+	outOfWindow := MatchPolicy(policies, "192.168.1.5", mondayEvening(), nil)
+	if outOfWindow.PolicyName != "default" {
+		t.Fatalf("outside window: match = %+v, want fallback policy to win", outOfWindow)
+	}
+}
+
+func TestMatchPolicyInactiveFlagSkipsPolicyEntirely(t *testing.T) {
+	inactive := policyNamed("kids", "192.168.1.5")
+	inactive.Inactive = true
+	fallback := policyNamed("default")
+	policies := []models.Policy{inactive, fallback}
+
+	match := MatchPolicy(policies, "192.168.1.5", time.Now(), nil)
+	if match.PolicyName != "default" {
+		t.Fatalf("match = %+v, want fallback (inactive policy must never match)", match)
+	}
+	found := false
+	for _, n := range match.InactivePolicies {
+		if n == "kids" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("InactivePolicies = %v, want to include administratively-inactive 'kids'", match.InactivePolicies)
+	}
+}
+
 func TestShouldBypassMitm(t *testing.T) {
 	rt := &Runtime{}
 	excluded := models.NewPolicy()

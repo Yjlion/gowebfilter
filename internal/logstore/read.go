@@ -9,8 +9,8 @@ import (
 // tables, matching the Python original's whitelist (query built by string
 // formatting the table name, so this check is what keeps that safe).
 func validKind(kind string) error {
-	if kind != "requests" && kind != "blocks" {
-		return fmt.Errorf("invalid kind %q: must be \"requests\" or \"blocks\"", kind)
+	if kind != "requests" && kind != "blocks" && kind != "policy_changes" {
+		return fmt.Errorf("invalid kind %q: must be \"requests\", \"blocks\", or \"policy_changes\"", kind)
 	}
 	return nil
 }

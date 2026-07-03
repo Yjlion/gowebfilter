@@ -406,6 +406,7 @@ func (c *ScheduleConfig) UnmarshalJSON(data []byte) error {
 
 type Policy struct {
 	Name            string                `json:"name"`
+	Inactive        bool                  `json:"inactive"`
 	SourceIPs       []string              `json:"source_ips"`
 	SourceMACs      []string              `json:"source_macs"`
 	Schedule        ScheduleConfig        `json:"schedule"`

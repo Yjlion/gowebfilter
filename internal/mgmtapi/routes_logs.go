@@ -10,8 +10,8 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 	if kind == "" {
 		kind = "blocks"
 	}
-	if kind != "blocks" && kind != "requests" {
-		writeJSONError(w, http.StatusBadRequest, "kind must be \"blocks\" or \"requests\"")
+	if kind != "blocks" && kind != "requests" && kind != "policy_changes" {
+		writeJSONError(w, http.StatusBadRequest, "kind must be \"blocks\", \"requests\", or \"policy_changes\"")
 		return
 	}
 
