@@ -7,14 +7,12 @@ on:
   pull_request:
 
 jobs:
-  # Both classifiers (internal/classify/image, internal/classify/text) are
-  # unconditionally ONNX/onnxruntime_go-backed - no more `-tags onnx` split
-  # - so CGO_ENABLED=1 and a C toolchain are required for every build now.
-  # ubuntu-latest ships gcc already.
+  # Both classifiers are pure Go and embedded, so CI verifies the default
+  # CGO-free build.
   test:
     runs-on: ubuntu-latest
     env:
-      CGO_ENABLED: "1"
+      CGO_ENABLED: "0"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -24,11 +22,7 @@ jobs:
       - run: go vet ./...
       - run: go test ./...
 
-  # Cross-compile matrix for the three release targets. CGO_ENABLED=1 is
-  # mandatory now (see the `test` job comment above), so each non-native
-  # target needs its own C cross-compiler installed on this ubuntu-latest
-  # (linux/amd64) runner - linux/amd64 itself needs none, it's the native
-  # arch.
+  # Cross-compile matrix for the three release targets.
   cross-compile:
     runs-on: ubuntu-latest
     strategy:
@@ -36,28 +30,19 @@ jobs:
         include:
           - goos: windows
             goarch: amd64
-            cc: x86_64-w64-mingw32-gcc
-            aptPackage: gcc-mingw-w64-x86-64
           - goos: linux
             goarch: amd64
-            cc: gcc
-            aptPackage: ""
           - goos: linux
             goarch: arm64
-            cc: aarch64-linux-gnu-gcc
-            aptPackage: gcc-aarch64-linux-gnu
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: "1.26"
-      - if: matrix.aptPackage != ''
-        run: sudo apt-get update && sudo apt-get install -y ${{ matrix.aptPackage }}
       - env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: "1"
-          CC: ${{ matrix.cc }}
+          CGO_ENABLED: "0"
         run: go build -o /dev/null ./cmd/webfilter
 
   # Runs only on a `v*` tag push: builds all three release targets (via the
@@ -77,7 +62,6 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.26"
-      - run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64 gcc-aarch64-linux-gnu
       - run: ./scripts/package-release.sh "${{ github.ref_name }}" dist
       - uses: softprops/action-gh-release@v2
         with:

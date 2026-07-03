@@ -69,18 +69,6 @@ mkdir -p "$PREFIX/config" "$PREFIX/policies" "$PREFIX/certs" "$PREFIX/categories
 echo "[install] installing binary ..."
 install -m 0755 "$BINARY" "$PREFIX/webfilter"
 
-# internal/classify/onnxrt dynamically loads the onnxruntime shared library
-# next to the running executable if ONNXRUNTIME_SHARED_LIBRARY isn't set -
-# a release archive bundles libonnxruntime.so alongside the binary (see
-# scripts/package-release.sh), so copy it into place too if present.
-ORT_LIB="$(dirname "$BINARY")/libonnxruntime.so"
-if [[ -f "$ORT_LIB" ]]; then
-  install -m 0755 "$ORT_LIB" "$PREFIX/libonnxruntime.so"
-  echo "[install] installed libonnxruntime.so"
-else
-  echo "[install] warning: libonnxruntime.so not found next to $BINARY - the text classifier's ML stage will fail to load unless ONNXRUNTIME_SHARED_LIBRARY points at one (the image classifier is unaffected, it's pure Go)" >&2
-fi
-
 if [[ ! -f "$PREFIX/config/settings.json" ]] && [[ -f "$REPO_ROOT/config/settings.example.json" ]]; then
   cp "$REPO_ROOT/config/settings.example.json" "$PREFIX/config/settings.json"
   echo "[install] seeded $PREFIX/config/settings.json from settings.example.json"

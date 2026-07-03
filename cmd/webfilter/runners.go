@@ -6,10 +6,9 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"strings"
 
 	"github.com/yjlion/gowebfilter/internal/classify/image"
-	"github.com/yjlion/gowebfilter/internal/classify/text"
+	"github.com/yjlion/gowebfilter/internal/classify/textbayes"
 	"github.com/yjlion/gowebfilter/internal/mgmtapi"
 	"github.com/yjlion/gowebfilter/internal/proxy"
 	"github.com/yjlion/gowebfilter/internal/proxy/addons"
@@ -48,7 +47,7 @@ func buildProxyEngine(settingsPath string) (*proxy.Engine, *state.Runtime, error
 		addons.DohFilter{},
 		addons.SafeSearch{},
 		addons.YouTubeFilter{},
-		addons.TextClassifier{Scorer: loadTextScorer(rt.Settings.TextClassifierModelPath)},
+		addons.TextClassifier{Scorer: loadTextScorer()},
 		addons.ImageClassifier{Detector: loadImageDetector()},
 		addons.RequestLogger{},
 	})
@@ -139,33 +138,17 @@ func runProxyAndMgmt(ctx context.Context, settingsPath string) error {
 	return firstErr
 }
 
-// loadTextScorer loads the ONNX-backed text ML stage, if configured. A
-// missing path means keyword-only (addons.MLScorer nil); a configured path
-// that fails to load logs a warning and still falls back to keyword-only
-// rather than aborting startup - the ML stage is defense-in-depth on top of
-// the keyword pre-filter, never the only line of defense.
-//
-// modelPath is a directory (model.onnx + vocab.txt + config.json - see
-// internal/classify/text's package doc), not a single file, which is a
-// breaking change from this project's earlier TF-IDF JSON-sidecar format.
-// If the configured path is instead a ".json" file (the old format), warn
-// with that specific, more actionable message rather than a generic load
-// error.
-func loadTextScorer(modelPath string) addons.MLScorer {
-	if modelPath == "" {
-		return nil
-	}
-	if strings.HasSuffix(modelPath, ".json") {
-		slog.Warn("text_classifier: text_classifier_model_path points at a .json file, but the ML stage now expects a model directory (model.onnx+vocab.txt+config.json, see internal/classify/text) - falling back to keyword-only",
-			"path", modelPath)
-		return nil
-	}
-	m, err := text.Load(modelPath)
+// loadTextScorer loads the embedded pure-Go Bayesian adult-text scorer. It
+// has no external model directory or native runtime dependency; if the
+// embedded asset is ever corrupt, startup falls back to keyword-only rather
+// than aborting the proxy.
+func loadTextScorer() addons.MLScorer {
+	m, err := textbayes.New()
 	if err != nil {
-		slog.Warn("text_classifier: failed to load ML model, falling back to keyword-only", "path", modelPath, "err", err)
+		slog.Warn("text_classifier: failed to load embedded Bayesian scorer, falling back to keyword-only", "err", err)
 		return nil
 	}
-	slog.Info("text_classifier: loaded ML model", "path", modelPath)
+	slog.Info("text_classifier: loaded embedded Bayesian scorer")
 	return m
 }
 
