@@ -1,0 +1,32 @@
+#!/bin/sh
+# postrm - runs after dpkg removes the package's files (on `remove`) or
+# after a full purge (`apt purge` / `dpkg --purge`). `remove` only disables
+# the unit; `purge` also drops the system user and any runtime state
+# (config, certs, logs) that install.sh/postinst created outside of files
+# dpkg itself tracks.
+set -e
+
+PREFIX=/opt/webfilter
+
+case "$1" in
+  remove)
+    if [ -d /run/systemd/system ]; then
+      systemctl disable webfilter.service >/dev/null 2>&1 || true
+    fi
+    ;;
+  purge)
+    if [ -d /run/systemd/system ]; then
+      systemctl disable webfilter.service >/dev/null 2>&1 || true
+    fi
+    if id -u webfilter >/dev/null 2>&1; then
+      deluser --system webfilter >/dev/null 2>&1 || true
+    fi
+    rm -rf "$PREFIX"
+    ;;
+esac
+
+if [ -d /run/systemd/system ]; then
+  systemctl daemon-reload || true
+fi
+
+exit 0

@@ -1,9 +1,9 @@
 {
   "proxy_listen": [
-    "0.0.0.0:8080",
+    "127.0.0.1:8080",
     "socks5@127.0.0.1:1080"
   ],
-  "mgmt_host": "0.0.0.0",
+  "mgmt_host": "127.0.0.1",
   "mgmt_port": 8000,
   "cert_dir": "./certs",
   "policies_dir": "./policies",

@@ -69,6 +69,11 @@ for target in "${TARGETS[@]}"; do
     cp packaging/webfilter.service packaging/webfilter-proxy.service \
       packaging/webfilter-mgmt.service packaging/install.sh "$stage/"
     chmod +x "$stage/install.sh"
+    if command -v dpkg-deb >/dev/null 2>&1; then
+      "$SCRIPT_DIR/build-deb.sh" "$VERSION" "$goarch" "$stage/webfilter" "$OUT_DIR"
+    else
+      echo "[package] warning: dpkg-deb not found; skipping .deb build for linux/${goarch}"
+    fi
   fi
 
   archive_ext="tar.gz"

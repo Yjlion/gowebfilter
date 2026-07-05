@@ -16,6 +16,13 @@ var publicPaths = map[string]bool{
 	"/proxy.pac":       true,
 	"/wpad.dat":        true,
 	"/wpad.da":         true,
+	// The CA cert is the public half of the intercepting proxy's trust
+	// anchor (no private key), and every client device needs it installed
+	// before it can be trusted at all - gating it behind login would make
+	// devices unable to get set up until someone hands them the management
+	// password, which defeats the point. mitmproxy's own mitm.it page works
+	// the same way.
+	"/api/ca-cert": true,
 }
 
 // isStaticAsset lets the CSS/JS/theme files the login page itself needs

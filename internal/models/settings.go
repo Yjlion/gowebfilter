@@ -61,6 +61,14 @@ type GlobalSettings struct {
 	// older settings.json files round-trip without losing an unknown field;
 	// the text classifier now uses an embedded pure-Go Bayesian scorer.
 	TextClassifierModelPath string `json:"text_classifier_model_path,omitempty"`
+
+	// DisableTray is a Go-port-only, Windows-only field: on Windows, `webfilter
+	// run` launched interactively (not dispatched to us by the Service
+	// Control Manager) always has a desktop session available, so it shows
+	// the system tray icon by default. Set this to opt out and get a plain
+	// foreground run instead - matching Linux/macOS, which never auto-show
+	// it. Has no effect outside `webfilter run` on Windows.
+	DisableTray bool `json:"disable_tray"`
 }
 
 type Tun2SocksConfig struct {
