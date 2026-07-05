@@ -12,8 +12,10 @@
 #                  process isolation between the two components.
 #   --prefix DIR   install location (default: /opt/webfilter)
 #   --binary PATH  path to a prebuilt webfilter binary
-#                  (default: <repo-root>/webfilter - build it first with
-#                  `go build -o webfilter ./cmd/webfilter`)
+#                  (default: a `webfilter` binary next to this script, i.e.
+#                  the layout of a downloaded release archive; falls back to
+#                  <repo-root>/webfilter for an in-repo dev checkout - build
+#                  it first with `go build -o webfilter ./cmd/webfilter`)
 #
 set -euo pipefail
 
@@ -47,14 +49,29 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 
+# Two layouts are supported: a downloaded release archive, where install.sh
+# sits flat next to the webfilter binary and the example config/policy files
+# (see scripts/package-release.sh), and an in-repo dev checkout, where
+# install.sh lives in packaging/ and the binary/examples are one directory
+# up (repo root / config / policies). Prefer the release layout since that's
+# how most users actually run this script.
 if [[ -z "$BINARY" ]]; then
-  BINARY="$REPO_ROOT/webfilter"
+  if [[ -f "$SCRIPT_DIR/webfilter" ]]; then
+    BINARY="$SCRIPT_DIR/webfilter"
+  else
+    BINARY="$REPO_ROOT/webfilter"
+  fi
 fi
 if [[ ! -f "$BINARY" ]]; then
   echo "error: binary not found at $BINARY" >&2
   echo "       build it first: go build -o webfilter ./cmd/webfilter, or pass --binary PATH" >&2
   exit 1
 fi
+
+SETTINGS_EXAMPLE="$SCRIPT_DIR/settings.example.json"
+[[ -f "$SETTINGS_EXAMPLE" ]] || SETTINGS_EXAMPLE="$REPO_ROOT/config/settings.example.json"
+POLICY_EXAMPLE="$SCRIPT_DIR/default.json.example"
+[[ -f "$POLICY_EXAMPLE" ]] || POLICY_EXAMPLE="$REPO_ROOT/policies/default.json.example"
 
 echo "[install] creating system user 'webfilter' ..."
 if ! id -u webfilter &>/dev/null; then
@@ -69,12 +86,12 @@ mkdir -p "$PREFIX/config" "$PREFIX/policies" "$PREFIX/certs" "$PREFIX/categories
 echo "[install] installing binary ..."
 install -m 0755 "$BINARY" "$PREFIX/webfilter"
 
-if [[ ! -f "$PREFIX/config/settings.json" ]] && [[ -f "$REPO_ROOT/config/settings.example.json" ]]; then
-  cp "$REPO_ROOT/config/settings.example.json" "$PREFIX/config/settings.json"
+if [[ ! -f "$PREFIX/config/settings.json" ]] && [[ -f "$SETTINGS_EXAMPLE" ]]; then
+  cp "$SETTINGS_EXAMPLE" "$PREFIX/config/settings.json"
   echo "[install] seeded $PREFIX/config/settings.json from settings.example.json"
 fi
-if [[ ! -f "$PREFIX/policies/default.json" ]] && [[ -f "$REPO_ROOT/policies/default.json.example" ]]; then
-  cp "$REPO_ROOT/policies/default.json.example" "$PREFIX/policies/default.json"
+if [[ ! -f "$PREFIX/policies/default.json" ]] && [[ -f "$POLICY_EXAMPLE" ]]; then
+  cp "$POLICY_EXAMPLE" "$PREFIX/policies/default.json"
   echo "[install] seeded $PREFIX/policies/default.json from default.json.example"
 fi
 

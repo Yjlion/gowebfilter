@@ -1,0 +1,42 @@
+#!/bin/sh
+# postinst - runs after dpkg unpacks the package's files. Mirrors
+# packaging/install.sh's setup steps (system user, seeded config, ownership,
+# enabling the unit) since dpkg itself only lays files down; nothing else
+# creates the webfilter user or fixes /opt/webfilter's ownership for a
+# plain `dpkg -i`/`apt install ./webfilter_*.deb` install.
+set -e
+
+PREFIX=/opt/webfilter
+
+case "$1" in
+  configure)
+    if ! id -u webfilter >/dev/null 2>&1; then
+      useradd --system --home-dir "$PREFIX" --shell /usr/sbin/nologin webfilter
+    fi
+
+    mkdir -p "$PREFIX/certs" "$PREFIX/logs" "$PREFIX/data"
+
+    if [ ! -f "$PREFIX/config/settings.json" ] && [ -f "$PREFIX/config/settings.example.json" ]; then
+      cp "$PREFIX/config/settings.example.json" "$PREFIX/config/settings.json"
+    fi
+    if [ ! -f "$PREFIX/policies/default.json" ] && [ -f "$PREFIX/policies/default.json.example" ]; then
+      cp "$PREFIX/policies/default.json.example" "$PREFIX/policies/default.json"
+    fi
+
+    chown -R webfilter:webfilter "$PREFIX"
+
+    if [ -d /run/systemd/system ]; then
+      systemctl daemon-reload || true
+      systemctl enable webfilter.service || true
+    fi
+
+    echo ""
+    echo "webfilter installed to $PREFIX."
+    echo "  1. Review/edit $PREFIX/config/settings.json"
+    echo "  2. Start:  systemctl start webfilter.service"
+    echo "  3. Web UI: http://<host>:8000 (default mgmt_port)"
+    echo "  4. Trust the generated CA cert once it's run once: $PREFIX/certs/ca.crt"
+    ;;
+esac
+
+exit 0

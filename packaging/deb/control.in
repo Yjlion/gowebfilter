@@ -1,0 +1,15 @@
+Package: webfilter
+Version: @VERSION@
+Section: net
+Priority: optional
+Architecture: @ARCH@
+Depends: systemd
+Maintainer: Yjlion <noreply@users.noreply.github.com>
+Homepage: https://github.com/Yjlion/mitmproxy-web-filter
+Description: MITM-intercepting forward proxy with per-client filtering policies
+ WebFilter Proxy is a from-scratch Go port of mitmproxy-web-filter: a
+ MITM-intercepting forward proxy with per-client filtering policies and a
+ browser-based management UI, shipped as a single static binary. Installs
+ to /opt/webfilter, seeds config/settings.json and policies/default.json
+ from the bundled examples if missing, and enables (but does not start)
+ webfilter.service - see postinst output for next steps.

@@ -55,6 +55,26 @@ The three unit files in this directory (`webfilter.service`,
 by hand if you'd rather not run the installer - just adjust the `User`,
 `WorkingDirectory`, and `ExecStart` paths to match your layout.
 
+### Debian/Ubuntu (.deb)
+
+Release tags also attach `webfilter_<version>_amd64.deb` and
+`webfilter_<version>_arm64.deb` (built by `scripts/build-deb.sh`, invoked
+from `scripts/package-release.sh`). Install with:
+
+```bash
+sudo apt install ./webfilter_<version>_<arch>.deb
+```
+
+This is the `webfilter run`-mode equivalent of `install.sh` above (creates
+the `webfilter` system user, installs to `/opt/webfilter`, seeds
+`config/settings.json`/`policies/default.json` from the bundled examples,
+and enables but doesn't start `webfilter.service`) driven by the package's
+own postinst/postrm instead of a separate script, so ownership and
+permissions come out correct from a plain `dpkg -i`/`apt install` with no
+extra step. `apt remove` disables the service and leaves `/opt/webfilter`
+in place; `apt purge` also removes the `webfilter` system user and deletes
+`/opt/webfilter` entirely.
+
 ## Windows (native service)
 
 The binary has built-in Windows service support - no NSSM or other wrapper
@@ -76,18 +96,23 @@ account.
 As with Linux, once it's running, open `http://localhost:8000` for the
 management UI and trust the generated `certs\ca.crt`.
 
-## Optional desktop tray
+## Desktop tray
 
-Interactive desktop sessions can run:
+On Windows, `webfilter.exe run` launched interactively (not by the Service
+Control Manager - see above) always shows a system tray icon, since an
+interactive session always has a desktop to show it on. Its one menu item
+opens the management UI; left-clicking the icon does the same. Set
+`"disable_tray": true` in `settings.json` to opt out and get a plain
+foreground run instead. Linux/macOS never auto-show it, since `webfilter run`
+there is routinely started headless (e.g. under systemd).
+
+The tray is also available as a standalone command on any platform:
 
 ```powershell
 webfilter.exe tray --settings C:\path\to\config\settings.json
 ```
 
-The tray opens the management UI, config folder, and certificate folder, and
-on Windows can delegate start/stop/status actions to the built-in service
-commands. The tray is optional; service/headless operation does not depend
-on it.
+Service/headless operation does not depend on the tray either way.
 
 ## TUN / tun2socks capture
 

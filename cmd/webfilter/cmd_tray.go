@@ -5,9 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"time"
 
@@ -41,16 +39,10 @@ func runTray(settingsPath string) error {
 	}
 	mgmtAddr := net.JoinHostPort(loopbackHost(settings.MgmtHost), fmt.Sprint(settings.MgmtPort))
 	mgmtURL := "http://" + mgmtAddr
-	settingsDir := filepath.Dir(settingsPath)
 
 	tray := systray.New()
 	menu := systray.NewMenu()
 	menu.Add("Open Management UI", func() { _ = openTarget(mgmtURL) })
-	menu.Add("Open Config Folder", func() { _ = openTarget(defaultPath(settingsDir)) })
-	menu.Add("Open Certificates Folder", func() { _ = openTarget(defaultPath(settings.CertDir)) })
-	menu.AddSeparator()
-	addServiceItems(tray, menu)
-	menu.AddSeparator()
 
 	// If nothing is already listening on the mgmt port - no Windows service
 	// running, no separately-started `webfilter run`/`mgmt` - "Open
@@ -58,23 +50,17 @@ func runTray(settingsPath string) error {
 	// pure chrome around nothing. So the tray runs the proxy + management
 	// server itself in-process in that case, same as `webfilter run`.
 	// Skipped when something's already there so the tray doesn't fight an
-	// existing service/process for the ports.
-	cancelEmbedded := func() {}
+	// existing service/process for the ports. Never cancelled: the tray has
+	// no quit menu item, so the embedded server runs for the tray's
+	// lifetime.
 	if !mgmtReachable(mgmtAddr) {
-		ctx, cancel := context.WithCancel(context.Background())
-		cancelEmbedded = cancel
+		ctx := context.Background()
 		go func() {
-			if err := runProxyAndMgmt(ctx, settingsPath); err != nil && ctx.Err() == nil {
+			if err := runProxyAndMgmt(ctx, settingsPath); err != nil {
 				tray.ShowNotification("WebFilter Proxy failed to start", err.Error())
 			}
 		}()
 	}
-
-	menu.Add("Quit Tray", func() {
-		cancelEmbedded()
-		tray.Remove()
-		os.Exit(0)
-	})
 
 	tray.SetIcon(defaultTrayIcon()).
 		SetTooltip("WebFilter Proxy").
@@ -104,14 +90,6 @@ func loopbackHost(host string) string {
 	default:
 		return host
 	}
-}
-
-func defaultPath(path string) string {
-	if path != "" {
-		return path
-	}
-	wd, _ := os.Getwd()
-	return wd
 }
 
 func openTarget(target string) error {

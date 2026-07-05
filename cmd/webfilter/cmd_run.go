@@ -18,6 +18,9 @@ func newRunCmd() *cobra.Command {
 		if handled, err := runAsWindowsServiceIfApplicable(f.settingsPath); handled {
 			return err
 		}
+		if shouldAutoStartTray(f.settingsPath) {
+			return runTray(f.settingsPath)
+		}
 		return runProxyAndMgmt(cmd.Context(), f.settingsPath)
 	}
 	return cmd
