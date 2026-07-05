@@ -70,7 +70,11 @@ for target in "${TARGETS[@]}"; do
       packaging/webfilter-mgmt.service packaging/install.sh "$stage/"
     chmod +x "$stage/install.sh"
     if command -v dpkg-deb >/dev/null 2>&1; then
-      "$SCRIPT_DIR/build-deb.sh" "$VERSION" "$goarch" "$stage/webfilter" "$OUT_DIR"
+      # Invoked via `bash` rather than executed directly: a checked-out
+      # working tree doesn't reliably carry the executable bit (e.g. any
+      # clone made with core.fileMode=false, common on Windows), and this
+      # avoids depending on it.
+      bash "$SCRIPT_DIR/build-deb.sh" "$VERSION" "$goarch" "$stage/webfilter" "$OUT_DIR"
     else
       echo "[package] warning: dpkg-deb not found; skipping .deb build for linux/${goarch}"
     fi
