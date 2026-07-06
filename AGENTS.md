@@ -38,14 +38,23 @@ for local dev. They persist to disk; the mgmt API's
 ## Layout
 
 - `cmd/webfilter/` - cobra CLI (`run`/`proxy`/`mgmt`/`categories update`/`oui update`)
+- `internal/app/` - shared engine wiring (`BuildProxyEngine`, classifier loaders,
+  `EnsureTunSocksListener`, `ServeMgmt`); the fixed addon pipeline order is
+  single-sourced here and reused by both `cmd/webfilter` and `mobile/`
 - `internal/models/` - `Policy`/`GlobalSettings` structs + JSON schema
 - `internal/proxy/` - MITM engine, pipeline, block-page rendering
 - `internal/proxy/state/` - hot-reloaded settings/policies and policy routing
-- `internal/proxy/addons/` - filtering addons, wired in fixed order in `cmd/webfilter/runners.go`
+- `internal/proxy/addons/` - filtering addons, wired in fixed order in `internal/app/engine.go`
 - `internal/mgmtapi/` - chi router, REST API, embedded UI static serving
 - `internal/classify/textbayes/` - embedded pure-Go Bayesian adult-text scorer
 - `internal/classify/image/` - embedded pure-Go GantMan/nsfw_model image classifier
-- `ui/` - management web UI copied from the Python original
+- `mobile/` - gomobile-bound Android entry point (`Start`/`Stop`/`Status`/…);
+  drives tun2socks from the VpnService `fd://` TUN. Build with
+  `gomobile bind -target=android/arm64,android/arm -androidapi 26 -o android/app/libs/webfilter.aar ./mobile`
+- `android/` - Kotlin/Gradle Android app (VpnService, WebView mgmt UI, per-app
+  filtering, CA install flow) consuming the gomobile AAR
+- `ui/` - management web UI copied from the Python original; Alpine.js and
+  qrcodejs are vendored (`ui/alpine.min.js`, `ui/qrcode.min.js`) for offline use
 
 ## Known gotchas
 

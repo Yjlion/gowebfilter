@@ -28,11 +28,15 @@ go vet ./...
 go test ./...
 
 # focused checks after classifier or pipeline-wiring changes:
-go test ./internal/classify/textbayes ./internal/proxy/addons ./cmd/webfilter
+go test ./internal/classify/textbayes ./internal/proxy/addons ./internal/app
 go test ./internal/proxy
 
 # single test:
 go test ./internal/proxy/addons -run TestSafeSearch -v
+
+# after touching mobile/ or shared engine wiring, confirm the Android build:
+GOOS=android GOARCH=arm64 CGO_ENABLED=0 go build ./mobile ./internal/...
+go test ./mobile
 
 go build -o webfilter ./cmd/webfilter             # (webfilter.exe on Windows)
 ./webfilter run --settings config/settings.json   # proxy (:8080, SOCKS5 :1080) + mgmt UI (:8000) in one process
@@ -52,13 +56,30 @@ Request/block/audit logs go to SQLite at `logs/webfilter.db`.
 
 ## Layout
 
-- `cmd/webfilter/` — cobra CLI; `runners.go`'s `buildProxyEngine` wires the
-  addon pipeline in a **fixed order** that matters (mirrors the Python
-  original): `ManagementAccess → ProxyAuthGate → PolicyRouter → MitmControl
-  → UrlFilter → QuicBlocker → DohFilter → SafeSearch → YouTubeFilter →
-  TextClassifier → ImageClassifier → RequestLogger`. Request hooks still
-  run after an earlier hook sets `fc.Response`; only the upstream fetch is
-  skipped.
+- `cmd/webfilter/` — cobra CLI; `runners.go` delegates engine construction to
+  `internal/app`. The desktop-only tun2socks manager (`runEngineWithTun`)
+  stays here because it is root/`ip`-gated and OS-coupled.
+- `internal/app/` — **single-sources the engine wiring** shared by the CLI and
+  the Android `mobile/` package. `BuildProxyEngine` wires the addon pipeline in
+  a **fixed order** that matters (mirrors the Python original):
+  `ManagementAccess → ProxyAuthGate → PolicyRouter → MitmControl → UrlFilter →
+  QuicBlocker → DohFilter → SafeSearch → YouTubeFilter → TextClassifier →
+  ImageClassifier → RequestLogger`. Request hooks still run after an earlier
+  hook sets `fc.Response`; only the upstream fetch is skipped. Also holds
+  `LoadTextScorer`/`LoadImageDetector`, `EnsureTunSocksListener`, and
+  `ServeMgmt`. **Edit the pipeline order here, not per front-end.**
+- `mobile/` — gomobile-bound Android entry point. Exports a tiny API surface
+  (`Start(dataDir, tunFd)`, `Stop`, `IsRunning`, `Status`, `MgmtUrl`,
+  `ReloadPolicies`, `CaCertPem`) and drives `xjasonlyu/tun2socks` directly from
+  the VpnService `fd://` descriptor — **not** via `internal/tun2socks.Manager`
+  (root/`ip`-gated). The TUN-capture file is `tun_capture.go`
+  (`//go:build android || linux`), deliberately **not** named `*_android.go`:
+  a GOOS filename suffix ANDs with the build tag and would exclude it on a
+  Linux desktop, breaking `go test ./mobile`. Build:
+  `gomobile bind -target=android/arm64,android/arm -androidapi 26 -o android/app/libs/webfilter.aar ./mobile`.
+- `android/` — Kotlin/Gradle app scaffold (VpnService, WebView mgmt UI, per-app
+  filtering, CA install flow). See `android/README.md` for local build steps;
+  the AAR is a build artifact (gitignored).
 - `internal/models/` — `Policy`/`GlobalSettings` structs + JSON schema
   (custom `UnmarshalJSON` per sub-config for defaults + legacy-schema
   migration — see `SafeSearchConfig`'s flat-to-`engines`-map migration as
@@ -168,6 +189,18 @@ Request/block/audit logs go to SQLite at `logs/webfilter.db`.
   deliberate 501 stub (`internal/mgmtapi/routes_wireguard.go`) that the
   unmodified UI degrades around gracefully — don't "implement" it or turn
   it into a 404.
+- **The UI's Alpine.js and qrcodejs are vendored, not CDN-loaded**
+  (`ui/alpine.min.js`, `ui/qrcode.min.js`, referenced with relative `src`) so
+  the mgmt UI works offline — required by the Android WebView. Don't
+  re-point the `<script>` tags at a CDN; `grep cdn.jsdelivr ui/` must stay
+  empty. Provenance/licenses are in `ui/NOTICE`.
+- **The Android port is a separate build; `go build ./...` does not exercise
+  it.** `mobile/` compiles on any host, but its real target is
+  `GOOS=android`. After touching `mobile/` or `internal/app`, run
+  `GOOS=android GOARCH=arm64 CGO_ENABLED=0 go build ./mobile` — the on-device
+  data path (VpnService→tun2socks→engine), `modernc.org/sqlite` under the
+  Android runtime, and image-CNN latency are **not** verified in CI and need a
+  real device/emulator.
 - Local `main` may lag GitHub because fixes land through PRs — fetch
   `origin/main` and reconcile before publishing changes.
 

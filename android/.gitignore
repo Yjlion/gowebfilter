@@ -1,0 +1,12 @@
+# Android / Gradle build outputs
+.gradle/
+build/
+*/build/
+local.properties
+.idea/
+*.iml
+captures/
+
+# The gomobile-built native binding is a build artifact — build it locally
+# (see README.md). Everything else in app/libs/ (the .gitkeep) is tracked.
+app/libs/*.aar

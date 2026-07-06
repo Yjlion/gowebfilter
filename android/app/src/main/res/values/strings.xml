@@ -1,0 +1,25 @@
+<resources>
+    <string name="app_name">WebFilter</string>
+    <string name="title_app_picker">Filtered apps</string>
+    <string name="title_ca_install">Install CA certificate</string>
+
+    <string name="start_filter">Start filtering</string>
+    <string name="stop_filter">Stop filtering</string>
+    <string name="choose_apps">Choose filtered apps</string>
+    <string name="install_ca">Install CA certificate</string>
+    <string name="open_dashboard">Open dashboard</string>
+
+    <string name="status_running">Filtering is ON</string>
+    <string name="status_stopped">Filtering is OFF</string>
+
+    <string name="notif_channel_name">WebFilter VPN</string>
+    <string name="notif_title">WebFilter is filtering traffic</string>
+    <string name="notif_text">Tap to open the dashboard.</string>
+
+    <string name="ca_export">Export / share certificate</string>
+    <string name="ca_open_settings">Open certificate settings</string>
+    <string name="ca_limits_title">What on-device filtering can and cannot do</string>
+    <string name="ca_limits_body">Installing this certificate lets WebFilter inspect the full content of traffic from apps that trust user certificates.\n\nURL, hostname (SNI), DNS-over-HTTPS and QUIC filtering work for every app routed through the VPN, even without the certificate.\n\nChrome and many hardened apps enforce Certificate Transparency and reject user-installed certificates. Their encrypted traffic is passed through untouched (blind-spliced) rather than broken, so deep content features (text/image NSFW classifiers, YouTube rewriting) do not apply to them.</string>
+
+    <string name="per_app_hint">Selected apps are routed through the filter. Leave all unchecked to filter every app.</string>
+</resources>

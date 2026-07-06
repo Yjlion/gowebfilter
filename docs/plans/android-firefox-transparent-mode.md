@@ -19,7 +19,11 @@ This document plans three independent-but-related deliverables:
    captured without per-client proxy configuration, planned per platform and per
    use case (local device vs. network gateway).
 
-**Nothing here is committed to code yet** — this is a research/advisory plan.
+**Status:** Deliverable 1 (Android) is now scaffolded in code — the shared Go
+refactor (`internal/app`), the gomobile `mobile/` package, the offline UI
+vendoring, and the Kotlin/Gradle `android/` app all landed. Deliverables 2
+(Firefox extension) and 3 (transparent mode) remain research/advisory. See
+`HANDOFF.md`'s "Android port" section for what is verified vs. not.
 
 Key research findings that shape the design:
 

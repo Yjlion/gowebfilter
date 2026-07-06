@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- The exported CA certificate is written to the app cache dir and
+         shared via FileProvider so the user can open it with the system
+         certificate installer. -->
+    <cache-path name="ca_export" path="ca/" />
+</paths>

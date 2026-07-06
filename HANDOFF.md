@@ -35,14 +35,43 @@ expected verification commands after changes.
 
 ## Proxy Pipeline
 
-`cmd/webfilter/runners.go` wires addons in fixed order:
+`internal/app/engine.go`'s `BuildProxyEngine` wires addons in fixed order:
 
 `ManagementAccess -> ProxyAuthGate -> PolicyRouter -> MitmControl ->
 UrlFilter -> QuicBlocker -> DohFilter -> SafeSearch -> YouTubeFilter ->
 TextClassifier -> ImageClassifier -> RequestLogger`
 
 Order matters. Request hooks still run after an earlier hook sets
-`fc.Response`; only the upstream fetch is skipped.
+`fc.Response`; only the upstream fetch is skipped. This wiring is
+single-sourced in `internal/app` so both `cmd/webfilter` (desktop CLI) and
+`mobile/` (Android gomobile bindings) construct an identical pipeline —
+change the order there, never per front-end.
+
+## Android port (in progress)
+
+Deliverable 1 of `docs/plans/android-firefox-transparent-mode.md` is
+scaffolded: the pure-Go engine runs on-device, embedded via gomobile.
+
+- `mobile/` is the gomobile-bound entry point. `Start(dataDir, tunFd)`
+  bootstraps mobile settings (loopback mgmt on 127.0.0.1, single SOCKS5
+  listener, tun2socks enabled), calls `app.BuildProxyEngine`, serves the
+  engine + mgmt server, and funnels the VpnService TUN into the in-process
+  SOCKS5 listener via `xjasonlyu/tun2socks`'s `fd://` device. It does **not**
+  use `internal/tun2socks.Manager` (root/`ip`-gated).
+- `android/` is a Kotlin/Gradle app (VpnService, WebView mgmt dashboard,
+  per-app filtering, CA-install flow). The AAR (`android/app/libs/webfilter.aar`)
+  is a build artifact — see `android/README.md`.
+
+**Verified:** `mobile/` and all `internal/...` cross-compile for
+`android/arm64` and `android/arm` (`GOOS=android GOARCH=arm64 CGO_ENABLED=0
+go build ./mobile ./internal/...`); `go test ./mobile` passes on the host;
+the `fd://` scheme exists in the pinned `xjasonlyu/tun2socks v2.6.0`.
+
+**Not verified (needs a real device/emulator):** `modernc.org/sqlite` under
+the Android runtime, on-device image-CNN latency/battery, the full
+VpnService→tun2socks→engine data path, and the Kotlin app itself (no Android
+SDK in the CI/build environment — the sources are written and reviewed but
+not compiled here).
 
 ## Classifiers
 
@@ -86,10 +115,14 @@ Order matters. Request hooks still run after an earlier hook sets
 Useful focused checks after classifier or wiring changes:
 
 ```bash
-CGO_ENABLED=0 go test ./internal/classify/textbayes ./internal/proxy/addons ./cmd/webfilter
+CGO_ENABLED=0 go test ./internal/classify/textbayes ./internal/proxy/addons ./internal/app
 CGO_ENABLED=0 go test ./internal/proxy
 CGO_ENABLED=0 go test ./...
 CGO_ENABLED=0 go build -o webfilter.exe ./cmd/webfilter
+
+# Android build must stay green after mobile/ or internal/app changes:
+GOOS=android GOARCH=arm64 CGO_ENABLED=0 go build ./mobile ./internal/...
+CGO_ENABLED=0 go test ./mobile
 ```
 
 When testing a live instance, inspect:
