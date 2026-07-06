@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Guidance for Claude Code (or any AI agent) working in this repo.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## What this is
 
@@ -8,8 +8,7 @@ A from-scratch Go port of `mitmproxy-web-filter` (Python/mitmproxy): a
 MITM-intercepting forward proxy with per-client filtering policies and a
 browser-based management UI, all in one static binary. Full history,
 architecture rationale, and what's verified-vs-not lives in
-[HANDOFF.md](HANDOFF.md) — read that before making structural changes; it's
-long but it's the authoritative "why" behind every design decision here.
+[HANDOFF.md](HANDOFF.md) — read that before making structural changes.
 This file is the short version for day-to-day work.
 
 **This project was built primarily through AI-assisted sessions** (see the
@@ -19,72 +18,102 @@ HANDOFF.md or a test explicitly says so.
 
 ## Build / test / run
 
-The text classifier (`internal/classify/text`) is ONNX/`onnxruntime_go`-
-backed, so **`CGO_ENABLED=1` and a C toolchain are required for every
-build** — there is no CGO-free build variant anymore. On Windows, MSYS2's
-mingw64 `gcc.exe` works; set `CC`/`PATH` accordingly. The image classifier
-(`internal/classify/image`) is pure Go with an embedded model — it doesn't
-need CGO on its own, but the project as a whole still does, for text.
+Both NSFW classifiers are pure Go with embedded models — **no CGO, ONNX
+Runtime, Python environment, or C toolchain is required**. Build with
+`CGO_ENABLED=0` (the SQLite log store is `modernc.org/sqlite`, also pure Go).
 
 ```bash
-CGO_ENABLED=1 go build ./...
+CGO_ENABLED=0 go build ./...
 go vet ./...
 go test ./...
 
-go build -o webfilter.exe ./cmd/webfilter   # produce the CLI binary
-./webfilter.exe run --settings config/settings.json   # proxy (:8080) + mgmt UI (:8000) in one process
+# focused checks after classifier or pipeline-wiring changes:
+go test ./internal/classify/textbayes ./internal/proxy/addons ./cmd/webfilter
+go test ./internal/proxy
+
+# single test:
+go test ./internal/proxy/addons -run TestSafeSearch -v
+
+go build -o webfilter ./cmd/webfilter             # (webfilter.exe on Windows)
+./webfilter run --settings config/settings.json   # proxy (:8080, SOCKS5 :1080) + mgmt UI (:8000) in one process
 ```
 
+CLI commands: `run` (proxy + mgmt together), `proxy` / `mgmt` (standalone
+for process isolation), `tray` (desktop system-tray controller — self-hosts
+the proxy+mgmt server if nothing is already listening on the mgmt port),
+`service` (Windows service management), `categories update`, `oui update`,
+`version`.
+
 `config/settings.json` and `policies/*.json` are gitignored runtime state —
-copy from `config/settings.example.json` / `policies/default.json.example`
-for local dev. They persist to disk; the mgmt API's `PUT /api/policies/{name}`
-writes straight through to `policies/{name}.json`.
+first start bootstraps them from `config/settings.example.json` /
+`policies/default.json.example`. They persist to disk; the mgmt API's
+`PUT /api/policies/{name}` writes straight through to `policies/{name}.json`.
+Request/block/audit logs go to SQLite at `logs/webfilter.db`.
 
 ## Layout
 
-- `cmd/webfilter/` — cobra CLI (`run`/`proxy`/`mgmt`/`categories update`/`oui update`)
-- `internal/models/` — `Policy`/`GlobalSettings` structs + JSON schema (custom
-  `UnmarshalJSON` per sub-config for defaults + legacy-schema migration —
-  see `SafeSearchConfig`'s flat-to-`engines`-map migration as the pattern)
-- `internal/proxy/` — the MITM engine (`engine.go`), pipeline (`FlowContext`,
-  ordered `[]Addon`), block-page rendering
+- `cmd/webfilter/` — cobra CLI; `runners.go`'s `buildProxyEngine` wires the
+  addon pipeline in a **fixed order** that matters (mirrors the Python
+  original): `ManagementAccess → ProxyAuthGate → PolicyRouter → MitmControl
+  → UrlFilter → QuicBlocker → DohFilter → SafeSearch → YouTubeFilter →
+  TextClassifier → ImageClassifier → RequestLogger`. Request hooks still
+  run after an earlier hook sets `fc.Response`; only the upstream fetch is
+  skipped.
+- `internal/models/` — `Policy`/`GlobalSettings` structs + JSON schema
+  (custom `UnmarshalJSON` per sub-config for defaults + legacy-schema
+  migration — see `SafeSearchConfig`'s flat-to-`engines`-map migration as
+  the pattern). Policies also carry an `inactive` flag and a `schedule`
+  (time-window activation, `internal/models/schedule.go`).
+- `internal/proxy/` — the MITM engine (`engine.go`), pipeline
+  (`FlowContext`, ordered `[]Addon`), block-page rendering, and the SOCKS5
+  listener (`socks5.go` — CONNECT only, no-auth or username/password via
+  the shared `ProxyAuthGate`, joins the same tunnel/MITM path as HTTP
+  CONNECT). `proxy_listen` entries take `host:port`, `regular@host:port`,
+  or `socks5@host:port` forms.
   - `internal/proxy/state/` — `Runtime`: hot-reloaded settings/policies,
-    `GetPolicy(clientIP)` tiered MAC→IP→CIDR→catch-all matching
-  - `internal/proxy/addons/` — all filtering addons, one file each, wired in
-    `cmd/webfilter/runners.go`'s `buildProxyEngine` in a **fixed pipeline
-    order** that matters (mirrors the Python original's addon order)
+    `GetPolicy(clientIP)` tiered MAC→IP→CIDR→catch-all matching (see
+    `policy_match.go` for the full decision logic incl. schedules)
+  - `internal/proxy/addons/` — all filtering addons, one file each
 - `internal/mgmtapi/` — chi router, REST API, embedded UI static serving
-- `internal/classify/{text,image}/` — the two NSFW ML classifiers:
-  - `text/` — ONNX/`onnxruntime_go`-backed (CGO required), a
-    WordPiece-tokenized DistilBERT export
-    (`eliasalbouzidi/distilbert-nsfw-text-classifier`, Apache-2.0). Doesn't
-    ship a model in-repo; `scripts/export_text_model.py` (via `uv`)
-    provisions it into a gitignored `models/text-nsfw/` dir.
-    `internal/classify/onnxrt/` holds the process-global onnxruntime
-    environment init.
-  - `image/` — pure Go, no CGO: GantMan/nsfw_model (MobileNetV2,
-    MIT-licensed) embedded directly in the binary as `model.bin`
-    (`//go:embed`), executed by a from-scratch pure-Go inference engine
-    (`nn.go`). Ported from the same author's
-    [privoxy-nsfw-guard](https://github.com/Yjlion/privoxy-nsfw-guard) —
-    see `scripts/nsfw-model/README.md` for provenance/regeneration. Works
-    immediately after `go build`, no setup, no download, no licensing
-    decision to make.
+- `internal/classify/textbayes/` — embedded pure-Go Bayesian adult-text
+  scorer (implements `addons.MLScorer`). The feature table
+  (`model_data.json`, `//go:embed`) is regenerated offline by
+  `scripts/build_text_bayes_model.go` from local wordlist snapshots; the
+  seed vocabulary is curated from LDNOOBW (CC-BY-4.0) — see the package's
+  `NOTICE`.
+- `internal/classify/image/` — pure-Go NSFW image classifier:
+  GantMan/nsfw_model (MobileNetV2, MIT) embedded as `model.bin`
+  (`//go:embed`), executed by a from-scratch pure-Go inference engine
+  (`nn.go`). See `scripts/nsfw-model/README.md` for provenance/regeneration.
+- `internal/logstore/` — SQLite-backed request/block/policy-change logs
+- `internal/tun2socks/` — optional TUN-device traffic capture
+  (xjasonlyu/tun2socks) that funnels whole-OS traffic into the SOCKS5
+  listener; configured via the `tun2socks` block in settings. When it's
+  enabled and no SOCKS5 listener is configured, `run` adds one on
+  `127.0.0.1:1080`.
 - `ui/` — management web UI, copied verbatim from the Python original
+- `packaging/` — systemd units, `install.sh`, `.deb` build, Windows-service
+  notes (see `packaging/README.md`)
 
 ## Known gotchas (don't rediscover these the hard way)
 
-- **Policy selection is by source IP/MAC, first match wins**, tiered
-  MAC→exact-IP→CIDR→catch-all. A policy with `source_ips` set takes
-  precedence over the catch-all `default` policy for matching clients —
-  when testing against the live proxy, check `GET /api/policies` to see
-  which named policy actually applies to your test client before assuming
-  `default` is what's active.
+- **Policy selection is by source, first match wins**, tiered
+  MAC→exact-IP→CIDR→catch-all. Two modifiers layer on top: policies with
+  `inactive: true` or an enabled `schedule` whose time windows don't cover
+  "now" are skipped entirely, and **within a tier an actively-scheduled
+  policy outranks an unscheduled one** (so a stricter bedtime policy can
+  override the regular one for the same client). Schedules fail open —
+  disabled or empty-window schedules mean "always active". When testing
+  against the live proxy, check `GET /api/policies` to see which named
+  policy actually applies to your test client before assuming `default`
+  is what's active.
 - **Blocked responses return HTTP 200** with a block-page body, not 4xx —
   don't use the HTTP status code alone to tell whether a request was
   filtered. Check `GET /api/logs?kind=requests` (`action`: `ok`/`modified`/
   `blocked`, `component`) or `?kind=blocks` (includes `reason`) instead.
-- **SafeSearch engine matching is host*and*-path/param scoped, not just
+  `?kind=policy_changes` is the policy-edit audit log (always on, not
+  gated by any settings toggle).
+- **SafeSearch engine matching is host-*and*-path/param scoped, not just
   host-based, for engines whose AI/images/videos tabs live on the *same*
   domain as regular search** (DuckDuckGo, and Google's current `udm=`-based
   unified nav). Blocking "the AI tab" by matching the whole hostname is
@@ -116,6 +145,16 @@ writes straight through to `policies/{name}.json`.
 - **Settings changes need a restart; policy changes hot-reload.** Matches
   the Python original — don't expect a `PUT /api/settings` to take effect
   without restarting `webfilter run`.
+- **Both classifiers are opt-in per policy and need zero setup.**
+  `text_classifier.enabled` / `image_classifier.enabled` (both default
+  off — NSFW false positives have real cost) are the only switches; there
+  is no model directory, download, or sidecar library for either anymore.
+  `text_classifier_model_path` in settings is **deprecated and ignored**,
+  kept only for backward-compatible JSON round trips. The text addon runs
+  a high-precision keyword prefilter (3 hits = block, even on tiny pages)
+  and then the embedded Bayesian scorer against the policy's
+  `text_classifier.threshold`; the 100-character floor only shields
+  weak/ambiguous text from Bayesian scoring noise.
 - `http.FileServer`/`FileServerFS` must not be reintroduced for the UI
   static path — it causes a `/` ↔ `/index.html` redirect loop with this
   UI's own navigation. See `internal/mgmtapi/static.go` and
@@ -125,31 +164,12 @@ writes straight through to `policies/{name}.json`.
   `policies_dir`/`logs_dir` — the documented relative defaults (`./certs`
   etc.) resolve against the test process's working directory, not the
   settings file's location.
-- The image classifier's model (`internal/classify/image/model.bin`) is
-  **committed to git and embedded via `go:embed`** — unlike the text
-  classifier, there's no separate provisioning step, no model path in
-  settings, and nothing to download. `image_classifier.enabled` alone
-  (per-policy) controls whether it runs.
-- The text classifier's model directory (`models/text-nsfw/`) is
-  gitignored and not present in a fresh checkout — `text_classifier` stays
-  `enabled: false` in `policies/default.json.example` even though the
-  backend is always compiled in, so a fresh install fails open
-  (keyword-only) rather than silently doing nothing once a model path is
-  configured but the directory doesn't exist yet.
-- **The text classifier's ML stage needs three separate things or it
-  silently degrades to keyword-only** (which requires 3 hits from a small
-  wordlist and blocks almost nothing): (1) `text_classifier_model_path`
-  set in `config/settings.json` (the example sets `./models/text-nsfw`; an
-  empty value skips the ML stage without any warning), (2) the model dir
-  provisioned, and (3) **an onnxruntime shared library new enough for
-  onnxruntime_go** (API 26 / ORT ≥1.23; `package-release.sh` pins 1.27.0)
-  next to `webfilter.exe` or via `ONNXRUNTIME_SHARED_LIBRARY`. On Windows
-  the fallback search otherwise finds `C:\Windows\System32\onnxruntime.dll`
-  — the OS-bundled ORT 1.17, which fails to initialize ("API version [26]
-  is not available") and the addon falls back to keyword-only with only a
-  startup log warning. To confirm the ML stage is actually live, fetch a
-  page through the proxy whose text has *zero* keyword-list matches and
-  check for a `text_classifier` entry in `GET /api/logs?kind=blocks`.
+- WireGuard listen mode is explicitly out of scope: `/api/wireguard` is a
+  deliberate 501 stub (`internal/mgmtapi/routes_wireguard.go`) that the
+  unmodified UI degrades around gracefully — don't "implement" it or turn
+  it into a 404.
+- Local `main` may lag GitHub because fixes land through PRs — fetch
+  `origin/main` and reconcile before publishing changes.
 
 ## When testing against a live running instance
 
@@ -163,7 +183,14 @@ curl -s -X PUT http://127.0.0.1:8000/api/policies/<name> -d @updated.json
 # ... exercise the proxy at 127.0.0.1:8080 ...
 curl -s "http://127.0.0.1:8000/api/logs?kind=requests&limit=20"
 curl -s "http://127.0.0.1:8000/api/logs?kind=blocks&limit=20"
+curl -s "http://127.0.0.1:8000/api/logs?kind=policy_changes&limit=20"
 ```
 
 If you temporarily change a live policy for testing, restore it to what you
 found before finishing up.
+
+## Related agent docs
+
+[AGENTS.md](AGENTS.md) is the equivalent guidance file for other AI
+agents — if you change build requirements, layout, or gotchas here, keep
+AGENTS.md in sync.
