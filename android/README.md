@@ -55,6 +55,16 @@ Install and run on a device/emulator:
 > from `services.gradle.org` on first run — override `distributionUrl` if you
 > mirror it internally.
 
+### Build via GitHub Actions (no local SDK needed)
+
+The repository has a manual workflow, **Actions → Android APK → Run
+workflow** (`.github/workflows/android.yml`), that performs the exact steps
+above on a GitHub runner and uploads two artifacts: `webfilter-debug-apk`
+(the installable debug APK) and `webfilter-aar` (the gomobile binding, if
+you only want to rebuild the app locally). It is `workflow_dispatch`-only —
+it never runs automatically on push. The APK is debug-signed; release
+signing is not wired up yet.
+
 ## Using the app
 
 1. **Start filtering** — grants VPN consent, establishes the TUN, and starts
@@ -87,10 +97,12 @@ curl -s "http://127.0.0.1:8000/api/logs?kind=blocks&limit=20"
 
 ## What is verified vs. not
 
-- **Verified in CI:** the Go `mobile/` package builds for `android/arm64` and
-  `android/arm` (`GOOS=android GOARCH=arm64 CGO_ENABLED=0 go build ./mobile`)
-  and its pure-Go logic passes `go test ./mobile`. The `fd://` device scheme is
-  present in the pinned `xjasonlyu/tun2socks v2.6.0`.
+- **Verified in CI:** the Go `mobile/` package cross-compiles for
+  `android/arm64` (`GOOS=android GOARCH=arm64 CGO_ENABLED=0 go build ./mobile
+  ./internal/...`, in `ci.yml`'s matrix) and its pure-Go logic passes
+  `go test ./mobile` on the host. The `fd://` device scheme is present in the
+  pinned `xjasonlyu/tun2socks v2.6.0`. The manual `android.yml` workflow
+  builds the full AAR + APK on demand.
 - **Not yet verified on real hardware:** `modernc.org/sqlite` behavior under the
   Android runtime, on-device image-CNN latency/battery, and the full
   VpnService→tun2socks→engine data path. Smoke-test on a device/emulator before
