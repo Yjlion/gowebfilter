@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WebFilter settings</title>
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      font-size: 14px;
+      max-width: 640px;
+      margin: 0 auto;
+      padding: 16px;
+    }
+    fieldset { margin-bottom: 16px; border: 1px solid #8886; border-radius: 6px; }
+    legend { font-weight: 600; padding: 0 6px; }
+    label { display: flex; align-items: center; gap: 6px; padding: 3px 0; }
+    label.inline { display: inline-flex; margin-right: 14px; }
+    textarea { width: 100%; min-height: 70px; font-family: monospace; font-size: 12px; box-sizing: border-box; }
+    input[type="number"] { width: 5em; }
+    table { border-collapse: collapse; }
+    td, th { padding: 2px 10px 2px 0; text-align: left; }
+    .hint { color: #888; font-size: 12px; margin: 2px 0 6px; }
+    #save { padding: 8px 24px; font-size: 14px; cursor: pointer; }
+    #saved { color: #2b8a3e; margin-left: 10px; }
+    @media (prefers-color-scheme: dark) {
+      body { background: #1c1b22; color: #fbfbfe; }
+      textarea, input, select { background: #2b2a33; color: #fbfbfe; border: 1px solid #5555; }
+    }
+  </style>
+</head>
+<body>
+  <h1>WebFilter settings</h1>
+
+  <fieldset>
+    <legend>General</legend>
+    <label><input type="checkbox" id="enabled"> Filtering enabled</label>
+  </fieldset>
+
+  <fieldset>
+    <legend>SafeSearch</legend>
+    <label><input type="checkbox" id="ss-enabled"> Enforce SafeSearch (Google, Bing, DuckDuckGo, Yahoo, YouTube Restricted Mode)</label>
+    <table id="ss-engines">
+      <tr><th>Engine</th><th>On</th><th>Block Images tab</th><th>Block Videos tab</th><th>Block AI tab</th></tr>
+    </table>
+  </fieldset>
+
+  <fieldset>
+    <legend>URL filter</legend>
+    <label><input type="checkbox" id="uf-enabled"> Enable URL filter</label>
+    <label class="inline"><input type="radio" name="uf-mode" value="blacklist"> Blacklist (block listed)</label>
+    <label class="inline"><input type="radio" name="uf-mode" value="whitelist"> Whitelist (block everything except allowed)</label>
+    <p class="hint">One domain per line (subdomains match automatically).</p>
+    <label>Blocked domains</label>
+    <textarea id="uf-block" placeholder="example.com"></textarea>
+    <label>Allowed domains (always exempt from all filters)</label>
+    <textarea id="uf-allow" placeholder="example.org"></textarea>
+  </fieldset>
+
+  <fieldset>
+    <legend>DNS-over-HTTPS bypass</legend>
+    <label><input type="checkbox" id="doh-block"> Block known DoH endpoints (stops in-page DNS-over-HTTPS that would bypass filtering)</label>
+    <p class="hint">Note: this cannot disable Firefox's own built-in DoH — check Settings &rarr; Privacy &amp; Security &rarr; DNS over HTTPS.</p>
+  </fieldset>
+
+  <fieldset>
+    <legend>Adult-text detection</legend>
+    <label><input type="checkbox" id="tc-enabled"> Block pages whose visible text is classified as adult content</label>
+    <label>Threshold <input type="number" id="tc-threshold" min="0" max="1" step="0.05"></label>
+  </fieldset>
+
+  <fieldset>
+    <legend>NSFW image filter</legend>
+    <label><input type="checkbox" id="ic-enabled"> Blur or remove images classified as NSFW (on-device model)</label>
+    <label>Action
+      <select id="ic-action">
+        <option value="blur">Blur</option>
+        <option value="block">Remove</option>
+      </select>
+    </label>
+    <label>Threshold <input type="number" id="ic-threshold" min="0" max="1" step="0.05"></label>
+    <label>Minimum image size (px) <input type="number" id="ic-minsize" min="0" max="512" step="16"></label>
+  </fieldset>
+
+  <fieldset>
+    <legend>YouTube</legend>
+    <label><input type="checkbox" id="yt-enabled"> Enable YouTube cleanup</label>
+    <label class="inline"><input type="radio" name="yt-mode" value="blacklist"> Block listed channels</label>
+    <label class="inline"><input type="radio" name="yt-mode" value="whitelist"> Allow only listed channels</label>
+    <p class="hint">One channel per line: a UC… channel id, an @handle, or the channel's display name.</p>
+    <textarea id="yt-channels" placeholder="@somechannel"></textarea>
+    <label><input type="checkbox" id="yt-home"> Hide the Home feed</label>
+    <label><input type="checkbox" id="yt-comments"> Remove comments</label>
+    <label><input type="checkbox" id="yt-recs"> Remove recommendations</label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Schedule</legend>
+    <label><input type="checkbox" id="sched-enabled"> Only filter during these weekly time windows</label>
+    <p class="hint">One window per line: <code>days start-end</code>, days as Mon,Tue,… or Mon-Fri. Example: <code>Mon-Fri 15:00-21:00</code>. Overnight windows (22:00-06:00) are supported. No windows = always active.</p>
+    <textarea id="sched-windows" placeholder="Mon-Fri 15:00-21:00"></textarea>
+  </fieldset>
+
+  <button id="save">Save</button><span id="saved"></span>
+
+  <script src="options.js"></script>
+</body>
+</html>

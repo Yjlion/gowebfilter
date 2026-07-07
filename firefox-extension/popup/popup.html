@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      font-size: 13px;
+      min-width: 230px;
+      margin: 0;
+      padding: 10px 12px;
+    }
+    h1 { font-size: 14px; margin: 0 0 8px; }
+    label { display: flex; align-items: center; gap: 6px; padding: 3px 0; cursor: pointer; }
+    #status { color: #888; font-size: 11px; margin: 6px 0; }
+    hr { border: none; border-top: 1px solid #8884; margin: 8px 0; }
+    button { width: 100%; margin-top: 8px; padding: 5px; cursor: pointer; }
+    @media (prefers-color-scheme: dark) {
+      body { background: #1c1b22; color: #fbfbfe; }
+    }
+  </style>
+</head>
+<body>
+  <h1>WebFilter</h1>
+  <label><input type="checkbox" id="enabled"> Filtering enabled</label>
+  <div id="status"></div>
+  <hr>
+  <label><input type="checkbox" id="safesearch"> SafeSearch enforcement</label>
+  <label><input type="checkbox" id="urlFilter"> URL filter</label>
+  <label><input type="checkbox" id="doh"> Block DoH bypass</label>
+  <label><input type="checkbox" id="textClassifier"> Adult-text detection</label>
+  <label><input type="checkbox" id="imageClassifier"> NSFW image filter</label>
+  <label><input type="checkbox" id="youtube"> YouTube cleanup</label>
+  <button id="options">All settings…</button>
+  <script src="popup.js"></script>
+</body>
+</html>

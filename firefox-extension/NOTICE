@@ -1,0 +1,25 @@
+Third-party assets vendored into this extension
+================================================
+
+vendor/tf.min.js
+  TensorFlow.js 4.22.0 (https://github.com/tensorflow/tfjs)
+  Copyright 2024 Google LLC. Licensed under the Apache License 2.0.
+  Extracted unmodified from the @tensorflow/tfjs npm package
+  (registry.npmjs.org, dist/tf.min.js).
+
+vendor/models/mobilenet_v2/
+  GantMan/nsfw_model — MobileNetV2 224x224 quantized NSFW classifier
+  (https://github.com/GantMan/nsfw_model), MIT license.
+  Extracted from the nsfwjs 4.3.0 npm package (registry.npmjs.org,
+  dist/models/mobilenet_v2/): the UMD-wrapped model JSON and base64 weight
+  bundle were converted to standard TF.js layers-model format (model.json +
+  group1-shard1of1.bin) with no change to topology or weights. This is the
+  same model family the Go proxy embeds in internal/classify/image.
+  nsfwjs itself (https://github.com/infinitered/nsfwjs) is MIT-licensed;
+  only its model asset is shipped, none of its code.
+
+background/bayes_model.js
+  Generated from the Go proxy's internal/classify/textbayes/model_data.json.
+  The seed vocabulary is curated from concepts in the LDNOOBW word list
+  (https://github.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words),
+  CC-BY-4.0 — see internal/classify/textbayes/NOTICE in the repository root.

@@ -73,6 +73,39 @@ VpnService→tun2socks→engine data path, and the Kotlin app itself (no Android
 SDK in the CI/build environment — the sources are written and reviewed but
 not compiled here).
 
+Building the AAR + debug APK is automated in
+`.github/workflows/android.yml` — a **manual-only** (`workflow_dispatch`)
+workflow that runs gomobile + Gradle on a GitHub runner and uploads both as
+artifacts. `ci.yml`'s cross-compile matrix also covers
+`GOOS=android GOARCH=arm64` for `./mobile ./internal/...` on every push/PR.
+
+## Firefox extension (in progress)
+
+Deliverable 2 of `docs/plans/android-firefox-transparent-mode.md` is
+scaffolded in `firefox-extension/`: a standalone MV3 WebExtension (plain JS,
+no build step) reproducing the filters with browser APIs — no proxy, no CA.
+See its README for the full Go-addon → extension mechanism map.
+
+- SafeSearch/URL-filter/DoH-bypass via `declarativeNetRequest`; the engine
+  table (`background/rules_data.js`) is a port of `safesearch.go`, including
+  the same-domain AI/images-tab scoping and sharded-CDN handling.
+- The adult-text scorer is the same Bayes model (generated
+  `background/bayes_model.js`); `test/bayes_parity.mjs` replays Go-generated
+  vectors (`test/gen_vectors.go`) and requires exact score agreement.
+- The NSFW image filter runs the same GantMan MobileNetV2 family via
+  vendored TF.js (converted from the nsfwjs npm package's bundled model —
+  see `firefox-extension/NOTICE`), with the Go side's skin-ratio gate (0.07)
+  and combined score (`porn + hentai + 0.5*sexy`) ported verbatim.
+
+**Verified:** `web-ext lint` 0 errors; Bayes JS↔Go score parity on committed
+vectors; DNR rule compilation asserted against sample URLs
+(`test/rules_check.mjs`); the vendored model loads in TF.js and produces a
+valid 5-class softmax.
+
+**Not verified (needs a real Firefox):** DNR behavior against live search
+engines, image/YouTube filtering on real pages (YouTube DOM selectors will
+need maintenance), event-page lifecycle, low-end classification latency.
+
 ## Classifiers
 
 - Text classification is opt-in per policy through `text_classifier.enabled`.

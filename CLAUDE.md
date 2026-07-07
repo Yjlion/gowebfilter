@@ -79,7 +79,21 @@ Request/block/audit logs go to SQLite at `logs/webfilter.db`.
   `gomobile bind -target=android/arm64,android/arm -androidapi 26 -o android/app/libs/webfilter.aar ./mobile`.
 - `android/` — Kotlin/Gradle app scaffold (VpnService, WebView mgmt UI, per-app
   filtering, CA install flow). See `android/README.md` for local build steps;
-  the AAR is a build artifact (gitignored).
+  the AAR is a build artifact (gitignored). The debug APK can also be built on
+  demand by the **manual** `.github/workflows/android.yml` workflow
+  (`workflow_dispatch` only — Actions tab → "Android APK" → Run workflow;
+  artifacts: APK + AAR).
+- `firefox-extension/` — standalone MV3 Firefox WebExtension (plan doc
+  Deliverable 2): reproduces the filters with browser APIs + client-side ML —
+  no proxy, no CA, plain JS with no build step. SafeSearch/URL/DoH via
+  `declarativeNetRequest` (`background/rules_data.js` ports `safesearch.go`'s
+  engine table — keep the two in sync), the same Bayes text scorer (generated
+  `background/bayes_model.js`; `test/bayes_parity.mjs` + `test/gen_vectors.go`
+  prove score equality with the Go implementation — regenerate vectors after
+  model changes), and the same GantMan MobileNetV2 via vendored TF.js
+  (`vendor/`, see the extension's `NOTICE`). Verify with
+  `npx web-ext lint -s firefox-extension` and
+  `node firefox-extension/test/{bayes_parity,rules_check}.mjs`.
 - `internal/models/` — `Policy`/`GlobalSettings` structs + JSON schema
   (custom `UnmarshalJSON` per sub-config for defaults + legacy-schema
   migration — see `SafeSearchConfig`'s flat-to-`engines`-map migration as
@@ -197,10 +211,16 @@ Request/block/audit logs go to SQLite at `logs/webfilter.db`.
 - **The Android port is a separate build; `go build ./...` does not exercise
   it.** `mobile/` compiles on any host, but its real target is
   `GOOS=android`. After touching `mobile/` or `internal/app`, run
-  `GOOS=android GOARCH=arm64 CGO_ENABLED=0 go build ./mobile` — the on-device
-  data path (VpnService→tun2socks→engine), `modernc.org/sqlite` under the
-  Android runtime, and image-CNN latency are **not** verified in CI and need a
-  real device/emulator.
+  `GOOS=android GOARCH=arm64 CGO_ENABLED=0 go build ./mobile` (`ci.yml`'s
+  cross-compile matrix also runs this) — the on-device data path
+  (VpnService→tun2socks→engine), `modernc.org/sqlite` under the Android
+  runtime, and image-CNN latency need a real device/emulator; build the APK
+  via the manual `android.yml` workflow.
+- **The Firefox extension is also outside `go test ./...`.** After touching
+  `firefox-extension/`, run its lint + Node tests (see the layout entry). If
+  you change `internal/classify/textbayes/model_data.json` or the scorer, the
+  extension's generated `bayes_model.js`/`bayes_vectors.json` must be
+  regenerated or the parity contract silently rots.
 - Local `main` may lag GitHub because fixes land through PRs — fetch
   `origin/main` and reconcile before publishing changes.
 

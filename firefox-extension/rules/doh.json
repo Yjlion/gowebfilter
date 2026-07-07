@@ -1,0 +1,58 @@
+[
+  {
+    "id": 1,
+    "priority": 1,
+    "action": { "type": "block" },
+    "condition": {
+      "requestDomains": [
+        "cloudflare-dns.com",
+        "one.one.one.one",
+        "dns.google",
+        "dns.quad9.net",
+        "dns9.quad9.net",
+        "dns10.quad9.net",
+        "dns11.quad9.net",
+        "doh.opendns.com",
+        "doh.familyshield.opendns.com",
+        "dns.adguard-dns.com",
+        "family.adguard-dns.com",
+        "unfiltered.adguard-dns.com",
+        "dns.adguard.com",
+        "doh.cleanbrowsing.org",
+        "dns.nextdns.io",
+        "doh.mullvad.net",
+        "doh.dns.sb",
+        "freedns.controld.com",
+        "dns.controld.com",
+        "doh.libredns.gr",
+        "dns.alidns.com",
+        "doh.pub",
+        "doh.360.cn",
+        "ordns.he.net",
+        "dns.dnswarden.com",
+        "doh.tiar.app",
+        "dns.decloudus.com",
+        "doh.applied-privacy.net",
+        "dns.digitale-gesellschaft.ch"
+      ],
+      "resourceTypes": [
+        "main_frame",
+        "sub_frame",
+        "xmlhttprequest",
+        "other"
+      ]
+    }
+  },
+  {
+    "id": 2,
+    "priority": 1,
+    "action": { "type": "block" },
+    "condition": {
+      "urlFilter": "/dns-query",
+      "resourceTypes": [
+        "xmlhttprequest",
+        "other"
+      ]
+    }
+  }
+]

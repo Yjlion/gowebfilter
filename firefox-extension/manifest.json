@@ -1,0 +1,80 @@
+{
+  "manifest_version": 3,
+  "name": "WebFilter",
+  "version": "0.1.0",
+  "description": "Standalone in-browser web filter: SafeSearch enforcement, URL filtering, DoH-bypass blocking, NSFW image blurring, adult-text detection, and YouTube cleanup. All processing stays on your device.",
+  "homepage_url": "https://github.com/Yjlion/gowebfilter",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "webfilter@yjlion.github.io",
+      "strict_min_version": "128.0",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
+    }
+  },
+  "icons": {
+    "48": "icons/icon.svg",
+    "96": "icons/icon.svg"
+  },
+  "permissions": [
+    "declarativeNetRequest",
+    "storage",
+    "alarms"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "scripts": [
+      "vendor/tf.min.js",
+      "background/rules_data.js",
+      "background/bayes_model.js",
+      "background/bayes.js",
+      "background/nsfw.js",
+      "background/background.js"
+    ]
+  },
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "doh",
+        "enabled": false,
+        "path": "rules/doh.json"
+      }
+    ]
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content/imagefilter.js"],
+      "css": ["content/imagefilter.css"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content/textfilter.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["*://*.youtube.com/*"],
+      "js": ["content/youtube.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["pages/blocked.html"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": "icons/icon.svg",
+    "default_title": "WebFilter"
+  },
+  "options_ui": {
+    "page": "options/options.html",
+    "open_in_tab": true
+  }
+}

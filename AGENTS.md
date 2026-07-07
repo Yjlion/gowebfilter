@@ -52,7 +52,15 @@ for local dev. They persist to disk; the mgmt API's
   drives tun2socks from the VpnService `fd://` TUN. Build with
   `gomobile bind -target=android/arm64,android/arm -androidapi 26 -o android/app/libs/webfilter.aar ./mobile`
 - `android/` - Kotlin/Gradle Android app (VpnService, WebView mgmt UI, per-app
-  filtering, CA install flow) consuming the gomobile AAR
+  filtering, CA install flow) consuming the gomobile AAR. Debug APKs build on
+  demand via the manual `.github/workflows/android.yml` workflow
+  (workflow_dispatch only)
+- `firefox-extension/` - standalone MV3 Firefox WebExtension (no proxy/CA):
+  declarativeNetRequest for SafeSearch/URL/DoH, ported Bayes text scorer,
+  vendored TF.js NSFW model. Verify with `npx web-ext lint -s firefox-extension`
+  and `node firefox-extension/test/{bayes_parity,rules_check}.mjs`; regenerate
+  `bayes_model.js`/`bayes_vectors.json` (`test/gen_vectors.go`) whenever the Go
+  textbayes model changes
 - `ui/` - management web UI copied from the Python original; Alpine.js and
   qrcodejs are vendored (`ui/alpine.min.js`, `ui/qrcode.min.js`) for offline use
 

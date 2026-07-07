@@ -1,0 +1,16 @@
+/* Applied by content/imagefilter.js only while the NSFW image filter is
+ * enabled. Images are blurred eagerly from document_start and released as
+ * the classifier clears them, so nothing explicit is visible while a
+ * verdict is pending. */
+
+img.webfilter-pending {
+  filter: blur(24px) !important;
+}
+
+img.webfilter-blurred {
+  filter: blur(24px) grayscale(40%) !important;
+}
+
+img.webfilter-removed {
+  visibility: hidden !important;
+}
