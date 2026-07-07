@@ -19,10 +19,13 @@ that is a build artifact you produce from the Go module in the repo root.
 - **Android SDK** (API 34) + **NDK** (r26+) — install via Android Studio or
   `sdkmanager`. Point `ANDROID_HOME`/`ANDROID_NDK_HOME` at them (or set
   `sdk.dir`/`ndk.dir` in `local.properties`).
-- **Go 1.24+** and **gomobile**:
+- **Go 1.24+** and **gomobile** — install from inside the repo checkout so
+  you get the x/mobile version pinned in `go.mod` (recent gomobile releases
+  refuse to bind a module that doesn't list `golang.org/x/mobile` in its
+  dependency graph; the repo carries a `tool golang.org/x/mobile/cmd/gobind`
+  directive for exactly that reason, which `go mod tidy` preserves):
   ```bash
-  go install golang.org/x/mobile/cmd/gomobile@latest
-  go install golang.org/x/mobile/cmd/gobind@latest
+  go install golang.org/x/mobile/cmd/gomobile golang.org/x/mobile/cmd/gobind
   gomobile init
   ```
 
