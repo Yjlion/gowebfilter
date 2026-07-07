@@ -1,0 +1,4 @@
+# Drop the gomobile-built webfilter.aar in this directory:
+#   gomobile bind -target=android/arm64,android/arm -androidapi 26 \
+#       -o android/app/libs/webfilter.aar ./mobile
+# The .aar itself is gitignored (see android/.gitignore).

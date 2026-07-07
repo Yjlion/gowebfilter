@@ -22,7 +22,9 @@ jobs:
       - run: go vet ./...
       - run: go test ./...
 
-  # Cross-compile matrix for the three release targets.
+  # Cross-compile matrix: the three release targets plus the Android gomobile
+  # package (compile-only — the full AAR/APK is built by the manual
+  # android.yml workflow).
   cross-compile:
     runs-on: ubuntu-latest
     strategy:
@@ -34,6 +36,9 @@ jobs:
             goarch: amd64
           - goos: linux
             goarch: arm64
+          - goos: android
+            goarch: arm64
+            packages: ./mobile ./internal/...
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -43,7 +48,7 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "0"
-        run: go build -o /dev/null ./cmd/webfilter
+        run: go build ${{ matrix.packages || './cmd/webfilter' }}
 
   # Runs only on a `v*` tag push: builds all three release targets (via the
   # same script a maintainer would run locally, scripts/package-release.sh -

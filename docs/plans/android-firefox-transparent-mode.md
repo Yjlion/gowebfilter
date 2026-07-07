@@ -19,7 +19,15 @@ This document plans three independent-but-related deliverables:
    captured without per-client proxy configuration, planned per platform and per
    use case (local device vs. network gateway).
 
-**Nothing here is committed to code yet** — this is a research/advisory plan.
+**Status:** Deliverables 1 and 2 are now scaffolded in code. D1 (Android):
+the shared Go refactor (`internal/app`), the gomobile `mobile/` package, the
+offline UI vendoring, and the Kotlin/Gradle `android/` app all landed; a
+manual GitHub workflow (`.github/workflows/android.yml`) builds the debug
+APK on demand. D2 (Firefox): `firefox-extension/` is a working MV3 scaffold —
+DNR safesearch/URL/DoH rules, the ported Bayes text scorer (with a Go↔JS
+parity test), and the TF.js NSFW image filter. Deliverable 3 (transparent
+mode) remains research/advisory. See `HANDOFF.md`'s "Android port" and
+"Firefox extension" sections for what is verified vs. not.
 
 Key research findings that shape the design:
 

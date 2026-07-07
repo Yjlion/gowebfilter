@@ -1,0 +1,61 @@
+name: Android APK
+
+# Manual-only for now: the APK build needs the Android SDK/NDK toolchain and
+# takes several minutes, so it doesn't run on every push. Trigger it from the
+# Actions tab; the debug APK and the gomobile AAR are uploaded as artifacts.
+on:
+  workflow_dispatch:
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    env:
+      NDK_VERSION: "26.3.11579264"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      # AGP 8.5 requires JDK 17.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # The runner image ships the Android SDK at $ANDROID_HOME; pin the NDK
+      # version explicitly so gomobile builds are reproducible across image
+      # updates.
+      - name: Install pinned NDK
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$NDK_VERSION"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+
+      - name: Install gomobile
+        run: |
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          go install golang.org/x/mobile/cmd/gobind@latest
+          gomobile init
+
+      # Same command android/README.md documents for local builds.
+      - name: Build webfilter.aar
+        run: |
+          gomobile bind -target=android/arm64,android/arm -androidapi 26 \
+            -o android/app/libs/webfilter.aar ./mobile
+
+      - name: Build debug APK
+        working-directory: android
+        run: ./gradlew --no-daemon assembleDebug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: webfilter-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: webfilter-aar
+          path: android/app/libs/webfilter.aar
+          if-no-files-found: error

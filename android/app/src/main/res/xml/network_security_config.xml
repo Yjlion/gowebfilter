@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Allow cleartext to the loopback management server (127.0.0.1:8000)
+         that the embedded Go engine serves and the in-app WebView loads. -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
+
+    <!-- Trust user-installed CA certificates for this app's own traffic, so
+         that if the app's WebView is ever routed through the on-device
+         filter the intercepting CA is accepted. This does NOT change other
+         apps' trust — Chrome and hardened apps enforce Certificate
+         Transparency and reject user CAs regardless (see CaInstallActivity
+         for the honest limits shown to the user). -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
