@@ -36,7 +36,7 @@ func startTun(tunFd int) error {
 		Device:   fmt.Sprintf("fd://%d", tunFd),
 		Proxy:    "socks5://127.0.0.1:1080",
 		MTU:      1500,
-		LogLevel: "warning",
+		LogLevel: "warn",
 	})
 	// tunengine.Start() log.Fatalf's on failure (killing the process), so we
 	// have validated the fd and the loopback proxy target above; the SOCKS5
