@@ -256,9 +256,10 @@ func TestSocks5AuthRequired(t *testing.T) {
 	}
 }
 
-// TestSocks5RejectsNonConnectCommand drives the raw handshake to assert that
-// an unsupported command (UDP ASSOCIATE) gets reply code 0x07.
-func TestSocks5RejectsNonConnectCommand(t *testing.T) {
+// TestSocks5RejectsBindCommand drives the raw handshake to assert that an
+// unsupported command (BIND) gets reply code 0x07. UDP ASSOCIATE is now
+// supported (see the UDP-relay tests in socks5_udp_test.go); BIND is not.
+func TestSocks5RejectsBindCommand(t *testing.T) {
 	socksAddr, _ := startSocksEngine(t, nil, nil, nil)
 
 	conn, err := net.DialTimeout("tcp", socksAddr, 5*time.Second)
@@ -280,8 +281,8 @@ func TestSocks5RejectsNonConnectCommand(t *testing.T) {
 		t.Fatalf("method selection = %v, want [5 0]", sel)
 	}
 
-	// Request: VER=5, CMD=UDP ASSOCIATE (0x03), RSV=0, ATYP=IPv4, 0.0.0.0:0.
-	req := []byte{0x05, 0x03, 0x00, 0x01, 0, 0, 0, 0}
+	// Request: VER=5, CMD=BIND (0x02), RSV=0, ATYP=IPv4, 0.0.0.0:0.
+	req := []byte{0x05, 0x02, 0x00, 0x01, 0, 0, 0, 0}
 	req = binary.BigEndian.AppendUint16(req, 0)
 	if _, err := conn.Write(req); err != nil {
 		t.Fatalf("write request: %v", err)

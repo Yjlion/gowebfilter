@@ -12,8 +12,9 @@ import (
 )
 
 // SOCKS5 protocol constants (RFC 1928) and the username/password auth
-// sub-negotiation (RFC 1929). This engine implements the CONNECT command
-// only; BIND and UDP-ASSOCIATE are rejected with "command not supported".
+// sub-negotiation (RFC 1929). This engine implements CONNECT (the full MITM
+// tunnel path) and a DNS-only UDP ASSOCIATE relay (see socks5_udp.go, for the
+// Android TUN path); BIND is rejected with "command not supported".
 const (
 	socksVersion = 0x05 // RFC 1928 version octet
 	authVersion  = 0x01 // RFC 1929 auth sub-negotiation version octet
@@ -25,7 +26,9 @@ const (
 	authSuccess = 0x00
 	authFailure = 0x01
 
-	cmdConnect = 0x01
+	cmdConnect      = 0x01
+	cmdBind         = 0x02
+	cmdUDPAssociate = 0x03
 
 	atypIPv4   = 0x01
 	atypDomain = 0x03
@@ -129,7 +132,16 @@ func (e *Engine) serveSocksConn(conn net.Conn, connID uint64) {
 	}
 	port := int(binary.BigEndian.Uint16(portBytes))
 
-	if cmd != cmdConnect {
+	switch cmd {
+	case cmdConnect:
+		// Handled below via the shared tunnel path.
+	case cmdUDPAssociate:
+		// UDP ASSOCIATE's DST.ADDR/DST.PORT (read above) are the address the
+		// client expects to send from; RFC 1928 lets us ignore them. The relay
+		// exists for the Android TUN path's DNS — see serveSocksUDPAssociate.
+		e.serveSocksUDPAssociate(conn, clientIP)
+		return
+	default: // cmdBind and anything else
 		writeSocksReply(conn, repCommandNotSupported)
 		return
 	}
