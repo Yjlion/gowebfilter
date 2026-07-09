@@ -19,21 +19,36 @@ that is a build artifact you produce from the Go module in the repo root.
 - **Android SDK** (API 34) + **NDK** (r26+) — install via Android Studio or
   `sdkmanager`. Point `ANDROID_HOME`/`ANDROID_NDK_HOME` at them (or set
   `sdk.dir`/`ndk.dir` in `local.properties`).
-- **Go 1.24+** and **gomobile**:
+- **Go 1.24+** and **gomobile** — install from inside the repo checkout
+  (no `@latest`) so the binaries match the `golang.org/x/mobile` version
+  pinned in `go.mod` via its `tool` directive; recent gomobile releases
+  refuse to bind when x/mobile is missing from the module graph:
   ```bash
-  go install golang.org/x/mobile/cmd/gomobile@latest
-  go install golang.org/x/mobile/cmd/gobind@latest
+  go install golang.org/x/mobile/cmd/gomobile golang.org/x/mobile/cmd/gobind
   gomobile init
   ```
 
 ## Build
 
-From the **repository root**, build the AAR from the `mobile/` Go package:
+From the **repository root**: if you're including the emulator ABI
+(`android/amd64`), first remap `modernc.org/libc`'s legacy syscalls — on
+x86_64, Android's app seccomp policy SIGSYS-kills the process at the first
+sqlite open without it (arm64/arm don't need this, but the patch is harmless
+there):
 
 ```bash
-gomobile bind -target=android/arm64,android/arm -androidapi 26 \
+go run scripts/patch_libc_seccomp.go   # adds a go.mod replace; -undo reverts
+```
+
+Then build the AAR from the `mobile/` Go package:
+
+```bash
+gomobile bind -target=android/arm64,android/arm,android/amd64 -androidapi 26 \
     -o android/app/libs/webfilter.aar ./mobile
 ```
+
+(Drop `android/amd64` and skip the patch if you only need real devices —
+remember not to commit the `replace` line the patch adds to `go.mod`.)
 
 Then build the app:
 
@@ -61,9 +76,10 @@ The repository has a manual workflow, **Actions → Android APK → Run
 workflow** (`.github/workflows/android.yml`), that performs the exact steps
 above on a GitHub runner and uploads two artifacts: `webfilter-debug-apk`
 (the installable debug APK) and `webfilter-aar` (the gomobile binding, if
-you only want to rebuild the app locally). It is `workflow_dispatch`-only —
-it never runs automatically on push. The APK is debug-signed; release
-signing is not wired up yet.
+you only want to rebuild the app locally). The same workflow also runs as
+part of `ci.yml`'s release job on `v*` tags, so every GitHub release
+carries a `webfilter-<version>-android-debug.apk` asset. The APK is
+debug-signed; release signing is not wired up yet.
 
 ## Using the app
 

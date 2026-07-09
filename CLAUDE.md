@@ -214,8 +214,19 @@ Request/block/audit logs go to SQLite at `logs/webfilter.db`.
   `GOOS=android GOARCH=arm64 CGO_ENABLED=0 go build ./mobile` (`ci.yml`'s
   cross-compile matrix also runs this) — the on-device data path
   (VpnService→tun2socks→engine), `modernc.org/sqlite` under the Android
-  runtime, and image-CNN latency need a real device/emulator; build the APK
-  via the manual `android.yml` workflow.
+  runtime, and image-CNN latency need a real device/emulator; the APK is
+  built by `android.yml` (manual trigger, and automatically on `v*` tags via
+  `ci.yml`'s release job, which attaches it to the GitHub release).
+- **The x86_64 emulator ABI needs a libc patch or it SIGSYS-crashes on the
+  first sqlite open.** `modernc.org/libc`'s musl syscall dispatchers issue
+  legacy path-based syscall numbers (lstat #6, open #2, ...) that Android's
+  app seccomp policy kills on x86_64 only. Run
+  `go run scripts/patch_libc_seccomp.go` before `gomobile bind` when the
+  target list includes `android/amd64` (it copies libc to the gitignored
+  `third_party/libc-seccomp`, reroutes the dispatchers through a
+  `seccompSyscall` shim that remaps to the *at family, and adds a go.mod
+  `replace`); `-undo` reverts it — **never commit the replace line**. arm64
+  real devices don't need it. `android.yml` runs the patch itself.
 - **The Firefox extension is also outside `go test ./...`.** After touching
   `firefox-extension/`, run its lint + Node tests (see the layout entry). If
   you change `internal/classify/textbayes/model_data.json` or the scorer, the
