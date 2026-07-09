@@ -50,12 +50,20 @@ jobs:
           CGO_ENABLED: "0"
         run: go build ${{ matrix.packages || './cmd/webfilter' }}
 
+  # Runs only on a `v*` tag push: builds the Android debug APK via the same
+  # reusable workflow the manual Actions-tab trigger uses, so the release job
+  # below can attach it.
+  android-apk:
+    needs: [test, cross-compile]
+    if: startsWith(github.ref, 'refs/tags/v')
+    uses: ./.github/workflows/android.yml
+
   # Runs only on a `v*` tag push: builds all three release targets (via the
   # same script a maintainer would run locally, scripts/package-release.sh -
-  # see packaging/README.md) and attaches the resulting archives to a GitHub
-  # release for that tag.
+  # see packaging/README.md) and attaches the resulting archives plus the
+  # Android APK to a GitHub release for that tag.
   release:
-    needs: [test, cross-compile]
+    needs: [test, cross-compile, android-apk]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -68,6 +76,14 @@ jobs:
         with:
           go-version: "1.26"
       - run: ./scripts/package-release.sh "${{ github.ref_name }}" dist
+      # The APK artifact comes from the android-apk job above (same workflow
+      # run, so it's visible to download-artifact). Rename it to match the
+      # webfilter-<version>-<platform> convention of the other assets.
+      - uses: actions/download-artifact@v4
+        with:
+          name: webfilter-debug-apk
+          path: apk
+      - run: mv apk/app-debug.apk "dist/webfilter-${{ github.ref_name }}-android-debug.apk"
       - uses: softprops/action-gh-release@v2
         with:
           files: dist/*

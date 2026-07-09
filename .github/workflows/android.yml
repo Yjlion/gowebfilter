@@ -1,10 +1,11 @@
 name: Android APK
 
-# Manual-only for now: the APK build needs the Android SDK/NDK toolchain and
-# takes several minutes, so it doesn't run on every push. Trigger it from the
-# Actions tab; the debug APK and the gomobile AAR are uploaded as artifacts.
+# Runs on demand from the Actions tab, and as a reusable workflow from
+# ci.yml's release job (v* tags) so every GitHub release ships the APK.
+# The debug APK and the gomobile AAR are uploaded as artifacts either way.
 on:
   workflow_dispatch:
+  workflow_call:
 
 jobs:
   apk:
@@ -32,16 +33,25 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$NDK_VERSION"
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
 
+      # No @latest: installing from inside the module resolves gomobile and
+      # gobind to the go.mod-pinned x/mobile version (present via the `tool`
+      # directive), so the binaries can't drift ahead of the module graph.
       - name: Install gomobile
         run: |
-          go install golang.org/x/mobile/cmd/gomobile@latest
-          go install golang.org/x/mobile/cmd/gobind@latest
+          go install golang.org/x/mobile/cmd/gomobile golang.org/x/mobile/cmd/gobind
           gomobile init
+
+      # android/amd64 (emulators) needs modernc.org/libc's legacy syscalls
+      # remapped to the *at family or Android's seccomp SIGSYS-kills the app
+      # on the first sqlite open. The script copies+patches libc and adds a
+      # go.mod replace; see scripts/patch_libc_seccomp.go for the story.
+      - name: Patch modernc.org/libc for Android x86_64 seccomp
+        run: go run scripts/patch_libc_seccomp.go
 
       # Same command android/README.md documents for local builds.
       - name: Build webfilter.aar
         run: |
-          gomobile bind -target=android/arm64,android/arm -androidapi 26 \
+          gomobile bind -target=android/arm64,android/arm,android/amd64 -androidapi 26 \
             -o android/app/libs/webfilter.aar ./mobile
 
       - name: Build debug APK

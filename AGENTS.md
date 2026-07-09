@@ -50,11 +50,17 @@ for local dev. They persist to disk; the mgmt API's
 - `internal/classify/image/` - embedded pure-Go GantMan/nsfw_model image classifier
 - `mobile/` - gomobile-bound Android entry point (`Start`/`Stop`/`Status`/…);
   drives tun2socks from the VpnService `fd://` TUN. Build with
-  `gomobile bind -target=android/arm64,android/arm -androidapi 26 -o android/app/libs/webfilter.aar ./mobile`
+  `gomobile bind -target=android/arm64,android/arm,android/amd64 -androidapi 26 -o android/app/libs/webfilter.aar ./mobile`.
+  Before binding for `android/amd64` (x86_64 emulators), run
+  `go run scripts/patch_libc_seccomp.go` — `modernc.org/libc`'s musl syscall
+  dispatchers issue legacy path-based syscall numbers that Android's x86_64
+  app seccomp policy kills; the script remaps them to the *at family via a
+  gitignored libc copy + a go.mod `replace` (`-undo` reverts; never commit
+  the replace). arm64 is unaffected.
 - `android/` - Kotlin/Gradle Android app (VpnService, WebView mgmt UI, per-app
-  filtering, CA install flow) consuming the gomobile AAR. Debug APKs build on
-  demand via the manual `.github/workflows/android.yml` workflow
-  (workflow_dispatch only)
+  filtering, CA install flow) consuming the gomobile AAR. Debug APKs build via
+  the `.github/workflows/android.yml` workflow (manual trigger, and on `v*`
+  tags from `ci.yml`'s release job, which attaches the APK to the release)
 - `firefox-extension/` - standalone MV3 Firefox WebExtension (no proxy/CA):
   declarativeNetRequest for SafeSearch/URL/DoH, ported Bayes text scorer,
   vendored TF.js NSFW model. Verify with `npx web-ext lint -s firefox-extension`

@@ -1,0 +1,66 @@
+name: Firefox Extension
+
+# The standalone MV3 extension lives outside `go test ./...`, so it gets its
+# own job: lint, the Bayes/rules parity tests, a drift check against the Go
+# model, and a packaged build. Scoped to the paths that can affect it (the
+# extension itself and the Go text model it mirrors) plus manual dispatch.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "firefox-extension/**"
+      - "internal/classify/textbayes/**"
+      - ".github/workflows/firefox-extension.yml"
+  pull_request:
+    paths:
+      - "firefox-extension/**"
+      - "internal/classify/textbayes/**"
+      - ".github/workflows/firefox-extension.yml"
+  workflow_dispatch:
+
+jobs:
+  extension:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # Go is only needed for the drift guard below; the extension itself has
+      # no build step and no npm dependencies.
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      # The parity tests replay a fixed set of vectors against the JS port, but
+      # only prove it matches the *committed* bayes_vectors.json — not that
+      # those vectors still match the current Go model. Regenerate and fail if
+      # they drift, so a change to internal/classify/textbayes can't silently
+      # rot the contract.
+      - name: Check bayes vectors are in sync with the Go model
+        run: |
+          go run firefox-extension/test/gen_vectors.go
+          git diff --exit-code firefox-extension/test/bayes_vectors.json \
+            || { echo "::error::bayes_vectors.json is stale — run 'go run firefox-extension/test/gen_vectors.go' and commit the result"; exit 1; }
+
+      - name: Bayes parity test
+        run: node firefox-extension/test/bayes_parity.mjs
+
+      - name: DNR rules check
+        run: node firefox-extension/test/rules_check.mjs
+
+      # web-ext lint exits non-zero on errors only; the vendored TF.js trips
+      # unavoidable DANGEROUS_EVAL *warnings*, which do not fail the build.
+      - name: web-ext lint
+        run: npx --yes web-ext lint -s firefox-extension
+
+      - name: web-ext build
+        run: npx --yes web-ext build -s firefox-extension -a web-ext-artifacts --overwrite-dest --ignore-files "test/**" "README.md"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firefox-extension-zip
+          path: web-ext-artifacts/*.zip
+          if-no-files-found: error

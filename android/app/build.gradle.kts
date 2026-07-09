@@ -14,10 +14,12 @@ android {
         versionCode = 1
         versionName = "0.1.0"
 
-        // The gomobile AAR ships arm64-v8a and armeabi-v7a; keep the APK to
-        // those so we don't pull in unsupported ABIs.
+        // The gomobile AAR ships arm64-v8a, armeabi-v7a, and x86_64 (the
+        // last one for emulators — it needs the libc seccomp patch, see
+        // scripts/patch_libc_seccomp.go); keep the APK to those so we don't
+        // pull in unsupported ABIs.
         ndk {
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
         }
     }
 

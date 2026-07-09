@@ -22,7 +22,9 @@ model, the NSFW image model family), not code.
 
 ## Install (temporary, for development)
 
-1. Firefox ≥ 128.
+1. Firefox ≥ 142 (the AMO-required `data_collection_permissions` manifest
+   key needs 140+ on desktop, 142+ on Android — `strict_min_version` matches
+   the higher of the two).
 2. `about:debugging#/runtime/this-firefox` → **Load Temporary Add-on…** →
    pick `firefox-extension/manifest.json`.
 3. Click the toolbar icon to toggle features; **All settings…** opens the
