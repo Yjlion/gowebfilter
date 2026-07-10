@@ -86,7 +86,7 @@ class LogsActivity : AppCompatActivity() {
     private fun refresh() {
         Thread {
             val result = try {
-                JSONObject(Mobile.queryLogsJson(filesDir.absolutePath, kind, 500))
+                JSONObject(Mobile.queryLogsJson(filesDir.absolutePath, kind, 500L))
                     .optJSONArray("entries") ?: JSONArray()
             } catch (e: Exception) {
                 runOnUiThread {

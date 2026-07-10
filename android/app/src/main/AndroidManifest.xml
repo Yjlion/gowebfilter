@@ -4,6 +4,10 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SYSTEM_EXEMPTED" />
+    <!-- Proxy-only mode runs the same service WITHOUT establish(), so the
+         systemExempted type (which requires an active VPN) is not
+         permitted; specialUse is the documented escape hatch for it. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Needed to list installed apps for the per-app filtering picker. -->
     <uses-permission
@@ -82,10 +86,13 @@
             android:name=".WebFilterVpnService"
             android:exported="false"
             android:permission="android.permission.BIND_VPN_SERVICE"
-            android:foregroundServiceType="systemExempted">
+            android:foregroundServiceType="systemExempted|specialUse">
             <intent-filter>
                 <action android:name="android.net.VpnService" />
             </intent-filter>
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Proxy-only filtering mode: keeps the local HTTP filtering proxy and its management server running without a VPN." />
         </service>
 
         <!-- FileProvider for sharing the exported CA certificate. -->

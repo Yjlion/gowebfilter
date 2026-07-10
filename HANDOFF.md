@@ -109,6 +109,16 @@ intended consumer), and the categories RAM claim (~8 MB for the ~1M-domain
 porn list via the hash-set representation) has not been measured on a
 device.
 
+**Verified on the x86_64 emulator (2026-07-10):** proxy-only mode end to
+end (no VPN consent/key icon, PAC serves `PROXY 127.0.0.1:8080`, requests
+through the loopback HTTP proxy are filtered and logged), the native
+policies/categories/logs/analytics/DoH-preset screens, a real per-category
+ipfire download (`ads` → `domains.gz` on device → category block with
+`component=url_filter`), and the CA save-to-Downloads flow. One on-device
+fix came out of it: `startForeground` with the `systemExempted` type is
+rejected on API 34 unless the app is the active VPN, so proxy-only mode
+declares and uses the `specialUse` FGS type instead.
+
 Building the AAR + debug APK is automated in
 `.github/workflows/android.yml` — a **manual-only** (`workflow_dispatch`)
 workflow that runs gomobile + Gradle on a GitHub runner and uploads both as

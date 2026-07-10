@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
@@ -186,6 +187,18 @@ class WebFilterVpnService : VpnService() {
             .setOngoing(true)
             .build()
 
-        startForeground(NOTIF_ID, notification)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            // API 34 validates the FGS type: systemExempted is only allowed
+            // while this app is the active VPN (establish() ran), so
+            // proxy-only mode must declare itself specialUse instead.
+            val type = if (proxyOnly) {
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+            } else {
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED
+            }
+            startForeground(NOTIF_ID, notification, type)
+        } else {
+            startForeground(NOTIF_ID, notification)
+        }
     }
 }

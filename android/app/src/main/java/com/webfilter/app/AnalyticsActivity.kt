@@ -58,7 +58,7 @@ class AnalyticsActivity : AppCompatActivity() {
     private fun refresh() {
         Thread {
             val result = try {
-                JSONObject(Mobile.analyticsJson(filesDir.absolutePath, hours))
+                JSONObject(Mobile.analyticsJson(filesDir.absolutePath, hours.toLong()))
             } catch (e: Exception) {
                 runOnUiThread {
                     Toast.makeText(this, getString(R.string.settings_save_failed, e.message ?: "error"), Toast.LENGTH_LONG).show()
