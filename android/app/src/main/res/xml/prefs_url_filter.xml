@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <SwitchPreferenceCompat
+        android:key="url_filter_enabled"
+        android:title="@string/pref_enabled"
+        android:defaultValue="false" />
+
+    <ListPreference
+        android:key="url_filter_mode"
+        android:title="@string/pref_mode"
+        android:entries="@array/filter_mode_labels"
+        android:entryValues="@array/filter_mode_values"
+        android:defaultValue="blacklist"
+        app:useSimpleSummaryProvider="true" />
+
+    <EditTextPreference
+        android:key="url_filter_allow"
+        android:title="@string/pref_allow_list"
+        app:useSimpleSummaryProvider="true" />
+
+    <EditTextPreference
+        android:key="url_filter_block"
+        android:title="@string/pref_block_list"
+        app:useSimpleSummaryProvider="true" />
+
+    <EditTextPreference
+        android:key="url_filter_categories"
+        android:title="@string/pref_categories"
+        app:useSimpleSummaryProvider="true" />
+
+    <SwitchPreferenceCompat
+        android:key="url_filter_block_quic"
+        android:title="@string/pref_block_quic"
+        android:summary="@string/pref_block_quic_summary"
+        android:defaultValue="false" />
+</PreferenceScreen>

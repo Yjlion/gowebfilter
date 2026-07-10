@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <SwitchPreferenceCompat
+        android:key="doh_enabled"
+        android:title="@string/pref_enabled"
+        android:defaultValue="false" />
+
+    <EditTextPreference
+        android:key="doh_server"
+        android:title="@string/pref_doh_server"
+        android:defaultValue="https://1.1.1.3/dns-query"
+        app:useSimpleSummaryProvider="true" />
+</PreferenceScreen>

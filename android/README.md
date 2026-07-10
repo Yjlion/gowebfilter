@@ -96,8 +96,62 @@ debug-signed; release signing is not wired up yet.
    the CA and only apply to apps that trust user-installed CAs. Chrome and many
    hardened apps enforce Certificate Transparency and reject the user CA — their
    traffic is passed through untouched (blind-spliced), not broken.
-4. **Dashboard** — the embedded management UI loads in the in-app WebView once
+4. **Filter settings** — native Android settings screens for the device's
+   filter policy (SafeSearch per engine, URL filter, YouTube, text/image
+   classifiers, DoH, schedule, block page) and the mobile-relevant globals
+   (logging, retention, dashboard password). They read/write the same
+   `settings.json` / `policies/default.json` as the web dashboard through the
+   gomobile API, so they work even while filtering is stopped; policy edits
+   hot-reload, settings edits need a filter restart (same rule as the
+   dashboard). Desktop-only concerns (source IP/MAC matching, ARP scanner,
+   PAC, upstream proxy) are deliberately absent — use the dashboard if you
+   need them.
+5. **Dashboard** — the embedded management UI loads in the in-app WebView once
    filtering is running (policies, logs, safesearch, categories, etc.).
+
+## Managed configuration (MDM/EMM)
+
+The app declares a managed-configuration schema
+(`app/src/main/res/xml/app_restrictions.xml`) so an EMM portal (Intune,
+Workspace ONE, MobileIron, TestDPC, ...) can provision it:
+
+- **Typed keys** for the common settings (SafeSearch, URL filter lists,
+  YouTube, classifiers, DoH, logging, dashboard password). Only keys the
+  admin actually sets are applied — a partial push never clobbers unmanaged
+  on-device edits. Lists are newline-separated strings; thresholds are
+  strings ("0.8") because Android restrictions have no float type.
+- **`policy_json`** — a full policy document that replaces the device's
+  `default` policy wholesale, for admins who outgrow the typed keys
+  (`schedule_json` is the same escape hatch scoped to the schedule).
+- **`settings_locked`** — the lockdown switch. When set, the **Go engine
+  itself** rejects every config mutation (native UI, WebView dashboard, and
+  any on-device `curl` to 127.0.0.1:8000 all get HTTP 403); the native
+  settings screens render read-only with a "managed by your organization"
+  banner. Reads, status, and logs stay available. Pair it with the EMM's
+  **always-on VPN + lockdown** device policy so the user cannot simply stop
+  the filter.
+
+Restrictions are applied on app start, before every engine start, and on the
+EMM's push broadcast while the process is alive (a push that arrives while
+the process is dead lands at the next start). Re-applying an unchanged
+configuration is a no-op — the applied document is hashed, so the dashboard
+password is not re-hashed (and sessions not invalidated) on every boot.
+Un-enrolling (clearing all restrictions) unlocks the device but keeps the
+last-applied values.
+
+### Verifying with TestDPC
+
+1. Install [TestDPC](https://github.com/googlesamples/android-testdpc) on a
+   device/emulator and set it as device or profile owner.
+2. In TestDPC: *Manage app restrictions* → select WebFilter → set e.g.
+   `safesearch_enabled=true` and `settings_locked=true` → Save.
+3. Launch WebFilter → the settings button shows the managed banner and
+   read-only screens; `GET http://127.0.0.1:8000/api/policies/default` (with
+   the VPN running) shows `"safesearch":{"enabled":true,...}`.
+4. Try saving anything in the dashboard's settings page → the API returns
+   403 `{"detail":"Settings are managed by your organization..."}`.
+5. Clear the restrictions in TestDPC → the banner disappears and edits work
+   again.
 
 ## Verifying filtering works
 
@@ -135,17 +189,26 @@ android/
 │   └── src/main/
 │       ├── AndroidManifest.xml     VpnService + permissions + FileProvider
 │       ├── java/com/webfilter/app/
+│       │   ├── App.kt                   applies MDM restrictions, push receiver
 │       │   ├── MainActivity.kt          start/stop, dashboard WebView
 │       │   ├── WebFilterVpnService.kt   TUN + Mobile.start(filesDir, fd)
-│       │   ├── AppPickerActivity.kt     per-app filtering selection
+│       │   ├── AppPickerActivity.kt     per-app filtering selection (with icons)
+│       │   ├── SettingsActivity.kt      native settings screens (PrefsFragment)
+│       │   ├── ScheduleActivity.kt      time-window editor for the schedule
+│       │   ├── ConfigStores.kt          JSON stores over the gomobile API
+│       │   ├── PreferenceDataStores.kt  preference-key → JSON-path mapping
+│       │   ├── ManagedConfig.kt         RestrictionsManager bundle → managed doc
 │       │   ├── CaInstallActivity.kt     CA export + install guidance
 │       │   └── Prefs.kt
-│       └── res/                    layouts, strings, network-security-config
+│       └── res/                    layouts, strings, prefs XML, app_restrictions
 ├── build.gradle.kts / settings.gradle.kts / gradle.properties
 └── gradle/ + gradlew               Gradle 8.7 wrapper
 ```
 
 The gomobile package name is `mobile`, so the generated Java class is
 `mobile.Mobile` with static methods `start(String, long)`, `stop()`,
-`isRunning()`, `mgmtUrl()`, `status()`, `reloadPolicies()`, and
-`caCertPem(String)`.
+`isRunning()`, `mgmtUrl()`, `status()`, `reloadPolicies()`,
+`caCertPem(String)`, and — for the native settings UI and MDM path —
+`getSettingsJson`, `updateSettingsJson`, `getPolicyJson`, `updatePolicyJson`,
+`getManagedStateJson`, and `applyManagedConfigJson` (all JSON-string
+in/out; see `mobile/settingsapi.go` and `mobile/managed.go`).

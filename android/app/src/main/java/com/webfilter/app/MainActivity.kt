@@ -41,6 +41,9 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.appsButton).setOnClickListener {
             startActivity(Intent(this, AppPickerActivity::class.java))
         }
+        findViewById<Button>(R.id.settingsButton).setOnClickListener {
+            startActivity(Intent(this, SettingsActivity::class.java))
+        }
         findViewById<Button>(R.id.caButton).setOnClickListener {
             startActivity(Intent(this, CaInstallActivity::class.java))
         }

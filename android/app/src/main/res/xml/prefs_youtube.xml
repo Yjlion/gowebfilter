@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <SwitchPreferenceCompat
+        android:key="youtube_enabled"
+        android:title="@string/pref_enabled"
+        android:defaultValue="false" />
+
+    <ListPreference
+        android:key="youtube_mode"
+        android:title="@string/pref_mode"
+        android:entries="@array/filter_mode_labels"
+        android:entryValues="@array/filter_mode_values"
+        android:defaultValue="blacklist"
+        app:useSimpleSummaryProvider="true" />
+
+    <EditTextPreference
+        android:key="youtube_channels"
+        android:title="@string/pref_channels"
+        app:useSimpleSummaryProvider="true" />
+
+    <SwitchPreferenceCompat
+        android:key="youtube_block_home"
+        android:title="@string/pref_block_home"
+        android:defaultValue="true" />
+
+    <SwitchPreferenceCompat
+        android:key="youtube_remove_comments"
+        android:title="@string/pref_remove_comments"
+        android:defaultValue="false" />
+
+    <SwitchPreferenceCompat
+        android:key="youtube_remove_recommendations"
+        android:title="@string/pref_remove_recommendations"
+        android:defaultValue="false" />
+</PreferenceScreen>

@@ -22,4 +22,74 @@
     <string name="ca_limits_body">Installing this certificate lets WebFilter inspect the full content of traffic from apps that trust user certificates.\n\nURL, hostname (SNI), DNS-over-HTTPS and QUIC filtering work for every app routed through the VPN, even without the certificate.\n\nChrome and many hardened apps enforce Certificate Transparency and reject user-installed certificates. Their encrypted traffic is passed through untouched (blind-spliced) rather than broken, so deep content features (text/image NSFW classifiers, YouTube rewriting) do not apply to them.</string>
 
     <string name="per_app_hint">Selected apps are routed through the filter. Leave all unchecked to filter every app.</string>
+
+    <!-- Native settings -->
+    <string name="title_settings">Filter settings</string>
+    <string name="title_schedule">Schedule</string>
+    <string name="open_settings">Filter settings</string>
+    <string name="managed_banner">Managed by your organization — settings cannot be changed on this device.</string>
+    <string name="settings_restart_hint">Takes effect after restarting the filter.</string>
+    <string name="settings_save_failed">Could not save: %1$s</string>
+
+    <string name="cat_safesearch">SafeSearch</string>
+    <string name="cat_url_filter">URL filter</string>
+    <string name="cat_youtube">YouTube</string>
+    <string name="cat_classifiers">Content classifiers</string>
+    <string name="cat_doh">DNS over HTTPS</string>
+    <string name="cat_block_page">Block page</string>
+    <string name="cat_general">General</string>
+    <string name="cat_security">Security</string>
+
+    <string name="pref_enabled">Enabled</string>
+    <string name="pref_mode">Mode</string>
+    <string name="pref_allow_list">Allow list (one entry per line)</string>
+    <string name="pref_block_list">Block list (one entry per line)</string>
+    <string name="pref_categories">Blocked categories (one per line)</string>
+    <string name="pref_block_quic">Block QUIC</string>
+    <string name="pref_block_quic_summary">Forces browsers to fall back from HTTP/3 so traffic stays inspectable.</string>
+    <string name="pref_block_images_tab">Block Images tab</string>
+    <string name="pref_block_videos_tab">Block Videos tab</string>
+    <string name="pref_block_ai_tab">Block AI tab</string>
+    <string name="pref_channels">Channels (one per line)</string>
+    <string name="pref_block_home">Block YouTube homepage</string>
+    <string name="pref_remove_comments">Remove comments</string>
+    <string name="pref_remove_recommendations">Remove recommendations</string>
+    <string name="pref_text_classifier">Adult-text classifier</string>
+    <string name="pref_image_classifier">NSFW image classifier</string>
+    <string name="pref_threshold">Threshold (0.0–1.0)</string>
+    <string name="pref_action">Action</string>
+    <string name="pref_min_dimension">Minimum image size (px)</string>
+    <string name="pref_doh_server">DoH server URL</string>
+    <string name="pref_block_message">Custom block message</string>
+    <string name="pref_log_blocks">Log blocked requests</string>
+    <string name="pref_log_requests">Log all requests</string>
+    <string name="pref_log_retention">Log retention (days)</string>
+    <string name="pref_ui_language">Dashboard language</string>
+    <string name="pref_auth_enabled">Require dashboard password</string>
+    <string name="pref_change_password">Change dashboard password</string>
+    <string name="pref_change_password_summary">Protects the management dashboard and this settings screen\'s web equivalent.</string>
+    <string name="pref_info_mgmt_url">Dashboard URL</string>
+    <string name="pref_info_listeners">Proxy listeners</string>
+    <string name="pref_schedule_summary">Limit when this policy is active.</string>
+    <string name="password_hint">New password</string>
+    <string name="password_set">Password updated.</string>
+    <string name="invalid_threshold">Enter a number between 0.0 and 1.0.</string>
+
+    <string name="schedule_enabled">Enable schedule</string>
+    <string name="schedule_hint">The policy is active only inside these windows. No windows means always active.</string>
+    <string name="schedule_add_window">Add time window</string>
+    <string name="schedule_days">Days</string>
+    <string name="schedule_remove">Remove</string>
+    <!-- Managed-configuration (app_restrictions.xml) descriptions; the
+         android:description attribute only accepts resource references. -->
+    <string name="restr_settings_locked_desc">Prevent any settings or policy changes on the device (native UI and dashboard).</string>
+    <string name="restr_policy_json_desc">Complete policy document; overrides every typed policy key when set.</string>
+    <string name="restr_schedule_json_desc">ScheduleConfig JSON, e.g. {\"enabled\":true,\"active_windows\":[{\"days\":[0,1,2,3,4],\"start\":\"21:00\",\"end\":\"23:59\"}]} — days: 0=Monday.</string>
+    <string name="restr_mgmt_password_desc">Stored on-device as a salted hash only.</string>
+
+    <string name="engine_google">Google</string>
+    <string name="engine_bing">Bing</string>
+    <string name="engine_duckduckgo">DuckDuckGo</string>
+    <string name="engine_yahoo">Yahoo</string>
+    <string name="engine_youtube">YouTube</string>
 </resources>
