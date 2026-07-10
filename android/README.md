@@ -85,28 +85,56 @@ debug-signed; release signing is not wired up yet.
 
 1. **Start filtering** — grants VPN consent, establishes the TUN, and starts
    the Go engine. A persistent notification shows it is active.
+   The **Proxy-only mode (no VPN)** switch starts the engine *without* a
+   TUN instead: nothing is captured system-wide, no VPN consent dialog, and
+   only clients explicitly configured against the loopback HTTP proxy
+   (`127.0.0.1:8080`) or its PAC file (`http://127.0.0.1:8000/proxy.pac`,
+   shown in the app with tap-to-copy) are filtered. The intended use is a
+   managed device where the EMM pushes Chrome's `ProxySettings` policy at
+   that PAC URL — whether a given Chrome build honors a loopback PAC pushed
+   that way needs verification against your EMM. The `proxy_only_mode`
+   managed restriction forces the mode on and hides the switch.
 2. **Choose filtered apps** — pick which installed apps are routed through the
    filter. Leave everything unchecked to filter every app. (Android applies the
    allowed-app set when the tunnel is established, so toggle the VPN off/on for
    changes to take effect.)
-3. **Install CA certificate** — exports the engine's CA and walks you through
-   installing it. **Read the on-screen limits:** URL / hostname (SNI) / DoH /
+3. **Install CA certificate** — saves the engine's CA wherever you pick
+   (e.g. Downloads), shares it, and walks you through installing it. **Read the on-screen limits:** URL / hostname (SNI) / DoH /
    QUIC filtering work for every routed app *without* the certificate; deep
    content features (text & image NSFW classifiers, YouTube rewriting) require
    the CA and only apply to apps that trust user-installed CAs. Chrome and many
    hardened apps enforce Certificate Transparency and reject the user CA — their
    traffic is passed through untouched (blind-spliced), not broken.
 4. **Filter settings** — native Android settings screens for the device's
-   filter policy (SafeSearch per engine, URL filter, YouTube, text/image
-   classifiers, DoH, schedule, block page) and the mobile-relevant globals
-   (logging, retention, dashboard password). They read/write the same
-   `settings.json` / `policies/default.json` as the web dashboard through the
-   gomobile API, so they work even while filtering is stopped; policy edits
-   hot-reload, settings edits need a filter restart (same rule as the
-   dashboard). Desktop-only concerns (source IP/MAC matching, ARP scanner,
-   PAC, upstream proxy) are deliberately absent — use the dashboard if you
-   need them.
-5. **Dashboard** — the embedded management UI loads in the in-app WebView once
+   filter policies (SafeSearch per engine with provider icons, URL filter,
+   YouTube, text/image classifiers, DoH with a preset server list + custom
+   entry, block page) and the mobile-relevant globals (logging, retention,
+   dashboard password). They read/write the same `settings.json` /
+   `policies/*.json` as the web dashboard through the gomobile API, so they
+   work even while filtering is stopped; policy edits hot-reload, settings
+   edits need a filter restart (same rule as the dashboard). Desktop-only
+   concerns (source IP/MAC matching, ARP scanner, upstream proxy) are
+   deliberately absent — use the dashboard if you need them.
+5. **Policies** — the "default" policy is the always-on fallback (no
+   schedule). Add named policies (e.g. "bedtime"), give each its own filter
+   settings and time windows, and switch it Active: while its schedule is
+   inside a window it overrides default (all device traffic shares one
+   client IP, so schedules — not source IPs — are the way to vary rules
+   on-device). New policies start Inactive; an Active policy *without* a
+   schedule competes with default alphabetically, which the list warns
+   about.
+6. **Category blocklists** — the URL filter screen links to a per-category
+   downloader for the [ipfire lists](https://dbl.ipfire.org/lists/) (ads,
+   dating, gambling, porn, …). Lists download onto the device over its own
+   network, are stored gzip-compressed, and are shared by all policies;
+   each policy checkbox-selects which categories it blocks. Lists can also
+   be updated or deleted per category (long-press).
+7. **Logs & Analytics** — native screens over the same SQLite log store the
+   dashboard uses: blocked requests / all requests / the policy-change
+   audit log with a text filter, and an analytics view (totals, top blocked
+   domains, blocks by component, hourly timeline). Both work with
+   filtering stopped.
+8. **Dashboard** — the embedded management UI loads in the in-app WebView once
    filtering is running (policies, logs, safesearch, categories, etc.).
 
 ## Managed configuration (MDM/EMM)
@@ -190,15 +218,19 @@ android/
 │       ├── AndroidManifest.xml     VpnService + permissions + FileProvider
 │       ├── java/com/webfilter/app/
 │       │   ├── App.kt                   applies MDM restrictions, push receiver
-│       │   ├── MainActivity.kt          start/stop, dashboard WebView
-│       │   ├── WebFilterVpnService.kt   TUN + Mobile.start(filesDir, fd)
+│       │   ├── MainActivity.kt          start/stop, mode switch, dashboard WebView
+│       │   ├── WebFilterVpnService.kt   TUN + Mobile.start / proxy-only start
 │       │   ├── AppPickerActivity.kt     per-app filtering selection (with icons)
 │       │   ├── SettingsActivity.kt      native settings screens (PrefsFragment)
-│       │   ├── ScheduleActivity.kt      time-window editor for the schedule
+│       │   ├── PoliciesActivity.kt      multi-policy manager (default + scheduled)
+│       │   ├── ScheduleActivity.kt      time-window editor for a policy's schedule
+│       │   ├── CategoriesActivity.kt    ipfire category downloads + selection
+│       │   ├── LogsActivity.kt          native request/block/audit log viewer
+│       │   ├── AnalyticsActivity.kt     totals, top domains, hourly timeline
 │       │   ├── ConfigStores.kt          JSON stores over the gomobile API
 │       │   ├── PreferenceDataStores.kt  preference-key → JSON-path mapping
 │       │   ├── ManagedConfig.kt         RestrictionsManager bundle → managed doc
-│       │   ├── CaInstallActivity.kt     CA export + install guidance
+│       │   ├── CaInstallActivity.kt     CA save/export + install guidance
 │       │   └── Prefs.kt
 │       └── res/                    layouts, strings, prefs XML, app_restrictions
 ├── build.gradle.kts / settings.gradle.kts / gradle.properties
@@ -206,9 +238,13 @@ android/
 ```
 
 The gomobile package name is `mobile`, so the generated Java class is
-`mobile.Mobile` with static methods `start(String, long)`, `stop()`,
-`isRunning()`, `mgmtUrl()`, `status()`, `reloadPolicies()`,
-`caCertPem(String)`, and — for the native settings UI and MDM path —
-`getSettingsJson`, `updateSettingsJson`, `getPolicyJson`, `updatePolicyJson`,
-`getManagedStateJson`, and `applyManagedConfigJson` (all JSON-string
-in/out; see `mobile/settingsapi.go` and `mobile/managed.go`).
+`mobile.Mobile` with static methods `start(String, long)`,
+`startProxyOnly(String)`, `stop()`, `isRunning()`, `mgmtUrl()`, `status()`,
+`reloadPolicies()`, `caCertPem(String)`, and — for the native UI and MDM
+path, all JSON-string in/out — `getSettingsJson`, `updateSettingsJson`,
+`getPolicyJson`, `updatePolicyJson`, `getManagedStateJson`,
+`applyManagedConfigJson`, `listPoliciesJson`, `createPolicyJson`,
+`deletePolicy`, `listCategoriesJson`, `downloadCategoryJson`,
+`deleteCategory`, `queryLogsJson`, and `analyticsJson` (see
+`mobile/settingsapi.go`, `managed.go`, `policiesapi.go`,
+`categoriesapi.go`, and `logsapi.go`).

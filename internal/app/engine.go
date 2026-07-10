@@ -16,6 +16,7 @@ import (
 	"github.com/yjlion/gowebfilter/internal/classify/textbayes"
 	"github.com/yjlion/gowebfilter/internal/config"
 	"github.com/yjlion/gowebfilter/internal/mgmtapi"
+	"github.com/yjlion/gowebfilter/internal/models"
 	"github.com/yjlion/gowebfilter/internal/proxy"
 	"github.com/yjlion/gowebfilter/internal/proxy/addons"
 	"github.com/yjlion/gowebfilter/internal/proxy/state"
@@ -73,6 +74,25 @@ func EnsureTunSocksListener(eng *proxy.Engine) {
 	}
 	eng.Settings.ProxyListen = append(eng.Settings.ProxyListen, "socks5@127.0.0.1:1080")
 	slog.Info("tun2socks: added local SOCKS5 listener for TUN capture", "addr", "127.0.0.1:1080")
+}
+
+// EnsureLocalHTTPProxyListener appends a loopback HTTP ("regular") proxy
+// listener when none is configured, so a PAC file has an HTTP proxy to
+// point at. The 8080 fallback deliberately matches
+// GlobalSettings.PrimaryRegularProxyPort, keeping the advertised PAC port
+// and the bound listener in agreement. Session-only: the injected entry is
+// never persisted to settings.json.
+func EnsureLocalHTTPProxyListener(eng *proxy.Engine) {
+	if eng == nil {
+		return
+	}
+	for _, entry := range eng.Settings.ProxyListen {
+		if mode, _, _ := models.ParseListen(entry); mode == "regular" {
+			return // PAC advertises this listener's port
+		}
+	}
+	eng.Settings.ProxyListen = append(eng.Settings.ProxyListen, "regular@127.0.0.1:8080")
+	slog.Info("proxy-only: added local HTTP proxy listener for PAC clients", "addr", "127.0.0.1:8080")
 }
 
 // ServeMgmt runs the management HTTP server (API + embedded UI) until ctx is

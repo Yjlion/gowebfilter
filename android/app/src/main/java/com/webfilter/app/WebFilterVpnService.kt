@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
@@ -30,6 +31,7 @@ class WebFilterVpnService : VpnService() {
         private const val NOTIF_ID = 1
 
         const val ACTION_START = "com.webfilter.app.START"
+        const val ACTION_START_PROXY_ONLY = "com.webfilter.app.START_PROXY_ONLY"
         const val ACTION_STOP = "com.webfilter.app.STOP"
 
         // Matches models.NewTun2SocksConfig defaults (a 198.18.0.0/15 TUN).
@@ -45,6 +47,7 @@ class WebFilterVpnService : VpnService() {
                 stopFilter()
                 return START_NOT_STICKY
             }
+            ACTION_START_PROXY_ONLY -> startProxyOnlyFilter()
             else -> startFilter()
         }
         return START_STICKY
@@ -86,6 +89,29 @@ class WebFilterVpnService : VpnService() {
             Mobile.start(filesDir.absolutePath, pfd.detachFd().toLong())
         } catch (e: Exception) {
             Log.e(TAG, "Mobile.start failed", e)
+            stopFilter()
+        }
+    }
+
+    /**
+     * Proxy-only mode: no TUN, nothing is captured system-wide. Only
+     * clients explicitly configured against the loopback HTTP proxy (or
+     * its PAC file — e.g. Chrome via an MDM ProxySettings policy) are
+     * filtered. Still a foreground service so the engine outlives the
+     * activity. A VpnService runs fine as a plain service when establish()
+     * is never called.
+     */
+    private fun startProxyOnlyFilter() {
+        if (Mobile.isRunning()) {
+            Log.i(TAG, "engine already running")
+            return
+        }
+        ManagedConfig.applyRestrictions(this)
+        startForegroundWithNotification(proxyOnly = true)
+        try {
+            Mobile.startProxyOnly(filesDir.absolutePath)
+        } catch (e: Exception) {
+            Log.e(TAG, "Mobile.startProxyOnly failed", e)
             stopFilter()
         }
     }
@@ -135,7 +161,7 @@ class WebFilterVpnService : VpnService() {
         super.onDestroy()
     }
 
-    private fun startForegroundWithNotification() {
+    private fun startForegroundWithNotification(proxyOnly: Boolean = false) {
         val nm = getSystemService(NotificationManager::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
@@ -154,13 +180,25 @@ class WebFilterVpnService : VpnService() {
         )
 
         val notification: Notification = Notification.Builder(this, CHANNEL_ID)
-            .setContentTitle(getString(R.string.notif_title))
+            .setContentTitle(getString(if (proxyOnly) R.string.notif_title_proxy else R.string.notif_title))
             .setContentText(getString(R.string.notif_text))
             .setSmallIcon(android.R.drawable.ic_lock_lock)
             .setContentIntent(openIntent)
             .setOngoing(true)
             .build()
 
-        startForeground(NOTIF_ID, notification)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            // API 34 validates the FGS type: systemExempted is only allowed
+            // while this app is the active VPN (establish() ran), so
+            // proxy-only mode must declare itself specialUse instead.
+            val type = if (proxyOnly) {
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+            } else {
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED
+            }
+            startForeground(NOTIF_ID, notification, type)
+        } else {
+            startForeground(NOTIF_ID, notification)
+        }
     }
 }

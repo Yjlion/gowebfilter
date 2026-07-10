@@ -14,6 +14,7 @@
     <Preference
         android:key="nav_youtube"
         android:title="@string/cat_youtube"
+        android:icon="@drawable/ic_engine_youtube"
         android:persistent="false" />
 
     <Preference
@@ -26,10 +27,12 @@
         android:title="@string/cat_doh"
         android:persistent="false" />
 
+    <!-- The default policy is the schedule-less always-on fallback; time
+         windows belong to the override policies managed here. -->
     <Preference
-        android:key="nav_schedule"
-        android:title="@string/title_schedule"
-        android:summary="@string/pref_schedule_summary"
+        android:key="nav_policies"
+        android:title="@string/title_policies"
+        android:summary="@string/pref_policies_summary"
         android:persistent="false" />
 
     <Preference
@@ -41,6 +44,18 @@
         android:key="nav_apps"
         android:title="@string/title_app_picker"
         android:summary="@string/per_app_hint"
+        android:persistent="false" />
+
+    <Preference
+        android:key="nav_logs"
+        android:title="@string/title_logs"
+        android:summary="@string/pref_logs_summary"
+        android:persistent="false" />
+
+    <Preference
+        android:key="nav_analytics"
+        android:title="@string/title_analytics"
+        android:summary="@string/pref_analytics_summary"
         android:persistent="false" />
 
     <Preference

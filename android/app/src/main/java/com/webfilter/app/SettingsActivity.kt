@@ -9,6 +9,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.preference.ListPreference
 import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
 import org.json.JSONObject
@@ -24,21 +25,41 @@ import mobile.Mobile
  */
 class SettingsActivity : AppCompatActivity() {
 
+    companion object {
+        /** Optional intent extra naming the policy to edit; default "default". */
+        const val EXTRA_POLICY_NAME = "policy_name"
+    }
+
     lateinit var policyStore: PolicyJsonStore
     lateinit var settingsStore: SettingsJsonStore
     var locked = false
         private set
 
+    val policyName: String
+        get() = intent.getStringExtra(EXTRA_POLICY_NAME) ?: "default"
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_settings)
 
-        policyStore = PolicyJsonStore.forApp(this)
+        policyStore = PolicyJsonStore.forApp(this, policyName)
         settingsStore = SettingsJsonStore.forApp(this)
 
+        // Non-default policies get a policy-scoped root (their filters +
+        // schedule) instead of the global settings hub, and a header naming
+        // the policy being edited.
+        val header = findViewById<TextView>(R.id.policyHeader)
+        if (policyName != "default") {
+            header.visibility = View.VISIBLE
+            header.text = getString(R.string.editing_policy, policyName)
+        } else {
+            header.visibility = View.GONE
+        }
+
         if (savedInstanceState == null) {
+            val rootXml = if (policyName == "default") R.xml.prefs_root else R.xml.prefs_policy_root
             supportFragmentManager.beginTransaction()
-                .replace(R.id.settingsContainer, PrefsFragment.newInstance(R.xml.prefs_root, PrefsFragment.KIND_ROOT))
+                .replace(R.id.settingsContainer, PrefsFragment.newInstance(rootXml, PrefsFragment.KIND_ROOT))
                 .commit()
         }
     }
@@ -96,6 +117,7 @@ class PrefsFragment : PreferenceFragmentCompat() {
         }
         applyLockState()
         bindDynamicSummaries()
+        bindDohCustomVisibility()
     }
 
     private fun inflateScreen(rootKey: String?) {
@@ -140,7 +162,17 @@ class PrefsFragment : PreferenceFragmentCompat() {
             "nav_block_page" -> host.openScreen(R.xml.prefs_block_page, KIND_POLICY)
             "nav_general" -> host.openScreen(R.xml.prefs_general, KIND_SETTINGS)
             "nav_security" -> host.openScreen(R.xml.prefs_security, KIND_SETTINGS)
-            "nav_schedule" -> startActivity(Intent(requireContext(), ScheduleActivity::class.java))
+            "nav_policies" -> startActivity(Intent(requireContext(), PoliciesActivity::class.java))
+            "nav_logs" -> startActivity(Intent(requireContext(), LogsActivity::class.java))
+            "nav_analytics" -> startActivity(Intent(requireContext(), AnalyticsActivity::class.java))
+            "nav_categories" -> startActivity(
+                Intent(requireContext(), CategoriesActivity::class.java)
+                    .putExtra(CategoriesActivity.EXTRA_POLICY_NAME, host.policyName),
+            )
+            "nav_schedule" -> startActivity(
+                Intent(requireContext(), ScheduleActivity::class.java)
+                    .putExtra(ScheduleActivity.EXTRA_POLICY_NAME, host.policyName),
+            )
             "nav_apps" -> startActivity(Intent(requireContext(), AppPickerActivity::class.java))
             "change_password" -> promptNewPassword()
             else -> return super.onPreferenceTreeClick(preference)
@@ -172,6 +204,20 @@ class PrefsFragment : PreferenceFragmentCompat() {
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
+    }
+
+    /**
+     * The DoH screen's custom-URL editor is only shown while the preset
+     * dropdown says "Custom…" — a preset choice writes the URL itself.
+     */
+    private fun bindDohCustomVisibility() {
+        val preset = findPreference<ListPreference>("doh_server_preset") ?: return
+        val server = findPreference<Preference>("doh_server") ?: return
+        server.isVisible = preset.value == PolicyPreferenceDataStore.DOH_CUSTOM
+        preset.setOnPreferenceChangeListener { _, newValue ->
+            server.isVisible = newValue == PolicyPreferenceDataStore.DOH_CUSTOM
+            true
+        }
     }
 
     /** Read-only info rows on the General screen (engine status). */

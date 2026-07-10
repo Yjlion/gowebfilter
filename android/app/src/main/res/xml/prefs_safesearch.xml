@@ -6,7 +6,9 @@
         android:title="@string/pref_enabled"
         android:defaultValue="false" />
 
-    <PreferenceCategory android:title="@string/engine_google">
+    <PreferenceCategory
+        android:title="@string/engine_google"
+        android:icon="@drawable/ic_engine_google">
         <SwitchPreferenceCompat
             android:key="safesearch_google_enabled"
             android:title="@string/pref_enabled"
@@ -25,7 +27,9 @@
             android:defaultValue="false" />
     </PreferenceCategory>
 
-    <PreferenceCategory android:title="@string/engine_bing">
+    <PreferenceCategory
+        android:title="@string/engine_bing"
+        android:icon="@drawable/ic_engine_bing">
         <SwitchPreferenceCompat
             android:key="safesearch_bing_enabled"
             android:title="@string/pref_enabled"
@@ -44,7 +48,9 @@
             android:defaultValue="false" />
     </PreferenceCategory>
 
-    <PreferenceCategory android:title="@string/engine_duckduckgo">
+    <PreferenceCategory
+        android:title="@string/engine_duckduckgo"
+        android:icon="@drawable/ic_engine_duckduckgo">
         <SwitchPreferenceCompat
             android:key="safesearch_duckduckgo_enabled"
             android:title="@string/pref_enabled"
@@ -63,7 +69,9 @@
             android:defaultValue="false" />
     </PreferenceCategory>
 
-    <PreferenceCategory android:title="@string/engine_yahoo">
+    <PreferenceCategory
+        android:title="@string/engine_yahoo"
+        android:icon="@drawable/ic_engine_yahoo">
         <SwitchPreferenceCompat
             android:key="safesearch_yahoo_enabled"
             android:title="@string/pref_enabled"
@@ -82,7 +90,9 @@
             android:defaultValue="false" />
     </PreferenceCategory>
 
-    <PreferenceCategory android:title="@string/engine_youtube">
+    <PreferenceCategory
+        android:title="@string/engine_youtube"
+        android:icon="@drawable/ic_engine_youtube">
         <SwitchPreferenceCompat
             android:key="safesearch_youtube_enabled"
             android:title="@string/pref_enabled"

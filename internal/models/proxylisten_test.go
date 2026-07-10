@@ -58,3 +58,23 @@ func TestGlobalSettingsPrimaryProxyPortSkipsUnsupportedModes(t *testing.T) {
 		t.Errorf("PrimaryProxyPort() = %d, want 1080 (first regular/socks5 entry)", got)
 	}
 }
+
+func TestGlobalSettingsPrimaryRegularProxyPort(t *testing.T) {
+	cases := []struct {
+		name   string
+		listen []string
+		want   int
+	}{
+		{"regular first (bare form)", []string{"0.0.0.0:8080", "socks5@127.0.0.1:1080"}, 8080},
+		{"socks5 only falls back", []string{"socks5@127.0.0.1:1080"}, 8080},
+		{"regular after socks5 wins over fallback", []string{"socks5@127.0.0.1:1080", "regular@127.0.0.1:9090"}, 9090},
+		{"empty falls back", nil, 8080},
+	}
+	for _, c := range cases {
+		s := models.NewGlobalSettings()
+		s.ProxyListen = c.listen
+		if got := s.PrimaryRegularProxyPort(); got != c.want {
+			t.Errorf("%s: PrimaryRegularProxyPort() = %d, want %d", c.name, got, c.want)
+		}
+	}
+}

@@ -9,6 +9,45 @@
         <item>whitelist</item>
     </string-array>
 
+    <!-- Same preset list as the web dashboard's policy editor
+         (ui/policy-editor.html dohPresets) — keep the two in sync. -->
+    <string-array name="doh_preset_labels">
+        <item>Cloudflare for Families (malware + adult)</item>
+        <item>Cloudflare for Families (malware only)</item>
+        <item>CleanBrowsing Family</item>
+        <item>CleanBrowsing Adult</item>
+        <item>CleanBrowsing Security</item>
+        <item>AdGuard Family Protection</item>
+        <item>AdGuard Default</item>
+        <item>Quad9 (malware)</item>
+        <item>Custom…</item>
+    </string-array>
+    <string-array name="doh_preset_values">
+        <item>https://1.1.1.3/dns-query</item>
+        <item>https://1.1.1.2/dns-query</item>
+        <item>https://doh.cleanbrowsing.org/doh/family-filter/</item>
+        <item>https://doh.cleanbrowsing.org/doh/adult-filter/</item>
+        <item>https://doh.cleanbrowsing.org/doh/security-filter/</item>
+        <item>https://family.adguard-dns.com/dns-query</item>
+        <item>https://dns.adguard-dns.com/dns-query</item>
+        <item>https://dns.quad9.net/dns-query</item>
+        <item>__custom__</item>
+    </string-array>
+
+    <!-- Order must match LogsActivity.kinds. -->
+    <string-array name="log_kind_labels">
+        <item>Blocked requests</item>
+        <item>All requests</item>
+        <item>Policy changes (audit)</item>
+    </string-array>
+
+    <!-- Order must match AnalyticsActivity.windows. -->
+    <string-array name="analytics_window_labels">
+        <item>Last 24 hours</item>
+        <item>Last 7 days</item>
+        <item>Last 30 days</item>
+    </string-array>
+
     <string-array name="image_action_labels">
         <item>Blur</item>
         <item>Block</item>

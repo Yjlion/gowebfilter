@@ -71,9 +71,10 @@ var (
 // Store is a configured logstore instance: one persistent write connection
 // (guarded by a mutex, matching the Python original's single-writer
 // design) plus fresh read-only connections opened per read call so
-// concurrent reads from the management API never block the writer.
+// concurrent reads from the management API never block the writer. The
+// read path (Tail/RowsInRange/Analytics) is the embedded Reader.
 type Store struct {
-	dbPath        string
+	Reader
 	retentionDays int
 	logRequests   bool
 	logBlocks     bool
@@ -103,7 +104,7 @@ func Configure(dbPath string, retentionDays int, logRequests, logBlocks bool) (*
 	}
 
 	s := &Store{
-		dbPath:        dbPath,
+		Reader:        Reader{dbPath: dbPath},
 		retentionDays: retentionDays,
 		logRequests:   logRequests,
 		logBlocks:     logBlocks,
@@ -137,20 +138,6 @@ func applyWritePragmas(db *sql.DB) error {
 		}
 	}
 	return nil
-}
-
-// openReadConn opens a fresh read-only connection, matching the Python
-// original's "open a new ro connection per call" read path.
-func (s *Store) openReadConn() (*sql.DB, error) {
-	db, err := sql.Open("sqlite", fmt.Sprintf("file:%s?mode=ro", s.dbPath))
-	if err != nil {
-		return nil, fmt.Errorf("open read-only db: %w", err)
-	}
-	if _, err := db.Exec("PRAGMA busy_timeout=5000"); err != nil {
-		db.Close()
-		return nil, err
-	}
-	return db, nil
 }
 
 // Close closes the write connection.

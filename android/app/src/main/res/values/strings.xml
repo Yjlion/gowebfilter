@@ -14,8 +14,16 @@
 
     <string name="notif_channel_name">WebFilter VPN</string>
     <string name="notif_title">WebFilter is filtering traffic</string>
+    <string name="notif_title_proxy">WebFilter proxy is running (no VPN)</string>
     <string name="notif_text">Tap to open the dashboard.</string>
 
+    <string name="proxy_only_mode">Proxy-only mode (no VPN)</string>
+    <string name="proxy_info">HTTP proxy: %1$s\nPAC file: %2$s\nTap to copy the PAC URL.</string>
+    <string name="pac_copied">PAC URL copied.</string>
+
+    <string name="ca_save">Save certificate (download)</string>
+    <string name="ca_saved">Certificate saved.</string>
+    <string name="ca_save_failed">Could not save the certificate.</string>
     <string name="ca_export">Export / share certificate</string>
     <string name="ca_open_settings">Open certificate settings</string>
     <string name="ca_limits_title">What on-device filtering can and cannot do</string>
@@ -59,7 +67,8 @@
     <string name="pref_threshold">Threshold (0.0–1.0)</string>
     <string name="pref_action">Action</string>
     <string name="pref_min_dimension">Minimum image size (px)</string>
-    <string name="pref_doh_server">DoH server URL</string>
+    <string name="pref_doh_preset">DoH server</string>
+    <string name="pref_doh_server">Custom DoH server URL</string>
     <string name="pref_block_message">Custom block message</string>
     <string name="pref_log_blocks">Log blocked requests</string>
     <string name="pref_log_requests">Log all requests</string>
@@ -75,6 +84,56 @@
     <string name="password_set">Password updated.</string>
     <string name="invalid_threshold">Enter a number between 0.0 and 1.0.</string>
 
+    <!-- Native logs + analytics -->
+    <string name="title_logs">Logs</string>
+    <string name="pref_logs_summary">Blocked requests, all requests, and the policy-change audit log.</string>
+    <string name="title_analytics">Analytics</string>
+    <string name="pref_analytics_summary">Totals, top blocked domains, and an hourly blocks timeline.</string>
+    <string name="log_refresh">Refresh</string>
+    <string name="log_filter_hint">Filter (host, reason, policy…)</string>
+    <string name="log_count">%1$d entries</string>
+    <string name="log_renamed_from">renamed from %1$s</string>
+    <string name="analytics_requests">requests</string>
+    <string name="analytics_blocks">blocks</string>
+    <string name="analytics_timeline">Blocks per hour</string>
+    <string name="analytics_top_domains">Top blocked domains</string>
+    <string name="analytics_by_component">Blocks by component</string>
+    <string name="analytics_count_row">%1$s — %2$d</string>
+    <string name="analytics_no_data">No data in this window.</string>
+
+    <!-- Category blocklists -->
+    <string name="title_categories">Category blocklists</string>
+    <string name="pref_categories_nav">Blocked categories</string>
+    <string name="pref_categories_nav_summary">Download ipfire category lists and pick which ones this policy blocks.</string>
+    <string name="categories_hint">Lists download from dbl.ipfire.org onto this device (stored compressed) and are shared by all policies. The checkbox controls whether THIS policy blocks the category. Long-press an installed list to delete it.</string>
+    <string name="category_download">Download</string>
+    <string name="category_update">Update</string>
+    <string name="category_downloading">Downloading…</string>
+    <string name="category_installed">%1$d domains · updated %2$s</string>
+    <string name="category_not_downloaded">Not downloaded</string>
+    <string name="category_missing">Selected, but no list on this device</string>
+    <string name="category_selected_not_installed">List not downloaded yet — it blocks nothing until you download it.</string>
+    <string name="category_download_failed">Downloading %1$s failed: %2$s</string>
+    <string name="category_delete">Delete list</string>
+    <string name="category_delete_confirm">Delete the downloaded “%1$s” list from this device?</string>
+
+    <!-- Multi-policy manager -->
+    <string name="title_policies">Policies</string>
+    <string name="pref_policies_summary">Default is always on; add scheduled policies that override it during their time windows.</string>
+    <string name="policies_hint">The default policy is the always-on fallback. A policy with an enabled schedule overrides it during its time windows. Tap a policy to edit its filters; long-press to rename or delete.</string>
+    <string name="editing_policy">Editing policy: %1$s</string>
+    <string name="policy_add">Add policy</string>
+    <string name="policy_name_hint">Policy name (e.g. bedtime)</string>
+    <string name="policy_created_hint">Policy created inactive — set its schedule, then switch it on.</string>
+    <string name="policy_rename">Rename</string>
+    <string name="policy_delete">Delete</string>
+    <string name="policy_delete_confirm">Delete policy “%1$s”?</string>
+    <string name="policy_active">Active</string>
+    <string name="policy_status_default">Default — always-on fallback</string>
+    <string name="policy_status_inactive">Inactive</string>
+    <string name="policy_status_scheduled">Scheduled — %1$d time window(s)</string>
+    <string name="policy_status_unscheduled_warning">Active without a schedule — competes with Default (alphabetical order wins)</string>
+
     <string name="schedule_enabled">Enable schedule</string>
     <string name="schedule_hint">The policy is active only inside these windows. No windows means always active.</string>
     <string name="schedule_add_window">Add time window</string>
@@ -83,6 +142,7 @@
     <!-- Managed-configuration (app_restrictions.xml) descriptions; the
          android:description attribute only accepts resource references. -->
     <string name="restr_settings_locked_desc">Prevent any settings or policy changes on the device (native UI and dashboard).</string>
+    <string name="restr_proxy_only_desc">Run the filter as a loopback HTTP proxy instead of a VPN. Point Chrome at the PAC file (http://127.0.0.1:8000/proxy.pac) via its ProxySettings policy.</string>
     <string name="restr_policy_json_desc">Complete policy document; overrides every typed policy key when set.</string>
     <string name="restr_schedule_json_desc">ScheduleConfig JSON, e.g. {\"enabled\":true,\"active_windows\":[{\"days\":[0,1,2,3,4],\"start\":\"21:00\",\"end\":\"23:59\"}]} — days: 0=Monday.</string>
     <string name="restr_mgmt_password_desc">Stored on-device as a salted hash only.</string>

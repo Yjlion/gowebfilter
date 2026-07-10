@@ -71,3 +71,43 @@ func TestEnsureTunSocksListenerAddsSocks5WhenMissing(t *testing.T) {
 		t.Fatalf("EnsureTunSocksListener appended a duplicate listener: %v", eng.Settings.ProxyListen)
 	}
 }
+
+func TestEnsureLocalHTTPProxyListenerAddsRegularWhenMissing(t *testing.T) {
+	settingsPath := filepath.Join(t.TempDir(), "config", "settings.json")
+	eng, rt, err := BuildProxyEngine(settingsPath)
+	if err != nil {
+		t.Fatalf("BuildProxyEngine() error = %v", err)
+	}
+	defer rt.Logs.Close()
+
+	// The Android default: socks5-only. A regular listener must be injected
+	// on the same port PrimaryRegularProxyPort falls back to.
+	eng.Settings.ProxyListen = []string{"socks5@127.0.0.1:1080"}
+	EnsureLocalHTTPProxyListener(eng)
+	if got := eng.Settings.PrimaryRegularProxyPort(); got != 8080 {
+		t.Fatalf("PrimaryRegularProxyPort() = %d after EnsureLocalHTTPProxyListener, want 8080", got)
+	}
+	found := false
+	for _, entry := range eng.Settings.ProxyListen {
+		if entry == "regular@127.0.0.1:8080" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("regular@127.0.0.1:8080 not appended: %v", eng.Settings.ProxyListen)
+	}
+
+	// Idempotent.
+	n := len(eng.Settings.ProxyListen)
+	EnsureLocalHTTPProxyListener(eng)
+	if len(eng.Settings.ProxyListen) != n {
+		t.Fatalf("EnsureLocalHTTPProxyListener appended a duplicate: %v", eng.Settings.ProxyListen)
+	}
+
+	// A user-configured regular listener is respected, not shadowed.
+	eng.Settings.ProxyListen = []string{"regular@127.0.0.1:9090"}
+	EnsureLocalHTTPProxyListener(eng)
+	if len(eng.Settings.ProxyListen) != 1 {
+		t.Fatalf("EnsureLocalHTTPProxyListener must not add a listener when one is configured: %v", eng.Settings.ProxyListen)
+	}
+}

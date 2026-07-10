@@ -25,10 +25,13 @@
         android:title="@string/pref_block_list"
         app:useSimpleSummaryProvider="true" />
 
-    <EditTextPreference
-        android:key="url_filter_categories"
-        android:title="@string/pref_categories"
-        app:useSimpleSummaryProvider="true" />
+    <!-- Opens the per-category blocklist screen (download/select the
+         ipfire lists) for this policy. -->
+    <Preference
+        android:key="nav_categories"
+        android:title="@string/pref_categories_nav"
+        android:summary="@string/pref_categories_nav_summary"
+        android:persistent="false" />
 
     <SwitchPreferenceCompat
         android:key="url_filter_block_quic"

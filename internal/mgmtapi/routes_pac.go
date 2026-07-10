@@ -27,7 +27,10 @@ func (s *Server) handlePAC(w http.ResponseWriter, r *http.Request) {
 			host = h
 		}
 	}
-	port := cfg.PrimaryProxyPort()
+	// The PAC PROXY directive is an HTTP-proxy pointer, so it must name a
+	// "regular" listener — PrimaryProxyPort would happily return a SOCKS5
+	// port on socks5-only configurations (the Android default).
+	port := cfg.PrimaryRegularProxyPort()
 
 	w.Header().Set("Content-Type", "application/x-ns-proxy-autoconfig")
 	fmt.Fprint(w, renderPAC(host, port, cfg.PacDirectHosts, cfg.PacDirectIPs))

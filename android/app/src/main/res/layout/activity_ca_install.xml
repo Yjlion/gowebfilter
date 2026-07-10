@@ -24,9 +24,16 @@
             android:text="@string/ca_limits_body" />
 
         <Button
+            android:id="@+id/saveButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/ca_save" />
+
+        <Button
             android:id="@+id/exportButton"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
             android:text="@string/ca_export" />
 
         <Button

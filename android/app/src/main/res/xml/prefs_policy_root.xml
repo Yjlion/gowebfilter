@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Root screen when editing a NON-default policy: its filters plus its
+     schedule. Global concerns (general, security, apps, policies) live only
+     on prefs_root.xml, the default hub. -->
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <Preference
+        android:key="nav_schedule"
+        android:title="@string/title_schedule"
+        android:summary="@string/pref_schedule_summary"
+        android:persistent="false" />
+
+    <Preference
+        android:key="nav_safesearch"
+        android:title="@string/cat_safesearch"
+        android:persistent="false" />
+
+    <Preference
+        android:key="nav_url_filter"
+        android:title="@string/cat_url_filter"
+        android:persistent="false" />
+
+    <Preference
+        android:key="nav_youtube"
+        android:title="@string/cat_youtube"
+        android:icon="@drawable/ic_engine_youtube"
+        android:persistent="false" />
+
+    <Preference
+        android:key="nav_classifiers"
+        android:title="@string/cat_classifiers"
+        android:persistent="false" />
+
+    <Preference
+        android:key="nav_doh"
+        android:title="@string/cat_doh"
+        android:persistent="false" />
+
+    <Preference
+        android:key="nav_block_page"
+        android:title="@string/cat_block_page"
+        android:persistent="false" />
+</PreferenceScreen>

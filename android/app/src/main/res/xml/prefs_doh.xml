@@ -7,6 +7,15 @@
         android:title="@string/pref_enabled"
         android:defaultValue="false" />
 
+    <ListPreference
+        android:key="doh_server_preset"
+        android:title="@string/pref_doh_preset"
+        android:entries="@array/doh_preset_labels"
+        android:entryValues="@array/doh_preset_values"
+        android:defaultValue="https://1.1.1.3/dns-query"
+        app:useSimpleSummaryProvider="true" />
+
+    <!-- Shown only while the preset above is "Custom…" (see PrefsFragment). -->
     <EditTextPreference
         android:key="doh_server"
         android:title="@string/pref_doh_server"

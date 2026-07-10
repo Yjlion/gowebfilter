@@ -21,6 +21,23 @@
         android:layout_height="wrap_content"
         android:text="@string/start_filter" />
 
+    <Switch
+        android:id="@+id/proxyOnlySwitch"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="@string/proxy_only_mode" />
+
+    <!-- PAC URL + HTTP proxy address, shown while running in proxy-only
+         mode; tapping copies the PAC URL. -->
+    <TextView
+        android:id="@+id/proxyInfo"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:textSize="13sp"
+        android:visibility="gone" />
+
     <Button
         android:id="@+id/appsButton"
         android:layout_width="match_parent"

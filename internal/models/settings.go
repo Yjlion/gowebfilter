@@ -241,6 +241,20 @@ func (s GlobalSettings) PrimaryProxyPort() int {
 	return 8080
 }
 
+// PrimaryRegularProxyPort extracts the first proxy_listen port whose mode
+// is "regular" — an HTTP proxy a browser or PAC file can point at (PAC's
+// PROXY directive cannot name a SOCKS listener). Returns 8080 if none
+// found, matching the port EnsureLocalHTTPProxyListener injects.
+func (s GlobalSettings) PrimaryRegularProxyPort() int {
+	for _, entry := range s.ProxyListen {
+		mode, _, port := ParseListen(entry)
+		if mode == "regular" && port != 0 {
+			return port
+		}
+	}
+	return 8080
+}
+
 func (s GlobalSettings) PrimarySocks5Port() int {
 	for _, entry := range s.ProxyListen {
 		mode, _, port := ParseListen(entry)
