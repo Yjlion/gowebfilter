@@ -46,6 +46,9 @@ for local dev. They persist to disk; the mgmt API's
 - `internal/proxy/state/` - hot-reloaded settings/policies and policy routing
 - `internal/proxy/addons/` - filtering addons, wired in fixed order in `internal/app/engine.go`
 - `internal/mgmtapi/` - chi router, REST API, embedded UI static serving
+- `internal/settingsvc/` - settings/policy merge + validation shared by
+  `PUT /api/settings` and the `mobile/` native-settings path, plus the MDM
+  managed-config apply (`ApplyManagedConfig`)
 - `internal/classify/textbayes/` - embedded pure-Go Bayesian adult-text scorer
 - `internal/classify/image/` - embedded pure-Go GantMan/nsfw_model image classifier
 - `mobile/` - gomobile-bound Android entry point (`Start`/`Stop`/`Status`/…);
@@ -57,8 +60,9 @@ for local dev. They persist to disk; the mgmt API's
   app seccomp policy kills; the script remaps them to the *at family via a
   gitignored libc copy + a go.mod `replace` (`-undo` reverts; never commit
   the replace). arm64 is unaffected.
-- `android/` - Kotlin/Gradle Android app (VpnService, WebView mgmt UI, per-app
-  filtering, CA install flow) consuming the gomobile AAR. Debug APKs build via
+- `android/` - Kotlin/Gradle Android app (VpnService, WebView mgmt UI, native
+  settings screens, MDM managed configurations, per-app filtering, CA install
+  flow) consuming the gomobile AAR. Debug APKs build via
   the `.github/workflows/android.yml` workflow (manual trigger, and on `v*`
   tags from `ci.yml`'s release job, which attaches the APK to the release)
 - `firefox-extension/` - standalone MV3 Firefox WebExtension (no proxy/CA):
@@ -88,6 +92,18 @@ for local dev. They persist to disk; the mgmt API's
 - NSFW images are also embedded as `data:image/...` URIs inside HTML/CSS/JS
   and JSON; image classifier inline scanning handles those.
 - Settings changes need a restart; policy changes hot-reload.
+- Never unmarshal a partial policy body over an existing policy: sub-config
+  `UnmarshalJSON` resets to defaults first and wipes sibling fields. Use
+  `settingsvc.MergePolicyPatch` or full-document writes.
+- The MDM settings lock is `config/managed.json` (written only by
+  `settingsvc.ApplyManagedConfig`, re-read per request). Desktop never
+  writes it; missing file = unlocked. New mutating mgmt routes must take
+  the `requireUnlocked` middleware or `TestMutatingRoutesAreLockGated`
+  fails.
+- Android restriction bundles have no float type: thresholds are string
+  restrictions; the models' decoders accept string-typed numbers. Keep
+  `app_restrictions.xml`, `PreferenceDataStores.kt`, and
+  `ManagedConfig.buildDocFromBundle` key sets in sync.
 - Do not reintroduce `http.FileServer`/`FileServerFS` for the UI static
   path; it caused a `/` <-> `/index.html` redirect loop.
 - Test helpers constructing a `Server`/`CA`/`PolicyStore`/log store directly

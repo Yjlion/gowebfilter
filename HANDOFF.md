@@ -59,8 +59,26 @@ scaffolded: the pure-Go engine runs on-device, embedded via gomobile.
   SOCKS5 listener via `xjasonlyu/tun2socks`'s `fd://` device. It does **not**
   use `internal/tun2socks.Manager` (root/`ip`-gated).
 - `android/` is a Kotlin/Gradle app (VpnService, WebView mgmt dashboard,
-  per-app filtering, CA-install flow). The AAR (`android/app/libs/webfilter.aar`)
-  is a build artifact — see `android/README.md`.
+  per-app filtering with app icons, CA-install flow). The AAR
+  (`android/app/libs/webfilter.aar`) is a build artifact — see
+  `android/README.md`.
+- **Native settings GUI:** `SettingsActivity` (androidx.preference) edits the
+  `default` policy's filters and the mobile-relevant globals through new
+  gomobile JSON exports (`mobile/settingsapi.go`), disk-backed so it works
+  with the VPN stopped. The merge/validation logic shared with
+  `PUT /api/settings` lives in `internal/settingsvc` — the two paths are
+  deliberately byte-identical. Policy writes are always full documents
+  (partial bodies get reset-to-defaults by the sub-config unmarshalers).
+- **MDM/EMM managed configurations:** `res/xml/app_restrictions.xml` declares
+  typed restriction keys plus `policy_json`/`schedule_json` escape hatches
+  and a `settings_locked` flag; `ManagedConfig.kt` translates the
+  RestrictionsManager bundle into a canonical doc applied by
+  `mobile.ApplyManagedConfigJson` → `settingsvc.ApplyManagedConfig`
+  (hash-idempotent, validate-before-write). The lock is enforced **in the Go
+  mgmt API** (`requireUnlocked` middleware, 403 on config mutations,
+  state in `config/managed.json`), not just hidden in the UI — see the
+  CLAUDE.md gotchas. Restrictions apply on app start, before engine start,
+  and on the (runtime-registered) restrictions-changed broadcast.
 
 **Verified:** `mobile/` and all `internal/...` cross-compile for
 `android/arm64` and `android/arm` (`GOOS=android GOARCH=arm64 CGO_ENABLED=0
@@ -69,9 +87,10 @@ the `fd://` scheme exists in the pinned `xjasonlyu/tun2socks v2.6.0`.
 
 **Not verified (needs a real device/emulator):** `modernc.org/sqlite` under
 the Android runtime, on-device image-CNN latency/battery, the full
-VpnService→tun2socks→engine data path, and the Kotlin app itself (no Android
-SDK in the CI/build environment — the sources are written and reviewed but
-not compiled here).
+VpnService→tun2socks→engine data path, and the Kotlin app's runtime behavior
+(the Kotlin sources compile — the debug APK has been assembled locally —
+but the native settings screens and the MDM flow have not been exercised
+on a device; `android/README.md` has a TestDPC verification recipe).
 
 Building the AAR + debug APK is automated in
 `.github/workflows/android.yml` — a **manual-only** (`workflow_dispatch`)
