@@ -12,6 +12,7 @@ import android.content.Context
 object Prefs {
     private const val FILE = "webfilter_prefs"
     private const val KEY_SELECTED_APPS = "selected_apps"
+    private const val KEY_PROXY_ONLY = "proxy_only_mode"
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
@@ -22,5 +23,17 @@ object Prefs {
 
     fun setSelectedApps(context: Context, packages: Set<String>) {
         prefs(context).edit().putStringSet(KEY_SELECTED_APPS, packages).apply()
+    }
+
+    /**
+     * Local proxy-only-mode choice (no VPN; only explicitly configured
+     * clients are filtered). An MDM `proxy_only_mode` restriction
+     * (ManagedConfig.forcedProxyOnly) overrides this.
+     */
+    fun proxyOnlyMode(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_PROXY_ONLY, false)
+
+    fun setProxyOnlyMode(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_PROXY_ONLY, enabled).apply()
     }
 }

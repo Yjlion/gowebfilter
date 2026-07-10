@@ -35,6 +35,7 @@ import (
 type controller struct {
 	mu       sync.Mutex
 	running  bool
+	mode     string // "vpn" (TUN capture) or "proxy" (listeners only)
 	cancel   context.CancelFunc
 	dataDir  string
 	mgmtURL  string
@@ -56,6 +57,25 @@ var ctl = &controller{}
 // tunFd must be a detached VpnService descriptor (ParcelFileDescriptor
 // .detachFd()); ownership transfers to Go, which closes it on Stop.
 func Start(dataDir string, tunFd int) error {
+	if tunFd < 0 {
+		return fmt.Errorf("invalid tun fd %d", tunFd)
+	}
+	return startEngine(dataDir, tunFd, false)
+}
+
+// StartProxyOnly brings up the engine and management server WITHOUT a TUN:
+// nothing is captured system-wide, only clients explicitly configured to
+// use the loopback proxy are filtered. A loopback HTTP proxy listener
+// (regular@127.0.0.1:8080 unless settings already configure one) is added
+// so browsers — and the PAC file at http://127.0.0.1:<mgmt>/proxy.pac,
+// which an MDM can hand to Chrome — have an HTTP proxy to point at.
+func StartProxyOnly(dataDir string) error {
+	return startEngine(dataDir, -1, true)
+}
+
+// startEngine is the shared bring-up path behind Start and StartProxyOnly;
+// the TUN (step 8) is the only difference between the two modes.
+func startEngine(dataDir string, tunFd int, proxyOnly bool) error {
 	ctl.mu.Lock()
 	defer ctl.mu.Unlock()
 
@@ -64,9 +84,6 @@ func Start(dataDir string, tunFd int) error {
 	}
 	if dataDir == "" {
 		return fmt.Errorf("dataDir must not be empty")
-	}
-	if tunFd < 0 {
-		return fmt.Errorf("invalid tun fd %d", tunFd)
 	}
 
 	settingsPath := filepath.Join(dataDir, "config", "settings.json")
@@ -79,6 +96,9 @@ func Start(dataDir string, tunFd int) error {
 		return fmt.Errorf("build engine: %w", err)
 	}
 	app.EnsureTunSocksListener(eng)
+	if proxyOnly {
+		app.EnsureLocalHTTPProxyListener(eng)
+	}
 
 	listeners, err := eng.Listen()
 	if err != nil {
@@ -110,18 +130,24 @@ func Start(dataDir string, tunFd int) error {
 		}
 	}()
 
-	// Feed the VpnService TUN into the in-process SOCKS5 listener.
-	if err := startTun(tunFd); err != nil {
-		cancel()
-		for _, ln := range listeners {
-			_ = ln.Close()
+	if !proxyOnly {
+		// Feed the VpnService TUN into the in-process SOCKS5 listener.
+		if err := startTun(tunFd); err != nil {
+			cancel()
+			for _, ln := range listeners {
+				_ = ln.Close()
+			}
+			rt.Logs.Close()
+			mgmtSrv.Logs.Close()
+			return fmt.Errorf("start tun2socks: %w", err)
 		}
-		rt.Logs.Close()
-		mgmtSrv.Logs.Close()
-		return fmt.Errorf("start tun2socks: %w", err)
 	}
 
 	ctl.running = true
+	ctl.mode = "vpn"
+	if proxyOnly {
+		ctl.mode = "proxy"
+	}
 	ctl.cancel = cancel
 	ctl.dataDir = dataDir
 	ctl.settings = settingsPath
@@ -129,7 +155,7 @@ func Start(dataDir string, tunFd int) error {
 	ctl.eng = eng
 	ctl.mgmtSrv = mgmtSrv
 	ctl.mgmtURL = fmt.Sprintf("http://127.0.0.1:%d/", rt.Settings.MgmtPort)
-	logMobile("webfilter started, mgmt at %s", ctl.mgmtURL)
+	logMobile("webfilter started (%s mode), mgmt at %s", ctl.mode, ctl.mgmtURL)
 	return nil
 }
 
@@ -156,6 +182,7 @@ func Stop() {
 		ctl.mgmtSrv.Logs.Close()
 	}
 	ctl.running = false
+	ctl.mode = ""
 	ctl.cancel = nil
 	ctl.rt = nil
 	ctl.eng = nil
@@ -191,19 +218,31 @@ func ReloadPolicies() error {
 	return nil
 }
 
-// Status returns a small JSON blob {running, mgmtUrl, listeners} for the UI
-// to render without a second round trip.
+// Status returns a small JSON blob {running, mode, mgmtUrl, pacUrl,
+// proxyPort, listeners} for the UI to render without a second round trip.
+// mode is "vpn" or "proxy"; pacUrl/proxyPort describe what a browser (or an
+// MDM-pushed Chrome ProxySettings policy) should be pointed at in
+// proxy-only mode.
 func Status() string {
 	ctl.mu.Lock()
 	defer ctl.mu.Unlock()
 
 	st := struct {
 		Running   bool     `json:"running"`
+		Mode      string   `json:"mode"`
 		MgmtURL   string   `json:"mgmtUrl"`
+		PacURL    string   `json:"pacUrl"`
+		ProxyPort int      `json:"proxyPort"`
 		Listeners []string `json:"listeners"`
-	}{Running: ctl.running, MgmtURL: ctl.mgmtURL}
+	}{Running: ctl.running, Mode: ctl.mode, MgmtURL: ctl.mgmtURL}
 	if ctl.running && ctl.eng != nil {
 		st.Listeners = append(st.Listeners, ctl.eng.Settings.ProxyListen...)
+		// Only meaningful when a regular listener is actually bound — in
+		// vpn mode the fallback port would point at nothing.
+		if ctl.mode == "proxy" {
+			st.PacURL = fmt.Sprintf("http://127.0.0.1:%d/proxy.pac", ctl.eng.Settings.MgmtPort)
+			st.ProxyPort = ctl.eng.Settings.PrimaryRegularProxyPort()
+		}
 	}
 	b, err := json.Marshal(st)
 	if err != nil {

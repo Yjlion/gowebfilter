@@ -27,6 +27,17 @@
         android:restrictionType="bool"
         android:defaultValue="false" />
 
+    <!-- Consumed by the Kotlin layer ONLY (selects how the service starts,
+         not engine config) — deliberately absent from
+         ManagedConfig.buildDocFromBundle; the one exception to the
+         restriction-key == preference-key sync rule. -->
+    <restriction
+        android:key="proxy_only_mode"
+        android:title="Proxy-only mode (no VPN)"
+        android:description="@string/restr_proxy_only_desc"
+        android:restrictionType="bool"
+        android:defaultValue="false" />
+
     <restriction
         android:key="policy_json"
         android:title="Full policy JSON (advanced)"

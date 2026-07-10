@@ -14,7 +14,12 @@
 
     <string name="notif_channel_name">WebFilter VPN</string>
     <string name="notif_title">WebFilter is filtering traffic</string>
+    <string name="notif_title_proxy">WebFilter proxy is running (no VPN)</string>
     <string name="notif_text">Tap to open the dashboard.</string>
+
+    <string name="proxy_only_mode">Proxy-only mode (no VPN)</string>
+    <string name="proxy_info">HTTP proxy: %1$s\nPAC file: %2$s\nTap to copy the PAC URL.</string>
+    <string name="pac_copied">PAC URL copied.</string>
 
     <string name="ca_save">Save certificate (download)</string>
     <string name="ca_saved">Certificate saved.</string>
@@ -87,6 +92,7 @@
     <!-- Managed-configuration (app_restrictions.xml) descriptions; the
          android:description attribute only accepts resource references. -->
     <string name="restr_settings_locked_desc">Prevent any settings or policy changes on the device (native UI and dashboard).</string>
+    <string name="restr_proxy_only_desc">Run the filter as a loopback HTTP proxy instead of a VPN. Point Chrome at the PAC file (http://127.0.0.1:8000/proxy.pac) via its ProxySettings policy.</string>
     <string name="restr_policy_json_desc">Complete policy document; overrides every typed policy key when set.</string>
     <string name="restr_schedule_json_desc">ScheduleConfig JSON, e.g. {\"enabled\":true,\"active_windows\":[{\"days\":[0,1,2,3,4],\"start\":\"21:00\",\"end\":\"23:59\"}]} — days: 0=Monday.</string>
     <string name="restr_mgmt_password_desc">Stored on-device as a salted hash only.</string>

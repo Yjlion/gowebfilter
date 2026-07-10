@@ -46,6 +46,22 @@ object ManagedConfig {
     }
 
     /**
+     * MDM-forced start mode: true/false when the EMM sets the
+     * `proxy_only_mode` restriction, null when unmanaged. This key is
+     * consumed by the Kotlin layer ONLY (it selects how the service starts,
+     * not engine config) — deliberately absent from [buildDocFromBundle],
+     * the one documented exception to the restriction-key == preference-key
+     * sync rule.
+     */
+    fun forcedProxyOnly(context: Context): Boolean? = try {
+        val rm = context.getSystemService(Context.RESTRICTIONS_SERVICE) as RestrictionsManager
+        val b = rm.applicationRestrictions
+        if (b.containsKey("proxy_only_mode")) b.getBoolean("proxy_only_mode") else null
+    } catch (_: Exception) {
+        null
+    }
+
+    /**
      * Pure Bundle -> canonical-document mapping (no Android services, no
      * engine calls) so it stays unit-testable without instrumentation.
      * An empty bundle produces an empty document, which the Go side treats
