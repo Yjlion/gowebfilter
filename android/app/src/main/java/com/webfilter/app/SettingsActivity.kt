@@ -163,6 +163,8 @@ class PrefsFragment : PreferenceFragmentCompat() {
             "nav_general" -> host.openScreen(R.xml.prefs_general, KIND_SETTINGS)
             "nav_security" -> host.openScreen(R.xml.prefs_security, KIND_SETTINGS)
             "nav_policies" -> startActivity(Intent(requireContext(), PoliciesActivity::class.java))
+            "nav_logs" -> startActivity(Intent(requireContext(), LogsActivity::class.java))
+            "nav_analytics" -> startActivity(Intent(requireContext(), AnalyticsActivity::class.java))
             "nav_categories" -> startActivity(
                 Intent(requireContext(), CategoriesActivity::class.java)
                     .putExtra(CategoriesActivity.EXTRA_POLICY_NAME, host.policyName),

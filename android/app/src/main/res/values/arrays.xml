@@ -34,6 +34,20 @@
         <item>__custom__</item>
     </string-array>
 
+    <!-- Order must match LogsActivity.kinds. -->
+    <string-array name="log_kind_labels">
+        <item>Blocked requests</item>
+        <item>All requests</item>
+        <item>Policy changes (audit)</item>
+    </string-array>
+
+    <!-- Order must match AnalyticsActivity.windows. -->
+    <string-array name="analytics_window_labels">
+        <item>Last 24 hours</item>
+        <item>Last 7 days</item>
+        <item>Last 30 days</item>
+    </string-array>
+
     <string-array name="image_action_labels">
         <item>Blur</item>
         <item>Block</item>

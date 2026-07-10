@@ -84,6 +84,23 @@
     <string name="password_set">Password updated.</string>
     <string name="invalid_threshold">Enter a number between 0.0 and 1.0.</string>
 
+    <!-- Native logs + analytics -->
+    <string name="title_logs">Logs</string>
+    <string name="pref_logs_summary">Blocked requests, all requests, and the policy-change audit log.</string>
+    <string name="title_analytics">Analytics</string>
+    <string name="pref_analytics_summary">Totals, top blocked domains, and an hourly blocks timeline.</string>
+    <string name="log_refresh">Refresh</string>
+    <string name="log_filter_hint">Filter (host, reason, policy…)</string>
+    <string name="log_count">%1$d entries</string>
+    <string name="log_renamed_from">renamed from %1$s</string>
+    <string name="analytics_requests">requests</string>
+    <string name="analytics_blocks">blocks</string>
+    <string name="analytics_timeline">Blocks per hour</string>
+    <string name="analytics_top_domains">Top blocked domains</string>
+    <string name="analytics_by_component">Blocks by component</string>
+    <string name="analytics_count_row">%1$s — %2$d</string>
+    <string name="analytics_no_data">No data in this window.</string>
+
     <!-- Category blocklists -->
     <string name="title_categories">Category blocklists</string>
     <string name="pref_categories_nav">Blocked categories</string>

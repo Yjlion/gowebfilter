@@ -47,6 +47,18 @@
         android:persistent="false" />
 
     <Preference
+        android:key="nav_logs"
+        android:title="@string/title_logs"
+        android:summary="@string/pref_logs_summary"
+        android:persistent="false" />
+
+    <Preference
+        android:key="nav_analytics"
+        android:title="@string/title_analytics"
+        android:summary="@string/pref_analytics_summary"
+        android:persistent="false" />
+
+    <Preference
         android:key="nav_general"
         android:title="@string/cat_general"
         android:persistent="false" />

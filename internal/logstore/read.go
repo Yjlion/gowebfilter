@@ -20,11 +20,11 @@ func validKind(kind string) error {
 // original's dict-per-row shape used directly as JSON API responses). The
 // internal "id" column is omitted. Returns an empty slice (never an error)
 // on any query failure, matching the Python original's fail-open read path.
-func (s *Store) Tail(kind string, limit int) []map[string]any {
+func (r *Reader) Tail(kind string, limit int) []map[string]any {
 	if err := validKind(kind); err != nil {
 		return []map[string]any{}
 	}
-	db, err := s.openReadConn()
+	db, err := r.openReadConn()
 	if err != nil {
 		return []map[string]any{}
 	}
@@ -41,11 +41,11 @@ func (s *Store) Tail(kind string, limit int) []map[string]any {
 
 // RowsInRange returns every row of kind with startTs <= ts <= endTs,
 // ascending by ts - used for CSV/XLSX export.
-func (s *Store) RowsInRange(kind string, startTs, endTs int64) []map[string]any {
+func (r *Reader) RowsInRange(kind string, startTs, endTs int64) []map[string]any {
 	if err := validKind(kind); err != nil {
 		return []map[string]any{}
 	}
-	db, err := s.openReadConn()
+	db, err := r.openReadConn()
 	if err != nil {
 		return []map[string]any{}
 	}
@@ -134,10 +134,10 @@ func emptyAnalytics(windowHours int) Analytics {
 	}
 }
 
-func (s *Store) Analytics(startTs int64, windowHours int) Analytics {
+func (r *Reader) Analytics(startTs int64, windowHours int) Analytics {
 	result := emptyAnalytics(windowHours)
 
-	db, err := s.openReadConn()
+	db, err := r.openReadConn()
 	if err != nil {
 		return result
 	}
