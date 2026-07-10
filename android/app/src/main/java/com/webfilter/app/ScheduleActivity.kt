@@ -28,6 +28,11 @@ import org.json.JSONObject
  */
 class ScheduleActivity : AppCompatActivity() {
 
+    companion object {
+        /** Optional intent extra naming the policy whose schedule to edit. */
+        const val EXTRA_POLICY_NAME = "policy_name"
+    }
+
     private lateinit var store: PolicyJsonStore
     private lateinit var schedule: JSONObject
     private lateinit var adapter: WindowAdapter
@@ -40,7 +45,8 @@ class ScheduleActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_schedule)
-        store = PolicyJsonStore.forApp(this)
+        val policyName = intent.getStringExtra(EXTRA_POLICY_NAME) ?: "default"
+        store = PolicyJsonStore.forApp(this, policyName)
     }
 
     override fun onResume() {

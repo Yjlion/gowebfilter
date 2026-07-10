@@ -1,5 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Root screen when editing a NON-default policy: its filters plus its
+     schedule. Global concerns (general, security, apps, policies) live only
+     on prefs_root.xml, the default hub. -->
 <PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <Preference
+        android:key="nav_schedule"
+        android:title="@string/title_schedule"
+        android:summary="@string/pref_schedule_summary"
+        android:persistent="false" />
 
     <Preference
         android:key="nav_safesearch"
@@ -27,32 +36,8 @@
         android:title="@string/cat_doh"
         android:persistent="false" />
 
-    <!-- The default policy is the schedule-less always-on fallback; time
-         windows belong to the override policies managed here. -->
-    <Preference
-        android:key="nav_policies"
-        android:title="@string/title_policies"
-        android:summary="@string/pref_policies_summary"
-        android:persistent="false" />
-
     <Preference
         android:key="nav_block_page"
         android:title="@string/cat_block_page"
-        android:persistent="false" />
-
-    <Preference
-        android:key="nav_apps"
-        android:title="@string/title_app_picker"
-        android:summary="@string/per_app_hint"
-        android:persistent="false" />
-
-    <Preference
-        android:key="nav_general"
-        android:title="@string/cat_general"
-        android:persistent="false" />
-
-    <Preference
-        android:key="nav_security"
-        android:title="@string/cat_security"
         android:persistent="false" />
 </PreferenceScreen>

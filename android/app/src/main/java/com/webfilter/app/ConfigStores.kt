@@ -10,7 +10,7 @@ import mobile.Mobile
  * engine's config files through the gomobile API (works whether or not the
  * VPN is running) instead of SharedPreferences:
  *
- *  - [PolicyJsonStore] holds the `default` policy as a [JSONObject]; every
+ *  - [PolicyJsonStore] holds one named policy as a [JSONObject]; every
  *    [set] writes the FULL document back through Mobile.updatePolicyJson —
  *    the Go side's sub-config unmarshalers reset unmentioned sibling fields
  *    to defaults on partial bodies, so full-document write is the only safe
@@ -22,12 +22,12 @@ import mobile.Mobile
  * Both surface write failures to the caller (the preference layer shows a
  * toast and re-loads) rather than caching unsynced state.
  */
-class PolicyJsonStore(private val dataDir: String) {
+class PolicyJsonStore(private val dataDir: String, var policyName: String = "default") {
 
     private var doc: JSONObject = JSONObject()
 
     fun load() {
-        doc = JSONObject(Mobile.getPolicyJson(dataDir, "default"))
+        doc = JSONObject(Mobile.getPolicyJson(dataDir, policyName))
     }
 
     /** Walks a dot path ("safesearch.engines.google.enabled"). Null if absent. */
@@ -79,12 +79,16 @@ class PolicyJsonStore(private val dataDir: String) {
     fun setSchedule(schedule: JSONObject) = set("schedule", schedule)
 
     private fun save() {
-        val updated = Mobile.updatePolicyJson(dataDir, "default", doc.toString())
+        val updated = Mobile.updatePolicyJson(dataDir, policyName, doc.toString())
         doc = JSONObject(updated)
+        // Adopt a rename (the doc's name wins server-side) so subsequent
+        // loads/saves address the new file.
+        policyName = doc.optString("name", policyName)
     }
 
     companion object {
-        fun forApp(context: Context) = PolicyJsonStore(context.filesDir.absolutePath)
+        fun forApp(context: Context, policyName: String = "default") =
+            PolicyJsonStore(context.filesDir.absolutePath, policyName)
     }
 }
 

@@ -144,6 +144,12 @@ func UpdatePolicyJson(dataDir string, name string, body string) (string, error) 
 	if err := json.Unmarshal([]byte(body), &p); err != nil {
 		return "", fmt.Errorf("invalid policy body: %w", err)
 	}
+	// "default" is the engine's always-on fallback and the fixed target of
+	// the MDM policy_json restriction (settingsvc.ApplyManagedConfig) —
+	// renaming it would silently orphan both.
+	if name == "default" && p.Name != "default" {
+		return "", fmt.Errorf("the default policy cannot be renamed")
+	}
 	if err := config.NewPolicyStore(settings.PoliciesDir).Update(name, p); err != nil {
 		return "", err
 	}

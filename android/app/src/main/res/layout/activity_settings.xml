@@ -15,6 +15,15 @@
         android:textColor="#664D03"
         android:visibility="gone" />
 
+    <!-- Names the policy being edited when it is not "default". -->
+    <TextView
+        android:id="@+id/policyHeader"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="12dp"
+        android:textStyle="bold"
+        android:visibility="gone" />
+
     <FrameLayout
         android:id="@+id/settingsContainer"
         android:layout_width="match_parent"
