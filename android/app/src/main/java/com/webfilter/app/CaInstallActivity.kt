@@ -7,6 +7,7 @@ import android.provider.Settings
 import android.security.KeyChain
 import android.widget.Button
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.FileProvider
 import mobile.Mobile
@@ -23,10 +24,21 @@ import java.security.cert.CertificateFactory
  */
 class CaInstallActivity : AppCompatActivity() {
 
+    /**
+     * SAF "create document" picker for saving the certificate wherever the
+     * user chooses (typically Downloads) — no storage permission needed on
+     * any supported API level.
+     */
+    private val saveCertLauncher =
+        registerForActivityResult(ActivityResultContracts.CreateDocument("application/x-x509-ca-cert")) { uri ->
+            if (uri != null) saveCertTo(uri)
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_ca_install)
 
+        findViewById<Button>(R.id.saveButton).setOnClickListener { saveCertLauncher.launch("webfilter-ca.crt") }
         findViewById<Button>(R.id.exportButton).setOnClickListener { exportCert() }
         findViewById<Button>(R.id.settingsButton).setOnClickListener { openCertInstall() }
     }
@@ -41,6 +53,22 @@ class CaInstallActivity : AppCompatActivity() {
         val file = File(dir, "webfilter-ca.crt")
         file.writeText(pem)
         return file
+    }
+
+    /** Write the PEM to the user-picked document (download-style save). */
+    private fun saveCertTo(uri: Uri) {
+        val pem = Mobile.caCertPem(filesDir.absolutePath)
+        if (pem.isNullOrEmpty()) {
+            Toast.makeText(this, R.string.ca_save_failed, Toast.LENGTH_LONG).show()
+            return
+        }
+        try {
+            contentResolver.openOutputStream(uri)?.use { it.write(pem.toByteArray()) }
+                ?: throw IllegalStateException("no output stream")
+            Toast.makeText(this, R.string.ca_saved, Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Toast.makeText(this, R.string.ca_save_failed, Toast.LENGTH_LONG).show()
+        }
     }
 
     /** Share the .crt so the user can save it or open it with an installer. */

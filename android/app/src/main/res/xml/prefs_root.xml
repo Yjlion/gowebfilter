@@ -14,6 +14,7 @@
     <Preference
         android:key="nav_youtube"
         android:title="@string/cat_youtube"
+        android:icon="@drawable/ic_engine_youtube"
         android:persistent="false" />
 
     <Preference

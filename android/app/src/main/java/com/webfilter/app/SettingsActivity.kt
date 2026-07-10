@@ -9,6 +9,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.preference.ListPreference
 import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
 import org.json.JSONObject
@@ -96,6 +97,7 @@ class PrefsFragment : PreferenceFragmentCompat() {
         }
         applyLockState()
         bindDynamicSummaries()
+        bindDohCustomVisibility()
     }
 
     private fun inflateScreen(rootKey: String?) {
@@ -172,6 +174,20 @@ class PrefsFragment : PreferenceFragmentCompat() {
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
+    }
+
+    /**
+     * The DoH screen's custom-URL editor is only shown while the preset
+     * dropdown says "Custom…" — a preset choice writes the URL itself.
+     */
+    private fun bindDohCustomVisibility() {
+        val preset = findPreference<ListPreference>("doh_server_preset") ?: return
+        val server = findPreference<Preference>("doh_server") ?: return
+        server.isVisible = preset.value == PolicyPreferenceDataStore.DOH_CUSTOM
+        preset.setOnPreferenceChangeListener { _, newValue ->
+            server.isVisible = newValue == PolicyPreferenceDataStore.DOH_CUSTOM
+            true
+        }
     }
 
     /** Read-only info rows on the General screen (engine status). */

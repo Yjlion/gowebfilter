@@ -15,7 +15,12 @@ class PolicyPreferenceDataStore(
     private val store: PolicyJsonStore,
 ) : PreferenceDataStore() {
 
-    private enum class Kind { BOOL, TEXT, LINES, NUMBER, INT }
+    companion object {
+        /** Sentinel entry value for the "Custom…" DoH preset choice. */
+        const val DOH_CUSTOM = "__custom__"
+    }
+
+    private enum class Kind { BOOL, TEXT, LINES, NUMBER, INT, PRESET }
 
     private class Spec(val path: String, val kind: Kind)
 
@@ -47,10 +52,20 @@ class PolicyPreferenceDataStore(
         put("image_classifier_min_dimension", Spec("image_classifier.min_dimension", Kind.INT))
         put("doh_enabled", Spec("doh.enabled", Kind.BOOL))
         put("doh_server", Spec("doh.server", Kind.TEXT))
+        // Same JSON path as doh_server: the ListPreference writes a preset
+        // URL through it, and reads back __custom__ when the stored server
+        // is not one of the presets (the EditTextPreference then edits it).
+        put("doh_server_preset", Spec("doh.server", Kind.PRESET))
         put("block_page_message", Spec("block_page.message", Kind.TEXT))
     }
 
     private fun spec(key: String) = specs[key] ?: error("unmapped preference key $key")
+
+    private val dohPresetValues: Set<String> by lazy {
+        context.resources.getStringArray(R.array.doh_preset_values)
+            .filterNot { it == DOH_CUSTOM }
+            .toSet()
+    }
 
     // Defaults for absent paths come from the XML android:defaultValue —
     // per-engine `enabled` declares true there, matching the Go side's
@@ -64,6 +79,10 @@ class PolicyPreferenceDataStore(
         val s = spec(key)
         return when (s.kind) {
             Kind.LINES -> store.getLines(s.path)
+            Kind.PRESET -> {
+                val v = store.getString(s.path, defValue ?: "")
+                if (v in dohPresetValues) v else DOH_CUSTOM
+            }
             else -> store.getString(s.path, defValue ?: "")
         }
     }
@@ -71,6 +90,9 @@ class PolicyPreferenceDataStore(
     override fun putString(key: String, value: String?) {
         val s = spec(key)
         val v = value ?: ""
+        // Picking "Custom…" only reveals the URL editor; it must not
+        // overwrite the stored server.
+        if (s.kind == Kind.PRESET && v == DOH_CUSTOM) return
         write {
             when (s.kind) {
                 Kind.LINES -> store.setLines(s.path, v)

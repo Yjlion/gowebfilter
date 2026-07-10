@@ -16,6 +16,9 @@
     <string name="notif_title">WebFilter is filtering traffic</string>
     <string name="notif_text">Tap to open the dashboard.</string>
 
+    <string name="ca_save">Save certificate (download)</string>
+    <string name="ca_saved">Certificate saved.</string>
+    <string name="ca_save_failed">Could not save the certificate.</string>
     <string name="ca_export">Export / share certificate</string>
     <string name="ca_open_settings">Open certificate settings</string>
     <string name="ca_limits_title">What on-device filtering can and cannot do</string>
@@ -59,7 +62,8 @@
     <string name="pref_threshold">Threshold (0.0–1.0)</string>
     <string name="pref_action">Action</string>
     <string name="pref_min_dimension">Minimum image size (px)</string>
-    <string name="pref_doh_server">DoH server URL</string>
+    <string name="pref_doh_preset">DoH server</string>
+    <string name="pref_doh_server">Custom DoH server URL</string>
     <string name="pref_block_message">Custom block message</string>
     <string name="pref_log_blocks">Log blocked requests</string>
     <string name="pref_log_requests">Log all requests</string>
