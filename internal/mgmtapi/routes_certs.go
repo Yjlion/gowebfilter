@@ -15,7 +15,9 @@ const maxCertImportBytes = 256 * 1024
 func (s *Server) registerCertsRoutes(r chi.Router) {
 	r.Get("/api/ca-cert", s.handleCACertDownload)
 	r.Get("/api/certs/export", s.handleCertsExport)
-	r.Post("/api/certs/import", s.handleCertsImport)
+	// CA rotation is a configuration mutation, so it is gated by the MDM
+	// settings lock like /api/settings and /api/policies writes.
+	r.With(s.requireUnlocked).Post("/api/certs/import", s.handleCertsImport)
 }
 
 // handleCACertDownload serves the public CA certificate only - what a

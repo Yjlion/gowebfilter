@@ -105,14 +105,19 @@ func (s *Server) Router() *chi.Mux {
 	r.Get("/api/status", s.handleStatus)
 	r.Get("/api/tun2socks/status", s.handleTun2SocksStatus)
 
+	// Configuration mutations are additionally gated by the MDM settings
+	// lock (managed.json, written by the Android managed-configuration
+	// path) - reads stay open so the dashboard keeps working when locked.
+	// Any new mutating config route must take the same middleware;
+	// TestMutatingRoutesAreLockGated enforces this.
 	r.Get("/api/policies", s.handleListPolicies)
-	r.Post("/api/policies", s.handleCreatePolicy)
+	r.With(s.requireUnlocked).Post("/api/policies", s.handleCreatePolicy)
 	r.Get("/api/policies/{name}", s.handleGetPolicy)
-	r.Put("/api/policies/{name}", s.handleUpdatePolicy)
-	r.Delete("/api/policies/{name}", s.handleDeletePolicy)
+	r.With(s.requireUnlocked).Put("/api/policies/{name}", s.handleUpdatePolicy)
+	r.With(s.requireUnlocked).Delete("/api/policies/{name}", s.handleDeletePolicy)
 
 	r.Get("/api/settings", s.handleGetSettings)
-	r.Put("/api/settings", s.handleUpdateSettings)
+	r.With(s.requireUnlocked).Put("/api/settings", s.handleUpdateSettings)
 
 	r.Get("/api/logs", s.handleLogs)
 	r.Get("/api/analytics", s.handleAnalytics)
