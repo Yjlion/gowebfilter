@@ -36,7 +36,9 @@ class PolicyPreferenceDataStore(
         put("url_filter_mode", Spec("url_filter.mode", Kind.TEXT))
         put("url_filter_allow", Spec("url_filter.allow", Kind.LINES))
         put("url_filter_block", Spec("url_filter.block", Kind.LINES))
-        put("url_filter_categories", Spec("url_filter.categories", Kind.LINES))
+        // url_filter_categories is edited by CategoriesActivity (checkbox
+        // list), not a preference widget; the MDM restriction of the same
+        // name still exists and is mapped by ManagedConfig.
         put("url_filter_block_quic", Spec("url_filter.block_quic", Kind.BOOL))
         put("youtube_enabled", Spec("youtube.enabled", Kind.BOOL))
         put("youtube_mode", Spec("youtube.mode", Kind.TEXT))

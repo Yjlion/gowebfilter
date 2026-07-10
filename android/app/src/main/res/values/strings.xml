@@ -84,6 +84,22 @@
     <string name="password_set">Password updated.</string>
     <string name="invalid_threshold">Enter a number between 0.0 and 1.0.</string>
 
+    <!-- Category blocklists -->
+    <string name="title_categories">Category blocklists</string>
+    <string name="pref_categories_nav">Blocked categories</string>
+    <string name="pref_categories_nav_summary">Download ipfire category lists and pick which ones this policy blocks.</string>
+    <string name="categories_hint">Lists download from dbl.ipfire.org onto this device (stored compressed) and are shared by all policies. The checkbox controls whether THIS policy blocks the category. Long-press an installed list to delete it.</string>
+    <string name="category_download">Download</string>
+    <string name="category_update">Update</string>
+    <string name="category_downloading">Downloading…</string>
+    <string name="category_installed">%1$d domains · updated %2$s</string>
+    <string name="category_not_downloaded">Not downloaded</string>
+    <string name="category_missing">Selected, but no list on this device</string>
+    <string name="category_selected_not_installed">List not downloaded yet — it blocks nothing until you download it.</string>
+    <string name="category_download_failed">Downloading %1$s failed: %2$s</string>
+    <string name="category_delete">Delete list</string>
+    <string name="category_delete_confirm">Delete the downloaded “%1$s” list from this device?</string>
+
     <!-- Multi-policy manager -->
     <string name="title_policies">Policies</string>
     <string name="pref_policies_summary">Default is always on; add scheduled policies that override it during their time windows.</string>

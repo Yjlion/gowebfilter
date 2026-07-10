@@ -56,6 +56,11 @@
             android:label="@string/title_policies" />
 
         <activity
+            android:name=".CategoriesActivity"
+            android:exported="false"
+            android:label="@string/title_categories" />
+
+        <activity
             android:name=".CaInstallActivity"
             android:exported="false"
             android:label="@string/title_ca_install" />
