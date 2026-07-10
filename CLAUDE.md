@@ -69,22 +69,29 @@ Request/block/audit logs go to SQLite at `logs/webfilter.db`.
   `LoadTextScorer`/`LoadImageDetector`, `EnsureTunSocksListener`, and
   `ServeMgmt`. **Edit the pipeline order here, not per front-end.**
 - `mobile/` — gomobile-bound Android entry point. Exports a small API surface
-  (`Start(dataDir, tunFd)`, `Stop`, `IsRunning`, `Status`, `MgmtUrl`,
-  `ReloadPolicies`, `CaCertPem`, plus the JSON-string settings/policy
-  accessors for the native settings UI and MDM path in `settingsapi.go` /
-  `managed.go`: `GetSettingsJson`, `UpdateSettingsJson`, `GetPolicyJson`,
-  `UpdatePolicyJson`, `GetManagedStateJson`, `ApplyManagedConfigJson`) and
-  drives `xjasonlyu/tun2socks` directly from
+  (`Start(dataDir, tunFd)`, `StartProxyOnly(dataDir)` — same bring-up minus
+  the TUN, for the no-VPN loopback-proxy/PAC mode — `Stop`, `IsRunning`,
+  `Status`, `MgmtUrl`, `ReloadPolicies`, `CaCertPem`, plus JSON-string
+  accessors for the native UI and MDM path, one file per concern:
+  `settingsapi.go` (`GetSettingsJson`, `UpdateSettingsJson`, `GetPolicyJson`,
+  `UpdatePolicyJson`), `managed.go` (`GetManagedStateJson`,
+  `ApplyManagedConfigJson`), `policiesapi.go` (`ListPoliciesJson`,
+  `CreatePolicyJson`, `DeletePolicy`), `categoriesapi.go`
+  (`ListCategoriesJson`, `DownloadCategoryJson`, `DeleteCategory`), and
+  `logsapi.go` (`QueryLogsJson`, `AnalyticsJson` — read-only, not
+  lock-gated)) and drives `xjasonlyu/tun2socks` directly from
   the VpnService `fd://` descriptor — **not** via `internal/tun2socks.Manager`
   (root/`ip`-gated). The TUN-capture file is `tun_capture.go`
   (`//go:build android || linux`), deliberately **not** named `*_android.go`:
   a GOOS filename suffix ANDs with the build tag and would exclude it on a
   Linux desktop, breaking `go test ./mobile`. Build:
   `gomobile bind -target=android/arm64,android/arm -androidapi 26 -o android/app/libs/webfilter.aar ./mobile`.
-- `android/` — Kotlin/Gradle app scaffold (VpnService, WebView mgmt UI, native
-  settings screens backed by the `mobile/` JSON API, per-app filtering with
-  app icons, MDM managed configurations via `app_restrictions.xml` +
-  `ManagedConfig.kt`, CA install flow). See `android/README.md` for local
+- `android/` — Kotlin/Gradle app scaffold (VpnService with a proxy-only
+  no-TUN mode, WebView mgmt UI, native settings screens backed by the
+  `mobile/` JSON API, native multi-policy manager / category-blocklist /
+  logs / analytics screens, per-app filtering with app icons, MDM managed
+  configurations via `app_restrictions.xml` + `ManagedConfig.kt`, CA
+  install/save flow). See `android/README.md` for local
   build steps and the TestDPC verification recipe;
   the AAR is a build artifact (gitignored). The debug APK can also be built on
   demand by the **manual** `.github/workflows/android.yml` workflow
@@ -212,7 +219,36 @@ Request/block/audit logs go to SQLite at `logs/webfilter.db`.
   already accept string-typed numbers — keep it that way. The restriction
   keys in `android/.../res/xml/app_restrictions.xml` and the preference keys
   in `PreferenceDataStores.kt` are the same identifiers by design; keep the
-  two (and `ManagedConfig.buildDocFromBundle`) in sync.
+  two (and `ManagedConfig.buildDocFromBundle`) in sync. Two documented
+  exceptions: `proxy_only_mode` is consumed by the Kotlin layer only (it
+  selects how the service starts, not engine config), and
+  `url_filter_categories` is edited natively by `CategoriesActivity`
+  rather than a preference widget (the restriction mapping is unchanged).
+- **The PAC file advertises the first `regular` listener**
+  (`PrimaryRegularProxyPort`, 8080 fallback) — never a SOCKS port; PAC's
+  `PROXY` directive is HTTP-only. Proxy-only mode (`mobile.StartProxyOnly` /
+  the app's no-VPN switch) injects a session-only `regular@127.0.0.1:8080`
+  via `app.EnsureLocalHTTPProxyListener` when settings configure no regular
+  listener; the entry is never persisted to settings.json.
+- **Category lists may be gzip-compressed on disk.** The store prefers
+  `<name>/domains.gz` over the plain `domains` file; per-category downloads
+  (`categories.DownloadCategory`, from
+  `https://dbl.ipfire.org/lists/<name>/domains.txt`) write `.gz`, while the
+  desktop tarball path (`webfilter categories update`) still writes plain
+  files. Sets above 100k domains are held as sorted 64-bit FNV-1a hashes,
+  not string maps (~8 MB vs ~100 MB for the porn list); a hash collision
+  can only over-block, never bypass.
+- **Read the log DB from exports via `logstore.NewReader`, never a second
+  `logstore.Configure`.** Configure opens a competing write connection and
+  runs schema+prune against the engine's single-writer design; Reader is
+  the write-free view (fresh read-only conns, fail-open on a missing DB)
+  that `mobile.QueryLogsJson`/`AnalyticsJson` use.
+- **The "default" policy is protected on the mobile path**: `DeletePolicy`
+  and a rename through `UpdatePolicyJson` are refused in Go (it is the
+  always-on fallback and the fixed target of the MDM `policy_json`
+  restriction). `CreatePolicyJson` creates policies `inactive:true` unless
+  the body says otherwise — an ACTIVE schedule-less catch-all would compete
+  with `default` by filename sort (see the policy-selection gotcha above).
 - **Both classifiers are opt-in per policy and need zero setup.**
   `text_classifier.enabled` / `image_classifier.enabled` (both default
   off — NSFW false positives have real cost) are the only switches; there

@@ -51,7 +51,10 @@ for local dev. They persist to disk; the mgmt API's
   managed-config apply (`ApplyManagedConfig`)
 - `internal/classify/textbayes/` - embedded pure-Go Bayesian adult-text scorer
 - `internal/classify/image/` - embedded pure-Go GantMan/nsfw_model image classifier
-- `mobile/` - gomobile-bound Android entry point (`Start`/`Stop`/`Status`/…);
+- `mobile/` - gomobile-bound Android entry point (`Start`, `StartProxyOnly`
+  (no-TUN loopback-proxy/PAC mode), `Stop`, `Status`, …, plus JSON-string
+  exports per concern: `settingsapi.go`, `managed.go`, `policiesapi.go`,
+  `categoriesapi.go`, `logsapi.go`);
   drives tun2socks from the VpnService `fd://` TUN. Build with
   `gomobile bind -target=android/arm64,android/arm,android/amd64 -androidapi 26 -o android/app/libs/webfilter.aar ./mobile`.
   Before binding for `android/amd64` (x86_64 emulators), run
@@ -60,9 +63,10 @@ for local dev. They persist to disk; the mgmt API's
   app seccomp policy kills; the script remaps them to the *at family via a
   gitignored libc copy + a go.mod `replace` (`-undo` reverts; never commit
   the replace). arm64 is unaffected.
-- `android/` - Kotlin/Gradle Android app (VpnService, WebView mgmt UI, native
-  settings screens, MDM managed configurations, per-app filtering, CA install
-  flow) consuming the gomobile AAR. Debug APKs build via
+- `android/` - Kotlin/Gradle Android app (VpnService with a proxy-only
+  no-TUN mode, WebView mgmt UI, native settings/policies/categories/logs/
+  analytics screens, MDM managed configurations, per-app filtering, CA
+  install/save flow) consuming the gomobile AAR. Debug APKs build via
   the `.github/workflows/android.yml` workflow (manual trigger, and on `v*`
   tags from `ci.yml`'s release job, which attaches the APK to the release)
 - `firefox-extension/` - standalone MV3 Firefox WebExtension (no proxy/CA):
@@ -103,7 +107,26 @@ for local dev. They persist to disk; the mgmt API's
 - Android restriction bundles have no float type: thresholds are string
   restrictions; the models' decoders accept string-typed numbers. Keep
   `app_restrictions.xml`, `PreferenceDataStores.kt`, and
-  `ManagedConfig.buildDocFromBundle` key sets in sync.
+  `ManagedConfig.buildDocFromBundle` key sets in sync. Documented
+  exceptions: `proxy_only_mode` is Kotlin-only (service start mode, not
+  engine config); `url_filter_categories` is edited by CategoriesActivity,
+  not a preference widget.
+- The PAC file advertises the first `regular` listener
+  (`PrimaryRegularProxyPort`, 8080 fallback) — never a SOCKS port.
+  Proxy-only mode (`mobile.StartProxyOnly`) injects a session-only
+  `regular@127.0.0.1:8080` (`app.EnsureLocalHTTPProxyListener`), never
+  persisted to settings.json.
+- Category lists may be stored gzip-compressed: the store prefers
+  `<name>/domains.gz`; per-category downloads
+  (`categories.DownloadCategory`, `https://dbl.ipfire.org/lists/<name>/domains.txt`)
+  write `.gz`, the tarball CLI still writes plain files. Sets over 100k
+  domains are sorted 64-bit hashes (over-block-only collision risk), not
+  string maps.
+- Read the log DB from exports via `logstore.NewReader` (write-free), never
+  a second `logstore.Configure` (competing writer + schema + prune).
+- The "default" policy cannot be deleted or renamed through the mobile
+  exports (always-on fallback; MDM `policy_json` targets it by name);
+  `CreatePolicyJson` defaults new policies to `inactive:true`.
 - Do not reintroduce `http.FileServer`/`FileServerFS` for the UI static
   path; it caused a `/` <-> `/index.html` redirect loop.
 - Test helpers constructing a `Server`/`CA`/`PolicyStore`/log store directly

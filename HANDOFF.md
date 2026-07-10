@@ -62,13 +62,25 @@ scaffolded: the pure-Go engine runs on-device, embedded via gomobile.
   per-app filtering with app icons, CA-install flow). The AAR
   (`android/app/libs/webfilter.aar`) is a build artifact — see
   `android/README.md`.
-- **Native settings GUI:** `SettingsActivity` (androidx.preference) edits the
-  `default` policy's filters and the mobile-relevant globals through new
-  gomobile JSON exports (`mobile/settingsapi.go`), disk-backed so it works
+- **Native settings GUI:** `SettingsActivity` (androidx.preference) edits a
+  policy's filters and the mobile-relevant globals through gomobile JSON
+  exports (`mobile/settingsapi.go`), disk-backed so it works
   with the VPN stopped. The merge/validation logic shared with
   `PUT /api/settings` lives in `internal/settingsvc` — the two paths are
   deliberately byte-identical. Policy writes are always full documents
   (partial bodies get reset-to-defaults by the sub-config unmarshalers).
+- **Native UI second wave** (same disk-backed export conventions):
+  proxy-only mode (`mobile.StartProxyOnly` — engine + mgmt with no TUN; a
+  session-only `regular@127.0.0.1:8080` listener plus the fixed
+  `/proxy.pac` port selection make the PAC usable by an MDM-pushed Chrome
+  ProxySettings policy); a multi-policy manager (`mobile/policiesapi.go`;
+  "default" is the protected schedule-less fallback, scheduled policies
+  override it via the existing catch-all schedule precedence); per-category
+  ipfire blocklist downloads (`internal/categories/download.go`, stored as
+  `domains.gz`, large sets held as sorted 64-bit hashes); and native
+  logs/analytics over the write-free `logstore.Reader`
+  (`mobile/logsapi.go`). DoH presets, SafeSearch/YouTube brand icons, and
+  the CA save-to-file flow are Kotlin/XML-only.
 - **MDM/EMM managed configurations:** `res/xml/app_restrictions.xml` declares
   typed restriction keys plus `policy_json`/`schedule_json` escape hatches
   and a `settings_locked` flag; `ManagedConfig.kt` translates the
@@ -91,6 +103,11 @@ VpnService→tun2socks→engine data path, and the Kotlin app's runtime behavior
 (the Kotlin sources compile — the debug APK has been assembled locally —
 but the native settings screens and the MDM flow have not been exercised
 on a device; `android/README.md` has a TestDPC verification recipe).
+Also unverified: whether managed Chrome actually honors a loopback PAC
+pushed via its `ProxySettings` app restriction (the proxy-only mode's
+intended consumer), and the categories RAM claim (~8 MB for the ~1M-domain
+porn list via the hash-set representation) has not been measured on a
+device.
 
 Building the AAR + debug APK is automated in
 `.github/workflows/android.yml` — a **manual-only** (`workflow_dispatch`)
