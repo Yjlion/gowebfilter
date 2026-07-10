@@ -1,0 +1,207 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Managed-configuration schema for MDM/EMM portals (RestrictionsManager).
+
+  Only keys the admin actually sets are applied; everything else keeps its
+  on-device value, so a partial push never clobbers unmanaged settings.
+  ManagedConfig.kt translates the restrictions bundle into the canonical
+  document consumed by the Go engine (internal/settingsvc/managed.go).
+
+  Conventions:
+  - Android restrictions have no float type: thresholds are strings
+    ("0.8"); the Go side's decoders accept string-typed numbers.
+  - List values (allow/block/categories/channels) are newline-separated
+    strings; commas also work for entries that cannot contain commas.
+  - `policy_json` (full policy document) wins over every typed policy key.
+  - `settings_locked` makes ALL on-device editing read-only: the Go mgmt
+    API rejects config writes with 403 and the native settings UI renders
+    disabled. Pair it with the EMM's always-on-VPN setting to prevent the
+    user from simply stopping the filter.
+-->
+<restrictions xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <restriction
+        android:key="settings_locked"
+        android:title="Lock settings"
+        android:description="@string/restr_settings_locked_desc"
+        android:restrictionType="bool"
+        android:defaultValue="false" />
+
+    <restriction
+        android:key="policy_json"
+        android:title="Full policy JSON (advanced)"
+        android:description="@string/restr_policy_json_desc"
+        android:restrictionType="string" />
+
+    <restriction
+        android:key="schedule_json"
+        android:title="Schedule JSON (advanced)"
+        android:description="@string/restr_schedule_json_desc"
+        android:restrictionType="string" />
+
+    <!-- Global settings -->
+    <restriction
+        android:key="log_blocks"
+        android:title="Log blocked requests"
+        android:restrictionType="bool"
+        android:defaultValue="true" />
+    <restriction
+        android:key="log_requests"
+        android:title="Log all requests"
+        android:restrictionType="bool"
+        android:defaultValue="true" />
+    <restriction
+        android:key="log_retention_days"
+        android:title="Log retention (days)"
+        android:restrictionType="integer"
+        android:defaultValue="30" />
+    <restriction
+        android:key="ui_language"
+        android:title="Dashboard language"
+        android:restrictionType="string" />
+    <restriction
+        android:key="auth_enabled"
+        android:title="Require dashboard password"
+        android:restrictionType="bool"
+        android:defaultValue="false" />
+    <restriction
+        android:key="mgmt_password"
+        android:title="Dashboard password"
+        android:description="@string/restr_mgmt_password_desc"
+        android:restrictionType="string" />
+
+    <!-- SafeSearch -->
+    <restriction
+        android:key="safesearch_enabled"
+        android:title="Enforce SafeSearch"
+        android:restrictionType="bool"
+        android:defaultValue="false" />
+    <restriction
+        android:key="safesearch_block_images_tab"
+        android:title="Block search Images tabs (all engines)"
+        android:restrictionType="bool"
+        android:defaultValue="false" />
+    <restriction
+        android:key="safesearch_block_videos_tab"
+        android:title="Block search Videos tabs (all engines)"
+        android:restrictionType="bool"
+        android:defaultValue="false" />
+    <restriction
+        android:key="safesearch_block_ai_tab"
+        android:title="Block search AI tabs (all engines)"
+        android:restrictionType="bool"
+        android:defaultValue="false" />
+
+    <!-- URL filter -->
+    <restriction
+        android:key="url_filter_enabled"
+        android:title="Enable URL filter"
+        android:restrictionType="bool"
+        android:defaultValue="false" />
+    <restriction
+        android:key="url_filter_mode"
+        android:title="URL filter mode"
+        android:restrictionType="choice"
+        android:entries="@array/filter_mode_labels"
+        android:entryValues="@array/filter_mode_values"
+        android:defaultValue="blacklist" />
+    <restriction
+        android:key="url_filter_allow"
+        android:title="URL allow list (one per line)"
+        android:restrictionType="string" />
+    <restriction
+        android:key="url_filter_block"
+        android:title="URL block list (one per line)"
+        android:restrictionType="string" />
+    <restriction
+        android:key="url_filter_categories"
+        android:title="Blocked categories (one per line)"
+        android:restrictionType="string" />
+    <restriction
+        android:key="url_filter_block_quic"
+        android:title="Block QUIC"
+        android:restrictionType="bool"
+        android:defaultValue="false" />
+
+    <!-- YouTube -->
+    <restriction
+        android:key="youtube_enabled"
+        android:title="Enable YouTube filter"
+        android:restrictionType="bool"
+        android:defaultValue="false" />
+    <restriction
+        android:key="youtube_mode"
+        android:title="YouTube channel mode"
+        android:restrictionType="choice"
+        android:entries="@array/filter_mode_labels"
+        android:entryValues="@array/filter_mode_values"
+        android:defaultValue="blacklist" />
+    <restriction
+        android:key="youtube_channels"
+        android:title="YouTube channels (one per line)"
+        android:restrictionType="string" />
+    <restriction
+        android:key="youtube_block_home"
+        android:title="Block YouTube homepage"
+        android:restrictionType="bool"
+        android:defaultValue="true" />
+    <restriction
+        android:key="youtube_remove_comments"
+        android:title="Remove YouTube comments"
+        android:restrictionType="bool"
+        android:defaultValue="false" />
+    <restriction
+        android:key="youtube_remove_recommendations"
+        android:title="Remove YouTube recommendations"
+        android:restrictionType="bool"
+        android:defaultValue="false" />
+
+    <!-- Content classifiers -->
+    <restriction
+        android:key="text_classifier_enabled"
+        android:title="Enable adult-text classifier"
+        android:restrictionType="bool"
+        android:defaultValue="false" />
+    <restriction
+        android:key="text_classifier_threshold"
+        android:title="Text classifier threshold (0.0-1.0)"
+        android:restrictionType="string" />
+    <restriction
+        android:key="image_classifier_enabled"
+        android:title="Enable NSFW image classifier"
+        android:restrictionType="bool"
+        android:defaultValue="false" />
+    <restriction
+        android:key="image_classifier_action"
+        android:title="NSFW image action"
+        android:restrictionType="choice"
+        android:entries="@array/image_action_labels"
+        android:entryValues="@array/image_action_values"
+        android:defaultValue="blur" />
+    <restriction
+        android:key="image_classifier_threshold"
+        android:title="Image classifier threshold (0.0-1.0)"
+        android:restrictionType="string" />
+    <restriction
+        android:key="image_classifier_min_dimension"
+        android:title="Minimum image size (px)"
+        android:restrictionType="integer"
+        android:defaultValue="100" />
+
+    <!-- DNS over HTTPS -->
+    <restriction
+        android:key="doh_enabled"
+        android:title="Enable DoH rewriting"
+        android:restrictionType="bool"
+        android:defaultValue="false" />
+    <restriction
+        android:key="doh_server"
+        android:title="DoH server URL"
+        android:restrictionType="string" />
+
+    <!-- Block page -->
+    <restriction
+        android:key="block_page_message"
+        android:title="Custom block message"
+        android:restrictionType="string" />
+</restrictions>

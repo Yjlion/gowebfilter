@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <SwitchPreferenceCompat
+        android:key="safesearch_enabled"
+        android:title="@string/pref_enabled"
+        android:defaultValue="false" />
+
+    <PreferenceCategory android:title="@string/engine_google">
+        <SwitchPreferenceCompat
+            android:key="safesearch_google_enabled"
+            android:title="@string/pref_enabled"
+            android:defaultValue="true" />
+        <SwitchPreferenceCompat
+            android:key="safesearch_google_block_images_tab"
+            android:title="@string/pref_block_images_tab"
+            android:defaultValue="false" />
+        <SwitchPreferenceCompat
+            android:key="safesearch_google_block_videos_tab"
+            android:title="@string/pref_block_videos_tab"
+            android:defaultValue="false" />
+        <SwitchPreferenceCompat
+            android:key="safesearch_google_block_ai_tab"
+            android:title="@string/pref_block_ai_tab"
+            android:defaultValue="false" />
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="@string/engine_bing">
+        <SwitchPreferenceCompat
+            android:key="safesearch_bing_enabled"
+            android:title="@string/pref_enabled"
+            android:defaultValue="true" />
+        <SwitchPreferenceCompat
+            android:key="safesearch_bing_block_images_tab"
+            android:title="@string/pref_block_images_tab"
+            android:defaultValue="false" />
+        <SwitchPreferenceCompat
+            android:key="safesearch_bing_block_videos_tab"
+            android:title="@string/pref_block_videos_tab"
+            android:defaultValue="false" />
+        <SwitchPreferenceCompat
+            android:key="safesearch_bing_block_ai_tab"
+            android:title="@string/pref_block_ai_tab"
+            android:defaultValue="false" />
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="@string/engine_duckduckgo">
+        <SwitchPreferenceCompat
+            android:key="safesearch_duckduckgo_enabled"
+            android:title="@string/pref_enabled"
+            android:defaultValue="true" />
+        <SwitchPreferenceCompat
+            android:key="safesearch_duckduckgo_block_images_tab"
+            android:title="@string/pref_block_images_tab"
+            android:defaultValue="false" />
+        <SwitchPreferenceCompat
+            android:key="safesearch_duckduckgo_block_videos_tab"
+            android:title="@string/pref_block_videos_tab"
+            android:defaultValue="false" />
+        <SwitchPreferenceCompat
+            android:key="safesearch_duckduckgo_block_ai_tab"
+            android:title="@string/pref_block_ai_tab"
+            android:defaultValue="false" />
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="@string/engine_yahoo">
+        <SwitchPreferenceCompat
+            android:key="safesearch_yahoo_enabled"
+            android:title="@string/pref_enabled"
+            android:defaultValue="true" />
+        <SwitchPreferenceCompat
+            android:key="safesearch_yahoo_block_images_tab"
+            android:title="@string/pref_block_images_tab"
+            android:defaultValue="false" />
+        <SwitchPreferenceCompat
+            android:key="safesearch_yahoo_block_videos_tab"
+            android:title="@string/pref_block_videos_tab"
+            android:defaultValue="false" />
+        <SwitchPreferenceCompat
+            android:key="safesearch_yahoo_block_ai_tab"
+            android:title="@string/pref_block_ai_tab"
+            android:defaultValue="false" />
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="@string/engine_youtube">
+        <SwitchPreferenceCompat
+            android:key="safesearch_youtube_enabled"
+            android:title="@string/pref_enabled"
+            android:defaultValue="true" />
+        <SwitchPreferenceCompat
+            android:key="safesearch_youtube_block_images_tab"
+            android:title="@string/pref_block_images_tab"
+            android:defaultValue="false" />
+        <SwitchPreferenceCompat
+            android:key="safesearch_youtube_block_videos_tab"
+            android:title="@string/pref_block_videos_tab"
+            android:defaultValue="false" />
+        <SwitchPreferenceCompat
+            android:key="safesearch_youtube_block_ai_tab"
+            android:title="@string/pref_block_ai_tab"
+            android:defaultValue="false" />
+    </PreferenceCategory>
+</PreferenceScreen>

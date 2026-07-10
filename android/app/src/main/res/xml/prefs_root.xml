@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <Preference
+        android:key="nav_safesearch"
+        android:title="@string/cat_safesearch"
+        android:persistent="false" />
+
+    <Preference
+        android:key="nav_url_filter"
+        android:title="@string/cat_url_filter"
+        android:persistent="false" />
+
+    <Preference
+        android:key="nav_youtube"
+        android:title="@string/cat_youtube"
+        android:persistent="false" />
+
+    <Preference
+        android:key="nav_classifiers"
+        android:title="@string/cat_classifiers"
+        android:persistent="false" />
+
+    <Preference
+        android:key="nav_doh"
+        android:title="@string/cat_doh"
+        android:persistent="false" />
+
+    <Preference
+        android:key="nav_schedule"
+        android:title="@string/title_schedule"
+        android:summary="@string/pref_schedule_summary"
+        android:persistent="false" />
+
+    <Preference
+        android:key="nav_block_page"
+        android:title="@string/cat_block_page"
+        android:persistent="false" />
+
+    <Preference
+        android:key="nav_apps"
+        android:title="@string/title_app_picker"
+        android:summary="@string/per_app_hint"
+        android:persistent="false" />
+
+    <Preference
+        android:key="nav_general"
+        android:title="@string/cat_general"
+        android:persistent="false" />
+
+    <Preference
+        android:key="nav_security"
+        android:title="@string/cat_security"
+        android:persistent="false" />
+</PreferenceScreen>

@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <PreferenceCategory android:title="@string/pref_text_classifier">
+        <SwitchPreferenceCompat
+            android:key="text_classifier_enabled"
+            android:title="@string/pref_enabled"
+            android:defaultValue="false" />
+        <EditTextPreference
+            android:key="text_classifier_threshold"
+            android:title="@string/pref_threshold"
+            android:defaultValue="0.8"
+            app:useSimpleSummaryProvider="true" />
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="@string/pref_image_classifier">
+        <SwitchPreferenceCompat
+            android:key="image_classifier_enabled"
+            android:title="@string/pref_enabled"
+            android:defaultValue="false" />
+        <ListPreference
+            android:key="image_classifier_action"
+            android:title="@string/pref_action"
+            android:entries="@array/image_action_labels"
+            android:entryValues="@array/image_action_values"
+            android:defaultValue="blur"
+            app:useSimpleSummaryProvider="true" />
+        <EditTextPreference
+            android:key="image_classifier_threshold"
+            android:title="@string/pref_threshold"
+            android:defaultValue="0.4"
+            app:useSimpleSummaryProvider="true" />
+        <EditTextPreference
+            android:key="image_classifier_min_dimension"
+            android:title="@string/pref_min_dimension"
+            android:defaultValue="100"
+            app:useSimpleSummaryProvider="true" />
+    </PreferenceCategory>
+</PreferenceScreen>

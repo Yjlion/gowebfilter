@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="filter_mode_labels">
+        <item>Blacklist (block listed)</item>
+        <item>Whitelist (allow only listed)</item>
+    </string-array>
+    <string-array name="filter_mode_values">
+        <item>blacklist</item>
+        <item>whitelist</item>
+    </string-array>
+
+    <string-array name="image_action_labels">
+        <item>Blur</item>
+        <item>Block</item>
+        <item>Checkerboard</item>
+    </string-array>
+    <string-array name="image_action_values">
+        <item>blur</item>
+        <item>block</item>
+        <item>checkerboard</item>
+    </string-array>
+</resources>

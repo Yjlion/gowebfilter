@@ -68,21 +68,32 @@ Request/block/audit logs go to SQLite at `logs/webfilter.db`.
   hook sets `fc.Response`; only the upstream fetch is skipped. Also holds
   `LoadTextScorer`/`LoadImageDetector`, `EnsureTunSocksListener`, and
   `ServeMgmt`. **Edit the pipeline order here, not per front-end.**
-- `mobile/` — gomobile-bound Android entry point. Exports a tiny API surface
+- `mobile/` — gomobile-bound Android entry point. Exports a small API surface
   (`Start(dataDir, tunFd)`, `Stop`, `IsRunning`, `Status`, `MgmtUrl`,
-  `ReloadPolicies`, `CaCertPem`) and drives `xjasonlyu/tun2socks` directly from
+  `ReloadPolicies`, `CaCertPem`, plus the JSON-string settings/policy
+  accessors for the native settings UI and MDM path in `settingsapi.go` /
+  `managed.go`: `GetSettingsJson`, `UpdateSettingsJson`, `GetPolicyJson`,
+  `UpdatePolicyJson`, `GetManagedStateJson`, `ApplyManagedConfigJson`) and
+  drives `xjasonlyu/tun2socks` directly from
   the VpnService `fd://` descriptor — **not** via `internal/tun2socks.Manager`
   (root/`ip`-gated). The TUN-capture file is `tun_capture.go`
   (`//go:build android || linux`), deliberately **not** named `*_android.go`:
   a GOOS filename suffix ANDs with the build tag and would exclude it on a
   Linux desktop, breaking `go test ./mobile`. Build:
   `gomobile bind -target=android/arm64,android/arm -androidapi 26 -o android/app/libs/webfilter.aar ./mobile`.
-- `android/` — Kotlin/Gradle app scaffold (VpnService, WebView mgmt UI, per-app
-  filtering, CA install flow). See `android/README.md` for local build steps;
+- `android/` — Kotlin/Gradle app scaffold (VpnService, WebView mgmt UI, native
+  settings screens backed by the `mobile/` JSON API, per-app filtering with
+  app icons, MDM managed configurations via `app_restrictions.xml` +
+  `ManagedConfig.kt`, CA install flow). See `android/README.md` for local
+  build steps and the TestDPC verification recipe;
   the AAR is a build artifact (gitignored). The debug APK can also be built on
   demand by the **manual** `.github/workflows/android.yml` workflow
   (`workflow_dispatch` only — Actions tab → "Android APK" → Run workflow;
   artifacts: APK + AAR).
+- `internal/settingsvc/` — settings/policy merge + validation shared by
+  `PUT /api/settings` and the `mobile/` native path (they must behave
+  byte-identically), plus the managed-config apply logic
+  (`ApplyManagedConfig`).
 - `firefox-extension/` — standalone MV3 Firefox WebExtension (plan doc
   Deliverable 2): reproduces the filters with browser APIs + client-side ML —
   no proxy, no CA, plain JS with no build step. SafeSearch/URL/DoH via
@@ -180,6 +191,28 @@ Request/block/audit logs go to SQLite at `logs/webfilter.db`.
 - **Settings changes need a restart; policy changes hot-reload.** Matches
   the Python original — don't expect a `PUT /api/settings` to take effect
   without restarting `webfilter run`.
+- **Never unmarshal a *partial* policy body over an existing policy.** Every
+  sub-config's `UnmarshalJSON` resets the whole sub-config to defaults
+  before overlaying the input, so `{"text_classifier":{"enabled":true}}`
+  silently wipes a custom threshold back to 0.80. Merge at the raw-JSON
+  level first (`settingsvc.MergePolicyPatch`) or write full documents
+  (what `PUT /api/policies/{name}` and `mobile.UpdatePolicyJson` do).
+- **The MDM lock lives in `config/managed.json`, not settings.json.** It is
+  written only by `settingsvc.ApplyManagedConfig` (Android managed
+  configurations) and re-read per request by `mgmtapi`'s `requireUnlocked`
+  middleware (403 on settings/policy/cert-import mutations) and the
+  `mobile.Update*Json` functions. Desktop never writes it; missing file =
+  unlocked. New mutating mgmt routes must take the middleware —
+  `TestMutatingRoutesAreLockGated` fails otherwise. The applied restrictions
+  doc is hashed so identical re-applies are no-ops (otherwise the
+  `mgmt_password` restriction would re-scrypt and rewrite settings.json on
+  every app start).
+- **Android restriction bundles have no float type.** Thresholds travel as
+  string restrictions ("0.8"); the models' `decodeJSONFloat`/`decodeJSONInt`
+  already accept string-typed numbers — keep it that way. The restriction
+  keys in `android/.../res/xml/app_restrictions.xml` and the preference keys
+  in `PreferenceDataStores.kt` are the same identifiers by design; keep the
+  two (and `ManagedConfig.buildDocFromBundle`) in sync.
 - **Both classifiers are opt-in per policy and need zero setup.**
   `text_classifier.enabled` / `image_classifier.enabled` (both default
   off — NSFW false positives have real cost) are the only switches; there

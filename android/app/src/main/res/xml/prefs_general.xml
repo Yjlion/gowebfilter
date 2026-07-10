@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <SwitchPreferenceCompat
+        android:key="log_blocks"
+        android:title="@string/pref_log_blocks"
+        android:defaultValue="true" />
+
+    <SwitchPreferenceCompat
+        android:key="log_requests"
+        android:title="@string/pref_log_requests"
+        android:defaultValue="true" />
+
+    <EditTextPreference
+        android:key="log_retention_days"
+        android:title="@string/pref_log_retention"
+        android:defaultValue="30"
+        app:useSimpleSummaryProvider="true" />
+
+    <EditTextPreference
+        android:key="ui_language"
+        android:title="@string/pref_ui_language"
+        android:defaultValue="en"
+        app:useSimpleSummaryProvider="true" />
+
+    <!-- Read-only engine status; summaries filled in code from Mobile.status(). -->
+    <Preference
+        android:key="info_mgmt_url"
+        android:title="@string/pref_info_mgmt_url"
+        android:selectable="false"
+        android:persistent="false" />
+
+    <Preference
+        android:key="info_listeners"
+        android:title="@string/pref_info_listeners"
+        android:selectable="false"
+        android:persistent="false" />
+</PreferenceScreen>

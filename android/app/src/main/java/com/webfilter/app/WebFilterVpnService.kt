@@ -56,6 +56,12 @@ class WebFilterVpnService : VpnService() {
             return
         }
 
+        // Apply any pending MDM managed configuration before the engine
+        // boots (idempotent no-op when nothing changed). Combined with the
+        // self-bootstrapping apply path on the Go side, a managed device
+        // never runs its first session on unmanaged defaults.
+        ManagedConfig.applyRestrictions(this)
+
         val builder = Builder()
             .setSession(getString(R.string.app_name))
             .setMtu(TUN_MTU)
