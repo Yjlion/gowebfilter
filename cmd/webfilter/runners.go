@@ -50,19 +50,29 @@ func runMgmt(ctx context.Context, settingsPath string) error {
 // *cobra.Command) so the Windows service handler can drive it directly,
 // cancelling ctx when the SCM delivers a stop/shutdown control.
 func runProxyAndMgmt(ctx context.Context, settingsPath string) error {
+	mgmtSrv, err := mgmtapi.NewServer(settingsPath)
+	if err != nil {
+		return fmt.Errorf("start management server: %w", err)
+	}
+	return runProxyAndMgmtWith(ctx, settingsPath, mgmtSrv)
+}
+
+// runProxyAndMgmtWith is runProxyAndMgmt with a caller-constructed management
+// server: the `gui` command needs the *mgmtapi.Server before serving starts
+// (to mint its loopback session cookie via SessionCookie), so it builds the
+// server itself and hands it in. Takes ownership of mgmtSrv, including
+// closing its log store.
+func runProxyAndMgmtWith(ctx context.Context, settingsPath string, mgmtSrv *mgmtapi.Server) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	eng, rt, err := app.BuildProxyEngine(settingsPath)
 	if err != nil {
+		mgmtSrv.Logs.Close()
 		return fmt.Errorf("start proxy engine: %w", err)
 	}
 	defer rt.Logs.Close()
 
-	mgmtSrv, err := mgmtapi.NewServer(settingsPath)
-	if err != nil {
-		return fmt.Errorf("start management server: %w", err)
-	}
 	defer mgmtSrv.Logs.Close()
 	mgmtSrv.OnCARotated = rt.LeafIssuer.Clear
 

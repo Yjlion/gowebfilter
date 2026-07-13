@@ -16,7 +16,7 @@ expected verification commands after changes.
 
 ## Architecture
 
-- One binary: `webfilter run|proxy|mgmt|categories update|oui update|version`.
+- One binary: `webfilter run|proxy|mgmt|tray|gui|categories update|oui update|version`.
 - `run` starts the proxy engine and management server together; `proxy` and
   `mgmt` remain available for process isolation.
 - `proxy_listen` supports both `regular@host:port` and `socks5@host:port`.
@@ -32,6 +32,50 @@ expected verification commands after changes.
 - The management UI is served from embedded `ui/` files. Do not switch it
   back to `http.FileServer`/`FileServerFS`; that caused an index redirect
   loop.
+- **Native desktop GUI** (`webfilter gui`, `cmd/webfilter/internal/gui/`,
+  github.com/gogpu/ui — pure Go, WebGPU, keeps `CGO_ENABLED=0`): dashboard,
+  policy editor, log viewer, and settings; everything else defers to an
+  "Open Web UI" button. Deliberate decisions, in case someone is tempted to
+  revisit them:
+  - **It is an HTTP client of the mgmt API, always** — even when it
+    self-hosts the engine in-process (which it does, tray-style, when the
+    mgmt port is free). Typed in-process writes were rejected because they
+    would be a third copy of the write-coherence rules (after mgmtapi and
+    mobile/) and would break when a separate process owns the engine.
+    Self-host mode authenticates by seeding the client with
+    `mgmtapi.Server.SessionCookie()` instead of prompting the local owner.
+  - **No build tags.** The toolkit compiles into every target (~19 MB
+    binary growth); headless Linux is unaffected because only the `gui`
+    command touches a display. A `noui` tag split was considered and
+    rejected for CI-matrix cost.
+  - The GUI package lives under `cmd/webfilter/internal/` specifically so
+    `GOOS=android go build ./mobile ./internal/...` never compiles gogpu.
+  - gogpu/ui is v0.x and young; the widget layer is deliberately thin over
+    the headless, tested `uimodel`/`mgmtclient` packages so API churn stays
+    contained. Real-world text-input/IME quality is unproven — if it
+    disappoints, free-text editing degrades to the web UI.
+  - Closing the window exits the process, stopping a self-hosted engine
+    (the header says which mode you're in); the tray's "Open Native UI"
+    item spawns `gui` as a separate process, which attaches and can be
+    closed freely.
+  - **Rendering drives gogpu directly (`gui.runRenderLoop`), not
+    `desktop.Run`.** gogpu/ui v0.1.44's compositor was unusable here on two
+    counts, both found by rendering the window to PNG and inspecting it:
+    it double-applied the DPI scale (2.25×, cropped on a 150% display) and
+    its per-boundary GPU textures never cleared, so a previous tab's content
+    bled through on tab switch. The custom loop clears the whole gg canvas
+    every frame and applies the DPI scale exactly once (`cc.Scale` on a
+    physical-pixel canvas; gg's own `WithDeviceScale>1` scales twice in
+    v0.50.5) — the same stateless full-repaint the `offscreen` snapshot
+    renderer uses. Hard-won gotchas along the way (all in CLAUDE.md): call
+    `HandleResize` only on real size change (every-frame pegs a CPU core via
+    the 30fps anim pumper); avoid `core/listview` (renders blank in this loop)
+    and `core/scrollview` (self-invalidates ~100fps when overflowing) in favor
+    of the tiny `gui.scrollBox`; and `redraw()`/`onTabSelected` must mark the
+    root needs-layout so async data and tab switches re-lay-out. Verify layout
+    changes with the headless `offscreen` snapshot test
+    (`GUI_SNAPSHOT_DIR=<dir> go test ./cmd/webfilter/internal/gui -run TestRenderSnapshots`)
+    and idle CPU by watching the process after data loads (should be ~0%).
 
 ## Proxy Pipeline
 

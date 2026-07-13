@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net"
+	"os"
 	"os/exec"
 	"runtime"
 	"time"
@@ -43,6 +44,10 @@ func runTray(settingsPath string) error {
 	tray := systray.New()
 	menu := systray.NewMenu()
 	menu.Add("Open Management UI", func() { _ = openTarget(mgmtURL) })
+	// The native UI runs as a separate process so closing its window never
+	// takes down the tray-hosted engine; it finds the tray's mgmt port
+	// reachable and attaches over loopback HTTP.
+	menu.Add("Open Native UI", func() { _ = launchSelf("gui", "--settings", settingsPath) })
 
 	// If nothing is already listening on the mgmt port - no Windows service
 	// running, no separately-started `webfilter run`/`mgmt` - "Open
@@ -90,6 +95,16 @@ func loopbackHost(host string) string {
 	default:
 		return host
 	}
+}
+
+// launchSelf spawns this same binary with the given arguments, detached -
+// used by the tray to open the native GUI as an independent process.
+func launchSelf(args ...string) error {
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	return exec.Command(exe, args...).Start()
 }
 
 func openTarget(target string) error {

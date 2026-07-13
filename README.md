@@ -28,6 +28,10 @@ aimed at replacing a Python + mitmproxy runtime with one static executable.
   classifier, and a pure-Go embedded NSFW image classifier.
 - **Management UI**: policy editor, live logs/analytics, PAC file
   generation, neighbor/ARP scanning, and category list management.
+- **Native desktop UI**: `webfilter gui` opens a native window
+  (github.com/gogpu/ui — pure Go, GPU-rendered, still no CGO) covering the
+  dashboard, policies, logs, and settings, with the web UI one click away
+  for everything else.
 - **Single binary**: no Python runtime, virtualenv, native ML runtime, or
   sidecar DLL to bundle; cross-compiles for Windows and Linux
   (x86_64/arm64) with `CGO_ENABLED=0`.
@@ -52,6 +56,14 @@ client's trust store to avoid TLS warnings once MITM starts intercepting.
 `run` starts both the proxy engine and the management server in one
 process. `webfilter proxy` and `webfilter mgmt` run them standalone if you
 want process isolation.
+
+`webfilter gui` opens the native desktop window instead: if nothing is
+serving the management port it hosts the proxy + management server itself
+(closing the window then stops filtering); if a server is already running
+(`run`, the tray, or a service) it attaches to it and closing the window
+changes nothing. Headless servers are unaffected — the GUI toolkit is
+compiled in but only touches a display when you actually run `gui` (on
+Linux that command needs X11/Wayland at runtime; building does not).
 
 ## Building and testing
 

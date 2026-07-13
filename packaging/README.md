@@ -114,6 +114,17 @@ webfilter.exe tray --settings C:\path\to\config\settings.json
 
 Service/headless operation does not depend on the tray either way.
 
+## Native desktop GUI
+
+`webfilter gui` opens a native management window (dashboard, policies,
+logs, settings). Like the tray, it self-hosts the proxy + management server
+when nothing is listening on the management port, and attaches to an
+existing service/`run` otherwise — closing the window only stops a
+self-hosted engine. Headless deployments are unaffected: the GUI toolkit is
+compiled into every binary (it grows the binary by roughly 19 MB) but a
+display (X11/Wayland on Linux) is only needed when the `gui` command is
+actually run.
+
 ## TUN / tun2socks capture
 
 TUN capture is configured in the management UI under Settings ->
