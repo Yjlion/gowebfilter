@@ -58,20 +58,24 @@ expected verification commands after changes.
     (the header says which mode you're in); the tray's "Open Native UI"
     item spawns `gui` as a separate process, which attaches and can be
     closed freely.
-  - **Rendering uses the supported `desktop.Run` path**, but with two
-    workarounds for gogpu v0.1.44/v0.44.6 on HiDPI Windows, found by
-    rendering the window to PNG and inspecting it (both are also captured as
-    CLAUDE.md gotchas): (a) the widget layer is told the DPI scale is 1.0
-    (`gui.scaleNeutralWindow`) so the scale is applied once by the gg canvas
-    rather than twice (compositor boundary textures × gg) — the double-scale
-    drew the UI at 2.25× and cropped it on a 150% display; (b) `redraw()`
-    forces a root relayout because the demand-driven `Frame()` only lays out
-    on `needsLayout`, which `listview.InvalidateData()` doesn't set, so
-    async-loaded rows never appeared. An earlier hand-rolled `OnDraw`/`DrawTo`
-    loop fixed the scale but hit surface-present errors and a virtualized-
-    listview origin bug; `desktop.Run` handles both correctly, so it won.
-    Verify layout changes with the headless `offscreen` snapshot test
-    (`GUI_SNAPSHOT_DIR=<dir> go test ./cmd/webfilter/internal/gui -run TestRenderSnapshots`).
+  - **Rendering drives gogpu directly (`gui.runRenderLoop`), not
+    `desktop.Run`.** gogpu/ui v0.1.44's compositor was unusable here on two
+    counts, both found by rendering the window to PNG and inspecting it:
+    it double-applied the DPI scale (2.25×, cropped on a 150% display) and
+    its per-boundary GPU textures never cleared, so a previous tab's content
+    bled through on tab switch. The custom loop clears the whole gg canvas
+    every frame and applies the DPI scale exactly once (`cc.Scale` on a
+    physical-pixel canvas; gg's own `WithDeviceScale>1` scales twice in
+    v0.50.5) — the same stateless full-repaint the `offscreen` snapshot
+    renderer uses. Hard-won gotchas along the way (all in CLAUDE.md): call
+    `HandleResize` only on real size change (every-frame pegs a CPU core via
+    the 30fps anim pumper); avoid `core/listview` (renders blank in this loop)
+    and `core/scrollview` (self-invalidates ~100fps when overflowing) in favor
+    of the tiny `gui.scrollBox`; and `redraw()`/`onTabSelected` must mark the
+    root needs-layout so async data and tab switches re-lay-out. Verify layout
+    changes with the headless `offscreen` snapshot test
+    (`GUI_SNAPSHOT_DIR=<dir> go test ./cmd/webfilter/internal/gui -run TestRenderSnapshots`)
+    and idle CPU by watching the process after data loads (should be ~0%).
 
 ## Proxy Pipeline
 

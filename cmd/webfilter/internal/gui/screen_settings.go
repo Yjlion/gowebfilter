@@ -5,7 +5,6 @@ import (
 
 	"github.com/gogpu/ui/core/checkbox"
 	"github.com/gogpu/ui/core/collapsible"
-	"github.com/gogpu/ui/core/scrollview"
 	"github.com/gogpu/ui/core/textfield"
 	"github.com/gogpu/ui/primitives"
 	"github.com/gogpu/ui/state"
@@ -268,5 +267,5 @@ func (s *settingsScreen) build() widget.Widget {
 		fieldLabel("Certificates, categories, analytics, backup and tools live in the Web UI."),
 	).Padding(16).Gap(8).MaxWidthValue(760)
 
-	return scrollview.New(form)
+	return newScrollBox(form)
 }

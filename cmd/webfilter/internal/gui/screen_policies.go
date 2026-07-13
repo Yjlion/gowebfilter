@@ -8,11 +8,10 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/gogpu/ui/core/button"
 	"github.com/gogpu/ui/core/checkbox"
 	"github.com/gogpu/ui/core/dialog"
 	"github.com/gogpu/ui/core/dropdown"
-	"github.com/gogpu/ui/core/listview"
-	"github.com/gogpu/ui/core/scrollview"
 	"github.com/gogpu/ui/core/slider"
 	"github.com/gogpu/ui/core/textfield"
 	"github.com/gogpu/ui/primitives"
@@ -35,7 +34,7 @@ type policiesScreen struct {
 	// wait for the async open() to land.
 	editorGen atomic.Int32
 
-	listLV     *listview.Widget
+	listSwap   *swapWidget
 	editorSwap *swapWidget
 	listErr    state.Signal[string]
 	newName    state.Signal[string]
@@ -76,25 +75,36 @@ func (s *policiesScreen) refresh() {
 	s.mu.Lock()
 	s.policies = list
 	s.mu.Unlock()
-	if s.listLV != nil {
-		s.listLV.InvalidateData()
-	}
+	s.rebuildList()
 	s.u.redraw()
 }
 
-func (s *policiesScreen) count() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return len(s.policies)
-}
-
-func (s *policiesScreen) at(i int) (models.Policy, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if i < 0 || i >= len(s.policies) {
-		return models.Policy{}, false
+// rebuildList renders the policy list as clickable rows (one button each);
+// clicking opens that policy in the editor.
+func (s *policiesScreen) rebuildList() {
+	if s.listSwap == nil {
+		return
 	}
-	return s.policies[i], true
+	s.mu.Lock()
+	list := append([]models.Policy(nil), s.policies...)
+	s.mu.Unlock()
+
+	rows := make([]widget.Widget, 0, len(list))
+	for _, p := range list {
+		p := p
+		label := p.Name
+		if chips := uimodel.PolicyChips(p); chips != "" {
+			label += "  [" + chips + "]"
+		}
+		label += "  —  " + uimodel.PolicySourceSummary(p)
+		rows = append(rows, button.New(
+			button.TextOpt(label),
+			button.VariantOpt(button.TextOnly),
+			button.OnClick(func() { s.open(p.Name) }),
+			button.PainterOpt(material3.ButtonPainter{Theme: s.u.m3}),
+		))
+	}
+	s.listSwap.SetChild(scrollList(rows))
 }
 
 // open fetches the policy fresh (list entries may be stale) and mounts the
@@ -116,31 +126,7 @@ func (s *policiesScreen) open(name string) {
 }
 
 func (s *policiesScreen) build() widget.Widget {
-	s.listLV = listview.New(
-		listview.ItemCountFn(s.count),
-		listview.FixedItemHeight(48),
-		listview.SelectionModeOpt(listview.SelectionSingle),
-		listview.OnItemClick(func(idx int) {
-			if p, ok := s.at(idx); ok {
-				s.open(p.Name)
-			}
-		}),
-		listview.BuildItem(func(ctx listview.ItemContext) widget.Widget {
-			p, ok := s.at(ctx.Index)
-			if !ok {
-				return primitives.Box()
-			}
-			title := p.Name
-			if chips := uimodel.PolicyChips(p); chips != "" {
-				title += "  [" + chips + "]"
-			}
-			return primitives.VBox(
-				primitives.Text(title).FontSize(14).Bold(),
-				primitives.Text(uimodel.PolicySourceSummary(p)).FontSize(12).Color(widget.RGBA8(90, 90, 100, 255)),
-			).PaddingXY(10, 6).Gap(2)
-		}),
-		listview.PainterOpt(material3.ListViewPainter{Theme: s.u.m3}),
-	)
+	s.listSwap = newSwap(scrollList(nil))
 
 	s.newDialog = dialog.New(
 		dialog.Title("New policy"),
@@ -170,7 +156,7 @@ func (s *policiesScreen) build() widget.Widget {
 			s.u.btnOutlined("Reload", func() { go s.refresh() }),
 		).Gap(8),
 		errorText(s.listErr.Get),
-		primitives.Expanded(s.listLV),
+		primitives.Expanded(s.listSwap),
 	).Gap(8).MaxWidthValue(300).MinWidthValue(240)
 
 	s.editorSwap = newSwap(primitives.Box(
@@ -435,7 +421,7 @@ func (s *policiesScreen) buildEditor(p models.Policy) widget.Widget {
 	form := append(header, rest...)
 	form = append(form, primitives.HBox(actions...).Gap(8).CrossAlign(primitives.CrossAxisCenter))
 
-	return scrollview.New(
+	return newScrollBox(
 		primitives.VBox(form...).Padding(16).Gap(8).MaxWidthValue(760),
 	)
 }

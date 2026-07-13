@@ -154,15 +154,20 @@ for local dev. They persist to disk; the mgmt API's
   option names against the module cache on upgrades (they diverge from the
   docs' examples, e.g. `primitives.CrossAxisCenter`,
   `textfield.TypePassword`) and re-run `webfilter gui` manually.
-- HiDPI correctness relies on three non-obvious choices; don't regress them:
-  (1) `gui.scaleNeutralWindow` reports `ScaleFactor()`=1.0 to the widget
-  layer so the DPI scale is applied once (by the gg canvas), not twice (a
-  2.25x-oversized, cropped UI on a 150% display otherwise); (2) the gg GPU
-  accelerator (`_ "github.com/gogpu/gg/gpu"`) is imported by
-  `cmd/webfilter/cmd_gui.go`, NOT the `gui` package, or the package's
-  `offscreen` snapshot test renders blank; (3) `gui.redraw()` marks the root
-  needs-layout so async data (listview rows, etc.) re-lays-out under the
-  demand-driven Frame loop.
+- The GUI drives its own render loop (`gui.runRenderLoop`), not
+  `desktop.Run`, because v0.1.44's compositor double-applies the DPI scale
+  (2.25x/cropped on a 150% display) and never clears (old-tab bleed-through).
+  Several non-obvious rules keep it correct/efficient; don't regress them:
+  (1) clear the whole gg canvas every frame and apply the DPI scale exactly
+  once via `cc.Scale` on a physical-pixel `ggcanvas.NewWithScale(..., 1.0)`
+  canvas; (2) call `Window().HandleResize` ONLY when the size changed — every
+  frame keeps the 30fps anim pumper alive and pegs a CPU core idle; (3) lists
+  use `gui.scrollBox` (plain clip+translate), never `core/listview` (renders
+  blank in this loop) or `core/scrollview` (self-invalidates ~100fps once
+  overflowing); (4) the gg GPU accelerator (`_ "github.com/gogpu/gg/gpu"`) is
+  imported by `cmd/webfilter/cmd_gui.go`, NOT the `gui` package, or the
+  `offscreen` snapshot test renders blank; (5) `gui.redraw()`/`onTabSelected`
+  mark the root needs-layout so async data and tab switches re-lay-out.
 - Snapshot-test the four screens headlessly with
   `GUI_SNAPSHOT_DIR=<dir> go test ./cmd/webfilter/internal/gui -run TestRenderSnapshots`
   (writes dashboard/policies/logs/settings PNGs; skipped without the env).

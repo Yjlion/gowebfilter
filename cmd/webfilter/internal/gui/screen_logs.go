@@ -2,10 +2,8 @@ package gui
 
 import (
 	"strconv"
-	"sync"
 
 	"github.com/gogpu/ui/core/dropdown"
-	"github.com/gogpu/ui/core/listview"
 	"github.com/gogpu/ui/core/textfield"
 	"github.com/gogpu/ui/primitives"
 	"github.com/gogpu/ui/state"
@@ -28,10 +26,7 @@ type logsScreen struct {
 	paused  state.Signal[bool]
 	fetchEr state.Signal[string]
 
-	mu      sync.Mutex
-	visible []uimodel.LogRow
-
-	lv *listview.Widget
+	listSwap *swapWidget
 }
 
 func newLogsScreen(u *ui) *logsScreen {
@@ -64,50 +59,24 @@ func (s *logsScreen) poll() {
 	}
 }
 
-// updateVisible recomputes the filtered rows and refreshes the list.
+// updateVisible recomputes the filtered rows and rebuilds the list.
 func (s *logsScreen) updateVisible() {
 	filter := s.filter.Get()
 	rows := s.poller.Rows()
-	out := make([]uimodel.LogRow, 0, len(rows))
+	items := make([]widget.Widget, 0, len(rows))
 	for _, r := range rows {
 		if r.MatchesFilter(filter) {
-			out = append(out, r)
+			items = append(items, logRowWidget(r.Time, r.Client, r.Action, r.Target, r.Detail))
 		}
 	}
-	s.mu.Lock()
-	s.visible = out
-	s.mu.Unlock()
-	if s.lv != nil {
-		s.lv.InvalidateData()
+	if s.listSwap != nil {
+		s.listSwap.SetChild(scrollList(items))
 	}
 	s.u.redraw()
 }
 
-func (s *logsScreen) rowCount() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return len(s.visible)
-}
-
-func (s *logsScreen) row(i int) uimodel.LogRow {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if i < 0 || i >= len(s.visible) {
-		return uimodel.LogRow{}
-	}
-	return s.visible[i]
-}
-
 func (s *logsScreen) build() widget.Widget {
-	s.lv = listview.New(
-		listview.ItemCountFn(s.rowCount),
-		listview.FixedItemHeight(24),
-		listview.BuildItem(func(ctx listview.ItemContext) widget.Widget {
-			r := s.row(ctx.Index)
-			return logRowWidget(r.Time, r.Client, r.Action, r.Target, r.Detail)
-		}),
-		listview.PainterOpt(material3.ListViewPainter{Theme: s.u.m3}),
-	)
+	s.listSwap = newSwap(scrollList(nil))
 
 	limitLabels := make([]string, len(logLimits))
 	for i, n := range logLimits {
@@ -165,6 +134,6 @@ func (s *logsScreen) build() widget.Widget {
 	return primitives.VBox(
 		controls,
 		errorText(s.fetchEr.Get),
-		primitives.Expanded(s.lv),
+		primitives.Expanded(s.listSwap),
 	).Padding(16).Gap(10)
 }

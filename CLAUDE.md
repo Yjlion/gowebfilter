@@ -330,15 +330,30 @@ Request/block/audit logs go to SQLite at `logs/webfilter.db`.
   and re-run `webfilter gui` manually. The widget layer is deliberately thin
   over `uimodel`/`mgmtclient` so an API-churn rewrite doesn't touch tested
   logic.
-- **HiDPI: the GUI reports scale 1.0 to the widget layer, not the real DPI
-  scale.** `gui.scaleNeutralWindow` wraps the gogpu app and overrides
-  `ScaleFactor()` to 1.0; the widget tree then lays out purely in logical
-  coordinates and the one logical→physical scale is applied by the gg canvas
-  (which `desktop.Run` builds from the *real* app provider). Without this the
-  scale is applied twice — once by the compositor's per-boundary textures and
-  again by gg — and on a 150% display every widget lands at 2.25× its logical
-  position, cropping half the UI off-window. Don't "fix" the wrapper to report
-  the true scale.
+- **The GUI drives its own render loop (`gui.runRenderLoop`), NOT
+  `desktop.Run`.** gogpu/ui v0.1.44's `desktop.Run` compositor mis-behaves for
+  this UI: it double-applies the DPI scale (2.25× and cropped on a 150%
+  display) and its per-boundary GPU textures never clear, so a previous tab's
+  content bleeds through on tab switch. Our loop clears the whole gg canvas
+  every frame and applies the DPI scale exactly once (`cc.Scale(scale)` on a
+  physical-pixel canvas created with `ggcanvas.NewWithScale(provider, physW,
+  physH, 1.0)` — gg's own `WithDeviceScale>1` scales twice in v0.50.5). This
+  is the same stateless full-repaint the `offscreen` snapshot renderer uses,
+  which is why those snapshots are always correct.
+- **Only call `Window().HandleResize` when the size actually changed.** It
+  unconditionally sets needsLayout/needsRedraw/needsFullRepaint and marks the
+  whole tree dirty; calling it every frame (to keep the ui window's size in
+  sync, since gogpu never delivers resizes to the EventSource the ui window
+  subscribes to) keeps gogpu/ui's 30fps animation pumper alive forever and
+  pegs a CPU core on an idle window. Gate it on `w != lastW || h != lastH`.
+- **The lists use `gui.scrollBox`, not `core/listview` or `core/scrollview`.**
+  In v0.1.44 `listview` is a virtualized repaint boundary that renders blank
+  (or bleeds a stale texture) in the direct-DrawTo loop, and `core/scrollview`
+  self-invalidates every frame once its content overflows (~100fps, CPU-pegged
+  idle window). `scrollBox` is a plain clip+translate container that only
+  requests a frame on an actual wheel event. Lists are a `VBox` of ordinary
+  row widgets inside it, capped at `maxListRows`; the full history is behind
+  "Open Web UI".
 - **The GUI's gg GPU accelerator is registered by `cmd/webfilter/cmd_gui.go`
   (`_ "github.com/gogpu/gg/gpu"`), NOT by the `gui` package.** That blank
   import swaps gg's software rasterizer for the GPU one process-wide; if the
@@ -347,11 +362,11 @@ Request/block/audit logs go to SQLite at `logs/webfilter.db`.
   would render blank. Keep GPU registration in the command, CPU-only in the
   package.
 - **After async data lands, the GUI's `redraw()` marks the root
-  needs-layout, not just needs-redraw.** gogpu/ui's demand-driven `Frame()`
-  only re-lays-out when `needsLayout` is set, and `listview.InvalidateData()`
-  (etc.) doesn't set it — so a list whose rows arrived from a background fetch
-  would draw its stale/empty layout. Forcing a root relayout on every redraw
-  is cheap for an on-demand management UI; don't drop it.
+  needs-layout, then requests a frame.** gogpu/ui's demand-driven `Frame()`
+  only re-lays-out when `needsLayout` is set, and swapping a list/editor's
+  content (via `swapWidget.SetChild`) or a signal change doesn't set it at the
+  root — so the new content would draw with a stale/empty layout. `onTabSelected`
+  also calls `redraw()` so a switched-to tab lays out the same frame.
 - Local `main` may lag GitHub because fixes land through PRs — fetch
   `origin/main` and reconcile before publishing changes.
 

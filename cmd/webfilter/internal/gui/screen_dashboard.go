@@ -1,11 +1,7 @@
 package gui
 
 import (
-	"sync"
-
-	"github.com/gogpu/ui/core/listview"
 	"github.com/gogpu/ui/primitives"
-	"github.com/gogpu/ui/theme/material3"
 	"github.com/gogpu/ui/widget"
 
 	"github.com/yjlion/gowebfilter/cmd/webfilter/internal/gui/uimodel"
@@ -15,10 +11,7 @@ type dashboardScreen struct {
 	u     *ui
 	model *uimodel.StatusModel
 
-	mu        sync.Mutex
-	blockRows []uimodel.LogRow
-
-	blocksLV *listview.Widget
+	listSwap *swapWidget
 }
 
 func newDashboardScreen(u *ui) *dashboardScreen {
@@ -36,41 +29,24 @@ func (d *dashboardScreen) refresh() {
 		return
 	}
 	d.model.Set(st)
-	rows := d.model.RecentBlockRows()
-	d.mu.Lock()
-	d.blockRows = rows
-	d.mu.Unlock()
-	if d.blocksLV != nil {
-		d.blocksLV.InvalidateData()
-	}
+	d.rebuildList()
 	d.u.redraw()
 }
 
-func (d *dashboardScreen) rowCount() int {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	return len(d.blockRows)
-}
-
-func (d *dashboardScreen) row(i int) uimodel.LogRow {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	if i < 0 || i >= len(d.blockRows) {
-		return uimodel.LogRow{}
+func (d *dashboardScreen) rebuildList() {
+	if d.listSwap == nil {
+		return
 	}
-	return d.blockRows[i]
+	rows := d.model.RecentBlockRows()
+	items := make([]widget.Widget, 0, len(rows))
+	for _, r := range rows {
+		items = append(items, logRowWidget(r.Time, r.Client, r.Action, r.Target, r.Detail))
+	}
+	d.listSwap.SetChild(scrollList(items))
 }
 
 func (d *dashboardScreen) build() widget.Widget {
-	d.blocksLV = listview.New(
-		listview.ItemCountFn(d.rowCount),
-		listview.FixedItemHeight(24),
-		listview.BuildItem(func(ctx listview.ItemContext) widget.Widget {
-			r := d.row(ctx.Index)
-			return logRowWidget(r.Time, r.Client, r.Action, r.Target, r.Detail)
-		}),
-		listview.PainterOpt(material3.ListViewPainter{Theme: d.u.m3}),
-	)
+	d.listSwap = newSwap(scrollList(nil))
 
 	buttons := []widget.Widget{
 		d.u.btn("Open Web UI", func() { _ = d.u.opts.OpenBrowser(d.u.opts.MgmtURL) }),
@@ -111,6 +87,6 @@ func (d *dashboardScreen) build() widget.Widget {
 		errorText(d.model.ErrorLabel),
 		primitives.HBox(buttons...).Gap(8),
 		sectionTitle("Recent blocks"),
-		primitives.Expanded(d.blocksLV),
+		primitives.Expanded(d.listSwap),
 	).Padding(16).Gap(10)
 }
