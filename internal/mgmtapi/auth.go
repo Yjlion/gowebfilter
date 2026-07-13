@@ -30,6 +30,17 @@ func sessionToken(secretKey, passwordHash string) string {
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
+// SessionCookie returns the session cookie name and the current valid token
+// value, letting a trusted same-process front-end (the native desktop GUI in
+// self-host mode) authenticate its loopback HTTP client without prompting the
+// local owner for their own password. The value is the same deterministic
+// token handleLogin would set; it becomes invalid when the password changes,
+// exactly like a browser session.
+func (s *Server) SessionCookie() (name, value string) {
+	cfg := s.Settings()
+	return sessionCookieName, sessionToken(cfg.SecretKey, cfg.PasswordHash)
+}
+
 func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"version": version.Version})
 }

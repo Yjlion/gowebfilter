@@ -45,8 +45,10 @@ go build -o webfilter ./cmd/webfilter             # (webfilter.exe on Windows)
 CLI commands: `run` (proxy + mgmt together), `proxy` / `mgmt` (standalone
 for process isolation), `tray` (desktop system-tray controller — self-hosts
 the proxy+mgmt server if nothing is already listening on the mgmt port),
-`service` (Windows service management), `categories update`, `oui update`,
-`version`.
+`gui` (native desktop management window, gogpu/ui — same self-host-or-attach
+decision as `tray`; closing the window stops a self-hosted engine but never
+an attached one), `service` (Windows service management),
+`categories update`, `oui update`, `version`.
 
 `config/settings.json` and `policies/*.json` are gitignored runtime state —
 first start bootstraps them from `config/settings.example.json` /
@@ -59,6 +61,17 @@ Request/block/audit logs go to SQLite at `logs/webfilter.db`.
 - `cmd/webfilter/` — cobra CLI; `runners.go` delegates engine construction to
   `internal/app`. The desktop-only tun2socks manager (`runEngineWithTun`)
   stays here because it is root/`ip`-gated and OS-coupled.
+- `cmd/webfilter/internal/gui/` — native desktop management UI
+  (github.com/gogpu/ui, pure Go/WebGPU, still CGO_ENABLED=0). Lives under
+  `cmd/`, **not** top-level `internal/`, so the Android sweep
+  (`GOOS=android go build ./mobile ./internal/...`) never compiles the gogpu
+  windowing stack. Sub-packages `mgmtclient/` (typed loopback HTTP client)
+  and `uimodel/` (headless form/poll view-models) import no gogpu packages
+  and carry the tests; the widget files (`gui.go`, `screen_*.go`) are thin
+  over them. Covers dashboard/policies/logs/settings; everything else defers
+  to the "Open Web UI" button. No build tags — headless Linux just never
+  runs `webfilter gui` (an X11/Wayland display is a runtime need of that one
+  command, not a build dependency).
 - `internal/app/` — **single-sources the engine wiring** shared by the CLI and
   the Android `mobile/` package. `BuildProxyEngine` wires the addon pipeline in
   a **fixed order** that matters (mirrors the Python original):
@@ -301,6 +314,44 @@ Request/block/audit logs go to SQLite at `logs/webfilter.db`.
   you change `internal/classify/textbayes/model_data.json` or the scorer, the
   extension's generated `bayes_model.js`/`bayes_vectors.json` must be
   regenerated or the parity contract silently rots.
+- **The native desktop GUI is an HTTP client of the mgmt API even when it
+  self-hosts the engine in-process.** All reads/writes go through
+  `cmd/webfilter/internal/gui/mgmtclient` to loopback HTTP — never directly
+  to disk or `logstore` — so the MDM lock, audit log, validation, and policy
+  hot-reload apply exactly once, server-side. Don't "optimize" it into a
+  third direct-write path (after mgmtapi and mobile/), and don't open a
+  second SQLite handle for its log viewer. Self-host auth uses
+  `mgmtapi.Server.SessionCookie()` (deterministic token, invalidated by a
+  password change); the supervisor re-seeds it after every engine restart.
+- **gogpu/ui is pinned at v0.x and its API churns between minors.** Treat
+  `github.com/gogpu/{ui,gogpu,gg}` upgrades as deliberate changes: re-verify
+  the widget option names against the module cache (several differ from the
+  docs' examples — e.g. `primitives.CrossAxisCenter`, `textfield.TypePassword`)
+  and re-run `webfilter gui` manually. The widget layer is deliberately thin
+  over `uimodel`/`mgmtclient` so an API-churn rewrite doesn't touch tested
+  logic.
+- **HiDPI: the GUI reports scale 1.0 to the widget layer, not the real DPI
+  scale.** `gui.scaleNeutralWindow` wraps the gogpu app and overrides
+  `ScaleFactor()` to 1.0; the widget tree then lays out purely in logical
+  coordinates and the one logical→physical scale is applied by the gg canvas
+  (which `desktop.Run` builds from the *real* app provider). Without this the
+  scale is applied twice — once by the compositor's per-boundary textures and
+  again by gg — and on a 150% display every widget lands at 2.25× its logical
+  position, cropping half the UI off-window. Don't "fix" the wrapper to report
+  the true scale.
+- **The GUI's gg GPU accelerator is registered by `cmd/webfilter/cmd_gui.go`
+  (`_ "github.com/gogpu/gg/gpu"`), NOT by the `gui` package.** That blank
+  import swaps gg's software rasterizer for the GPU one process-wide; if the
+  `gui` package imported it, the package's own `offscreen` snapshot test
+  (`snapshot_test.go`, `GUI_SNAPSHOT_DIR=<dir> go test ./cmd/webfilter/internal/gui`)
+  would render blank. Keep GPU registration in the command, CPU-only in the
+  package.
+- **After async data lands, the GUI's `redraw()` marks the root
+  needs-layout, not just needs-redraw.** gogpu/ui's demand-driven `Frame()`
+  only re-lays-out when `needsLayout` is set, and `listview.InvalidateData()`
+  (etc.) doesn't set it — so a list whose rows arrived from a background fetch
+  would draw its stale/empty layout. Forcing a root relayout on every redraw
+  is cheap for an on-demand management UI; don't drop it.
 - Local `main` may lag GitHub because fixes land through PRs — fetch
   `origin/main` and reconcile before publishing changes.
 

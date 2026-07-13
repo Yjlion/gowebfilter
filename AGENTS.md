@@ -37,7 +37,18 @@ for local dev. They persist to disk; the mgmt API's
 
 ## Layout
 
-- `cmd/webfilter/` - cobra CLI (`run`/`proxy`/`mgmt`/`categories update`/`oui update`)
+- `cmd/webfilter/` - cobra CLI (`run`/`proxy`/`mgmt`/`tray`/`gui`/
+  `categories update`/`oui update`)
+- `cmd/webfilter/internal/gui/` - native desktop management UI
+  (github.com/gogpu/ui, pure Go/WebGPU, CGO_ENABLED=0). Deliberately under
+  `cmd/`, not top-level `internal/`, so the Android sweep
+  (`GOOS=android go build ./mobile ./internal/...`) never compiles the gogpu
+  windowing stack. `mgmtclient/` (typed loopback HTTP client) and `uimodel/`
+  (headless view-models) hold the logic and tests; widget files are thin.
+  `webfilter gui` self-hosts the engine when the mgmt port is free (tray
+  pattern) or attaches over HTTP otherwise; closing the window only stops a
+  self-hosted engine. No build tags - headless Linux simply never runs the
+  `gui` command (X11/Wayland is a runtime need of that command only).
 - `internal/app/` - shared engine wiring (`BuildProxyEngine`, classifier loaders,
   `EnsureTunSocksListener`, `ServeMgmt`); the fixed addon pipeline order is
   single-sourced here and reused by both `cmd/webfilter` and `mobile/`
@@ -133,6 +144,28 @@ for local dev. They persist to disk; the mgmt API's
   must seed absolute temp-dir paths for `cert_dir`/`policies_dir`/`logs_dir`.
 - The text classifier has no model path anymore. `text_classifier_model_path`
   is deprecated and ignored for backward-compatible settings round trips.
+- The native desktop GUI is an HTTP client of the mgmt API even when it
+  self-hosts the engine - all reads/writes go through
+  `cmd/webfilter/internal/gui/mgmtclient` to loopback HTTP, never directly
+  to disk or a second SQLite handle. Self-host auth uses
+  `mgmtapi.Server.SessionCookie()`; the supervisor re-seeds it after every
+  engine restart.
+- gogpu/ui is pinned at v0.x with API churn between minors; verify widget
+  option names against the module cache on upgrades (they diverge from the
+  docs' examples, e.g. `primitives.CrossAxisCenter`,
+  `textfield.TypePassword`) and re-run `webfilter gui` manually.
+- HiDPI correctness relies on three non-obvious choices; don't regress them:
+  (1) `gui.scaleNeutralWindow` reports `ScaleFactor()`=1.0 to the widget
+  layer so the DPI scale is applied once (by the gg canvas), not twice (a
+  2.25x-oversized, cropped UI on a 150% display otherwise); (2) the gg GPU
+  accelerator (`_ "github.com/gogpu/gg/gpu"`) is imported by
+  `cmd/webfilter/cmd_gui.go`, NOT the `gui` package, or the package's
+  `offscreen` snapshot test renders blank; (3) `gui.redraw()` marks the root
+  needs-layout so async data (listview rows, etc.) re-lays-out under the
+  demand-driven Frame loop.
+- Snapshot-test the four screens headlessly with
+  `GUI_SNAPSHOT_DIR=<dir> go test ./cmd/webfilter/internal/gui -run TestRenderSnapshots`
+  (writes dashboard/policies/logs/settings PNGs; skipped without the env).
 
 ## Live testing
 

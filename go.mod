@@ -6,26 +6,35 @@ require (
 	github.com/disintegration/imaging v1.6.2
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/go-chi/chi/v5 v5.3.0
+	github.com/gogpu/gg v0.50.5
+	github.com/gogpu/gogpu v0.44.6
 	github.com/gogpu/systray v0.1.1
+	github.com/gogpu/ui v0.1.44
 	github.com/miekg/dns v1.1.72
 	github.com/spf13/cobra v1.10.2
 	github.com/xjasonlyu/tun2socks/v2 v2.6.0
 	golang.org/x/crypto v0.53.0
-	golang.org/x/image v0.42.0
+	golang.org/x/image v0.44.0
 	golang.org/x/net v0.56.0
-	golang.org/x/sys v0.46.0
+	golang.org/x/sys v0.47.0
 	modernc.org/sqlite v1.53.0
 )
 
 require (
 	github.com/ajg/form v1.5.1 // indirect
+	github.com/coregx/signals v0.1.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/go-chi/cors v1.2.1 // indirect
 	github.com/go-chi/render v1.0.3 // indirect
 	github.com/go-gost/relay v0.5.0 // indirect
-	github.com/go-webgpu/goffi v0.5.5 // indirect
+	github.com/go-webgpu/goffi v0.6.0 // indirect
+	github.com/go-webgpu/webgpu v0.5.3 // indirect
 	github.com/godbus/dbus/v5 v5.2.2 // indirect
+	github.com/gogpu/gpucontext v0.21.1 // indirect
+	github.com/gogpu/gputypes v0.5.1 // indirect
+	github.com/gogpu/naga v0.17.15 // indirect
+	github.com/gogpu/wgpu v0.30.19 // indirect
 	github.com/google/btree v1.1.3 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 // indirect
@@ -42,9 +51,10 @@ require (
 	go.uber.org/zap v1.27.0 // indirect
 	golang.org/x/mobile v0.0.0-20260611195102-4dd8f1dbf5d2 // indirect
 	golang.org/x/mod v0.37.0 // indirect
-	golang.org/x/sync v0.21.0 // indirect
+	golang.org/x/sync v0.22.0 // indirect
+	golang.org/x/text v0.40.0 // indirect
 	golang.org/x/time v0.11.0 // indirect
-	golang.org/x/tools v0.46.0 // indirect
+	golang.org/x/tools v0.47.0 // indirect
 	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
 	golang.zx2c4.com/wireguard v0.0.0-20250521234502-f333402bd9cb // indirect
 	gvisor.dev/gvisor v0.0.0-20250523182742-eede7a881b20 // indirect
