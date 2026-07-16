@@ -100,7 +100,14 @@ func (s *scrollBox) Event(ctx widget.Context, ev event.Event) bool {
 		if s.maxScroll() <= 0 {
 			return false
 		}
-		s.scrollY -= we.Delta.Y * 40
+		// gogpu/ui delivers a positive Delta.Y for a downward wheel notch
+		// (see gogpu platform_windows.go: DeltaY = -rawWheelDelta, and raw is
+		// negative when scrolling down). Scrolling down must advance scrollY so
+		// Draw's translate (b.Min.Y - scrollY) moves content up and reveals the
+		// rows below. A `-=` here pins scrollY at 0 in the common downward
+		// direction (the clamp below immediately floors it), which reads as
+		// "scrolling does nothing".
+		s.scrollY += we.Delta.Y * 40
 		if s.scrollY < 0 {
 			s.scrollY = 0
 		}
