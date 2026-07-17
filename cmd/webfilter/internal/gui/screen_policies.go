@@ -165,8 +165,9 @@ func (s *policiesScreen) build() widget.Widget {
 
 	return primitives.HBox(
 		left,
+		vline(),
 		primitives.Expanded(s.editorSwap),
-	).Padding(16).Gap(16)
+	).Padding(16).Gap(16).CrossAlign(primitives.CrossAxisStretch)
 }
 
 func (s *policiesScreen) createFromDialog() {
@@ -421,8 +422,11 @@ func (s *policiesScreen) buildEditor(p models.Policy) widget.Widget {
 	form := append(header, rest...)
 	form = append(form, primitives.HBox(actions...).Gap(8).CrossAlign(primitives.CrossAxisCenter))
 
+	// The form lives in a white card so it reads as a distinct editor pane
+	// against the window background, capped in width so fields stay a
+	// comfortable length on a wide window.
 	return newScrollBox(
-		primitives.VBox(form...).Padding(16).Gap(8).MaxWidthValue(760),
+		primitives.VBox(panel(760, 8, form...)).Padding(8),
 	)
 }
 

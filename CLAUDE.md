@@ -134,8 +134,13 @@ Request/block/audit logs go to SQLite at `logs/webfilter.db`.
   (`FlowContext`, ordered `[]Addon`), block-page rendering, and the SOCKS5
   listener (`socks5.go` — CONNECT only, no-auth or username/password via
   the shared `ProxyAuthGate`, joins the same tunnel/MITM path as HTTP
-  CONNECT). `proxy_listen` entries take `host:port`, `regular@host:port`,
-  or `socks5@host:port` forms.
+  CONNECT), plus a SOCKS4/4a listener (`socks4.go` — CONNECT only, no auth
+  channel). `proxy_listen` entries take `host:port`, `regular@host:port`,
+  `socks4@host:port`, or `socks5@host:port` forms, each optionally
+  TLS-wrapped: `https@` (HTTP proxy over TLS), `tls@` (SOCKS5 over TLS), or
+  the general `tls+<base>@` prefix. `models.ParseListenSpec` returns the base
+  mode + TLS flag; `Engine.dispatchConn` terminates TLS with a CA-minted
+  endpoint leaf, then dispatches by base mode.
   - `internal/proxy/state/` — `Runtime`: hot-reloaded settings/policies,
     `GetPolicy(clientIP)` tiered MAC→IP→CIDR→catch-all matching (see
     `policy_match.go` for the full decision logic incl. schedules)
