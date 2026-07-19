@@ -19,13 +19,25 @@ expected verification commands after changes.
 - One binary: `webfilter run|proxy|mgmt|tray|gui|categories update|oui update|version`.
 - `run` starts the proxy engine and management server together; `proxy` and
   `mgmt` remain available for process isolation.
-- `proxy_listen` supports both `regular@host:port` and `socks5@host:port`.
-  Unsupported modes are skipped with a warning.
-- SOCKS5 support lives in `internal/proxy/socks5.go`. It implements CONNECT,
-  supports no-auth and username/password auth through the existing
-  `ProxyAuthGate`, rejects BIND/UDP-ASSOCIATE, then joins the same tunnel
-  path as HTTP CONNECT. HTTPS is raw-spliced when MITM is unavailable or
-  bypassed, and MITM-filtered when a runtime CA is available.
+- `proxy_listen` supports `regular@host:port` (plaintext HTTP proxy),
+  `socks4@host:port` (SOCKS4/4a), and `socks5@host:port`, each optionally
+  wrapped in TLS: `https@` (== `tls+regular@`, an HTTP proxy over TLS /
+  "Secure Web Proxy"), `tls@` (== `tls+socks5@`, SOCKS5 over TLS), or the
+  general `tls+<base>@` prefix. TLS-wrapped listeners present a leaf minted on
+  the fly by the runtime CA (SNI, or the connected-to address for SNI-less
+  IP-literal endpoints), so a client that trusts the CA for MITM also trusts
+  the proxy endpoint. Unsupported modes are skipped with a warning. Parsing is
+  `models.ParseListenSpec` (`internal/models/proxylisten.go`); TLS termination
+  and mode dispatch happen in `Engine.dispatchConn`
+  (`internal/proxy/engine.go`).
+- SOCKS5 support lives in `internal/proxy/socks5.go` and SOCKS4/4a in
+  `internal/proxy/socks4.go`. Both implement CONNECT only and join the same
+  tunnel path as HTTP CONNECT. SOCKS5 supports no-auth and username/password
+  auth through the existing `ProxyAuthGate` and also serves a DNS-only UDP
+  ASSOCIATE relay; SOCKS4 has no password channel, so an auth-required proxy
+  refuses SOCKS4 clients. BIND is rejected. HTTPS through any of these is
+  raw-spliced when MITM is unavailable or bypassed, and MITM-filtered when a
+  runtime CA is available.
 - Config and state live on disk: `config/settings.json`, `policies/*.json`,
   `certs/`, `categories/`, `logs/webfilter.db`, and `data/`.
 - Settings changes need a restart. Policy changes hot-reload.

@@ -41,6 +41,11 @@ func TestParseListen(t *testing.T) {
 		{"local", "local", "", 0},
 		{"wireguard@0.0.0.0:51820", "wireguard", "0.0.0.0", 51820},
 		{"transparent@0.0.0.0:8080", "transparent", "0.0.0.0", 8080},
+		{"socks4@0.0.0.0:1080", "socks4", "0.0.0.0", 1080},
+		// TLS tokens resolve to their base mode; ParseListen drops the TLS flag.
+		{"https@0.0.0.0:8443", "regular", "0.0.0.0", 8443},
+		{"tls@0.0.0.0:1443", "socks5", "0.0.0.0", 1443},
+		{"tls+socks4@0.0.0.0:1440", "socks4", "0.0.0.0", 1440},
 	}
 	for _, c := range cases {
 		mode, host, port := models.ParseListen(c.in)
@@ -48,6 +53,45 @@ func TestParseListen(t *testing.T) {
 			t.Errorf("ParseListen(%q) = (%q, %q, %d), want (%q, %q, %d)",
 				c.in, mode, host, port, c.wantMode, c.wantHost, c.wantPort)
 		}
+	}
+}
+
+func TestParseListenSpec(t *testing.T) {
+	cases := []struct {
+		in       string
+		wantMode string
+		wantTLS  bool
+		wantHost string
+		wantPort int
+	}{
+		{"0.0.0.0:8080", "regular", false, "0.0.0.0", 8080},
+		{"regular@0.0.0.0:8080", "regular", false, "0.0.0.0", 8080},
+		{"socks4@0.0.0.0:1080", "socks4", false, "0.0.0.0", 1080},
+		{"socks5@0.0.0.0:1080", "socks5", false, "0.0.0.0", 1080},
+		{"https@0.0.0.0:8443", "regular", true, "0.0.0.0", 8443},
+		{"tls@0.0.0.0:1443", "socks5", true, "0.0.0.0", 1443},
+		{"tls+regular@0.0.0.0:8443", "regular", true, "0.0.0.0", 8443},
+		{"tls+socks5@0.0.0.0:1443", "socks5", true, "0.0.0.0", 1443},
+		{"tls+socks4@0.0.0.0:1440", "socks4", true, "0.0.0.0", 1440},
+		// Unknown TLS base falls through to a bare host:port parse.
+		{"tls+bogus@0.0.0.0:9", "regular", false, "tls+bogus@0.0.0.0", 9},
+	}
+	for _, c := range cases {
+		spec := models.ParseListenSpec(c.in)
+		if spec.Mode != c.wantMode || spec.TLS != c.wantTLS || spec.Host != c.wantHost || spec.Port != c.wantPort {
+			t.Errorf("ParseListenSpec(%q) = %+v, want mode=%q tls=%v host=%q port=%d",
+				c.in, spec, c.wantMode, c.wantTLS, c.wantHost, c.wantPort)
+		}
+	}
+}
+
+func TestPrimaryRegularProxyPortSkipsTLS(t *testing.T) {
+	s := models.NewGlobalSettings()
+	// An https@ (TLS) listener must not be advertised as a plaintext PAC
+	// PROXY target; the plaintext regular listener wins.
+	s.ProxyListen = []string{"https@0.0.0.0:8443", "regular@0.0.0.0:8080"}
+	if got := s.PrimaryRegularProxyPort(); got != 8080 {
+		t.Errorf("PrimaryRegularProxyPort() = %d, want 8080 (TLS listener skipped)", got)
 	}
 }
 

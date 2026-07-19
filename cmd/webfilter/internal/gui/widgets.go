@@ -259,15 +259,16 @@ func col(w float32, t widget.Widget) widget.Widget {
 }
 
 // logRowWidget renders one normalized log row with aligned columns; shared
-// by the logs screen and the dashboard's recent-blocks list.
+// by the logs screen and the dashboard's recent-blocks list. The action cell
+// is tinted by its meaning (blocked = red, modified = amber, ok = green) so
+// the outcome reads at a glance without scanning the detail column.
 func logRowWidget(time, client, action, target, detail string) widget.Widget {
-	muted := widget.RGBA8(90, 90, 100, 255)
 	return primitives.HBox(
-		col(120, primitives.Text(time).FontSize(12).Color(muted)),
+		col(120, primitives.Text(time).FontSize(12).Color(colMuted)),
 		col(110, primitives.Text(client).FontSize(12)),
-		col(70, primitives.Text(action).FontSize(12).Bold()),
+		col(70, primitives.Text(action).FontSize(12).Bold().Color(actionColor(action))),
 		col(260, primitives.Text(target).FontSize(12).MaxLines(1).Ellipsis()),
-		primitives.Text(detail).FontSize(12).Color(muted).MaxLines(1).Ellipsis(),
+		primitives.Text(detail).FontSize(12).Color(colMuted).MaxLines(1).Ellipsis(),
 	).Gap(12).PaddingXY(8, 4).CrossAlign(primitives.CrossAxisCenter)
 }
 

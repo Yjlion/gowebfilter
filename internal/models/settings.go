@@ -228,28 +228,31 @@ func (s GlobalSettings) DBPath() string {
 	return filepath.Join(s.LogsDir, "webfilter.db")
 }
 
-// PrimaryProxyPort extracts the first proxy_listen port whose mode is
-// "regular" or "socks5" (the two modes that bind a TCP port a client
-// connects a browser/OS proxy setting to). Returns 8080 if none found.
+// PrimaryProxyPort extracts the first proxy_listen port whose mode is a
+// plaintext "regular" or "socks5" listener (the two modes that bind a TCP
+// port a client connects a browser/OS proxy setting to, and which the
+// plaintext-assuming tun2socks target logic can dial). TLS-wrapped variants
+// are skipped. Returns 8080 if none found.
 func (s GlobalSettings) PrimaryProxyPort() int {
 	for _, entry := range s.ProxyListen {
-		mode, _, port := ParseListen(entry)
-		if (mode == "regular" || mode == "socks5") && port != 0 {
-			return port
+		spec := ParseListenSpec(entry)
+		if !spec.TLS && (spec.Mode == "regular" || spec.Mode == "socks5") && spec.Port != 0 {
+			return spec.Port
 		}
 	}
 	return 8080
 }
 
 // PrimaryRegularProxyPort extracts the first proxy_listen port whose mode
-// is "regular" — an HTTP proxy a browser or PAC file can point at (PAC's
-// PROXY directive cannot name a SOCKS listener). Returns 8080 if none
-// found, matching the port EnsureLocalHTTPProxyListener injects.
+// is a plaintext "regular" listener — an HTTP proxy a browser or PAC file
+// can point at (PAC's PROXY directive cannot name a SOCKS listener, nor a
+// TLS-wrapped proxy). Returns 8080 if none found, matching the port
+// EnsureLocalHTTPProxyListener injects.
 func (s GlobalSettings) PrimaryRegularProxyPort() int {
 	for _, entry := range s.ProxyListen {
-		mode, _, port := ParseListen(entry)
-		if mode == "regular" && port != 0 {
-			return port
+		spec := ParseListenSpec(entry)
+		if spec.Mode == "regular" && !spec.TLS && spec.Port != 0 {
+			return spec.Port
 		}
 	}
 	return 8080
@@ -257,9 +260,9 @@ func (s GlobalSettings) PrimaryRegularProxyPort() int {
 
 func (s GlobalSettings) PrimarySocks5Port() int {
 	for _, entry := range s.ProxyListen {
-		mode, _, port := ParseListen(entry)
-		if mode == "socks5" && port != 0 {
-			return port
+		spec := ParseListenSpec(entry)
+		if spec.Mode == "socks5" && !spec.TLS && spec.Port != 0 {
+			return spec.Port
 		}
 	}
 	return 0

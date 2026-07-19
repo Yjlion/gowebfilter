@@ -5,14 +5,22 @@ import (
 	"strings"
 )
 
-// KnownProxyModes are the proxy_listen mode prefixes this port supports.
-// WireGuard is deliberately excluded (out of scope for this port per the
-// project plan) but ParseListen still recognizes the literal string
-// "wireguard" as a known-but-unsupported mode rather than misparsing it,
-// so a settings.json carried over from the Python original doesn't error
-// out - the caller decides whether to skip starting a listener for it.
+// KnownProxyModes are the base proxy_listen mode prefixes this port
+// recognizes (the protocol spoken on the listener). WireGuard is deliberately
+// excluded (out of scope for this port per the project plan) but ParseListen
+// still recognizes the literal string "wireguard" as a known-but-unsupported
+// mode rather than misparsing it, so a settings.json carried over from the
+// Python original doesn't error out - the caller decides whether to skip
+// starting a listener for it.
+//
+// On top of these base modes, a listener can be wrapped in TLS. Three tokens
+// express that: the general composite prefix "tls+<base>" (e.g.
+// "tls+regular", "tls+socks5", "tls+socks4"), plus two friendly aliases -
+// "https" for "tls+regular" (an HTTP forward proxy served over TLS, i.e. the
+// browser's "Secure Web Proxy" / PAC HTTPS directive) and "tls" for
+// "tls+socks5" (a SOCKS5 proxy served over TLS). See ParseListenSpec.
 var KnownProxyModes = []string{
-	"regular", "transparent", "socks5", "upstream", "reverse", "dns", "tun", "local",
+	"regular", "transparent", "socks4", "socks5", "upstream", "reverse", "dns", "tun", "local",
 }
 
 // unsupportedProxyModes are recognized but not started by this port.
@@ -25,6 +33,29 @@ func isKnownMode(m string) bool {
 		}
 	}
 	return unsupportedProxyModes[m]
+}
+
+// resolveModeToken maps the token before the "@" in a proxy_listen entry to a
+// base mode and whether the listener is TLS-wrapped. ok is false for tokens
+// that are not a recognized mode (the caller then treats the whole entry as a
+// bare host:port). See KnownProxyModes for the TLS token vocabulary.
+func resolveModeToken(token string) (base string, tls, ok bool) {
+	switch token {
+	case "https":
+		return "regular", true, true
+	case "tls":
+		return "socks5", true, true
+	}
+	if rest, found := strings.CutPrefix(token, "tls+"); found {
+		if isKnownMode(rest) {
+			return rest, true, true
+		}
+		return "", false, false
+	}
+	if isKnownMode(token) {
+		return token, false, true
+	}
+	return "", false, false
 }
 
 // SplitHostPort parses a "host:port" string, supporting plain IPv4/hostname
@@ -69,30 +100,48 @@ func SplitHostPort(entry string) (host string, port int) {
 	return host, port
 }
 
-// ParseListen parses a proxy_listen entry into (mode, host, port).
-// Entries are either a bare "host:port" (mode defaults to "regular") or
-// "mode@host:port" / bare "tun" / "local" (no address). Mirrors the
-// Python original's parse_listen().
-func ParseListen(entry string) (mode, host string, port int) {
+// ProxyListenSpec is a fully-parsed proxy_listen entry: the base protocol
+// (Mode), whether the listener is TLS-wrapped (TLS), and the bind address.
+type ProxyListenSpec struct {
+	Mode string // base protocol: regular, socks4, socks5, transparent, ...
+	TLS  bool   // listener wrapped in TLS (https@ / tls@ / tls+<base>@)
+	Host string
+	Port int
+}
+
+// ParseListenSpec parses a proxy_listen entry into its base mode, TLS flag,
+// and bind address. Entries are a bare "host:port" (mode "regular"), a
+// "mode@host:port" (where mode may be a TLS token - see KnownProxyModes), or
+// a bare "tun"/"local" (no address). Mirrors the Python original's
+// parse_listen(), extended with the TLS-wrapping token vocabulary.
+func ParseListenSpec(entry string) ProxyListenSpec {
 	entry = trimSpace(entry)
+	spec := ProxyListenSpec{Mode: "regular"}
 	if entry == "" {
-		return "regular", "", 0
+		return spec
 	}
 	if at := strings.Index(entry, "@"); at != -1 {
-		candidate := entry[:at]
-		if isKnownMode(candidate) {
-			mode = candidate
-			rest := entry[at+1:]
-			if rest == "" {
-				return mode, "", 0
+		if base, tls, ok := resolveModeToken(entry[:at]); ok {
+			spec.Mode, spec.TLS = base, tls
+			if rest := entry[at+1:]; rest != "" {
+				spec.Host, spec.Port = SplitHostPort(rest)
 			}
-			host, port = SplitHostPort(rest)
-			return mode, host, port
+			return spec
 		}
 	}
 	if entry == "tun" || entry == "local" {
-		return entry, "", 0
+		spec.Mode = entry
+		return spec
 	}
-	host, port = SplitHostPort(entry)
-	return "regular", host, port
+	spec.Host, spec.Port = SplitHostPort(entry)
+	return spec
+}
+
+// ParseListen parses a proxy_listen entry into (mode, host, port), where mode
+// is the base protocol. It discards the TLS flag; callers that must
+// distinguish a TLS-wrapped listener (e.g. PAC, which can only point at a
+// plaintext HTTP proxy) use ParseListenSpec instead.
+func ParseListen(entry string) (mode, host string, port int) {
+	spec := ParseListenSpec(entry)
+	return spec.Mode, spec.Host, spec.Port
 }

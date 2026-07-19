@@ -87,8 +87,8 @@ func EnsureLocalHTTPProxyListener(eng *proxy.Engine) {
 		return
 	}
 	for _, entry := range eng.Settings.ProxyListen {
-		if mode, _, _ := models.ParseListen(entry); mode == "regular" {
-			return // PAC advertises this listener's port
+		if spec := models.ParseListenSpec(entry); spec.Mode == "regular" && !spec.TLS {
+			return // PAC advertises this plaintext HTTP listener's port
 		}
 	}
 	eng.Settings.ProxyListen = append(eng.Settings.ProxyListen, "regular@127.0.0.1:8080")

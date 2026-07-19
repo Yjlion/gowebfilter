@@ -134,6 +134,8 @@ func (s *logsScreen) build() widget.Widget {
 	return primitives.VBox(
 		controls,
 		errorText(s.fetchEr.Get),
+		logHeaderRow(),
+		hairline(),
 		primitives.Expanded(s.listSwap),
-	).Padding(16).Gap(10)
+	).Padding(16).Gap(10).CrossAlign(primitives.CrossAxisStretch)
 }

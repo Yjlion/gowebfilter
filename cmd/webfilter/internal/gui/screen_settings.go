@@ -228,7 +228,7 @@ func (s *settingsScreen) build() widget.Widget {
 		}),
 
 		sectionTitle("Listeners"),
-		fieldLabel("Proxy listeners (comma-separated: host:port, regular@host:port, socks5@host:port)"),
+		fieldLabel("Proxy listeners (comma-separated: host:port, regular@/socks4@/socks5@host:port; TLS: https@/tls@host:port)"),
 		tf(s.proxyListen, "0.0.0.0:8080"),
 
 		sectionTitle("Management API"),

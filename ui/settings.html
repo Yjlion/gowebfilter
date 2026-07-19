@@ -95,7 +95,10 @@
                 <select :value="listenMode(addr)" @change="setListenMode(i, $event.target.value)"
                         class="border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-card">
                   <option value="regular">HTTP Proxy</option>
+                  <option value="https">HTTP Proxy over TLS</option>
+                  <option value="socks4">SOCKS4</option>
                   <option value="socks5">SOCKS5</option>
+                  <option value="tls">SOCKS5 over TLS</option>
                 </select>
                 <input type="text" :value="listenAddr(addr)" @input="setListenAddr(i, $event.target.value)"
                        placeholder="0.0.0.0:8080"
@@ -108,6 +111,7 @@
                     class="text-sm text-blue-600 hover:text-blue-800 font-medium" data-i18n="set.addListen">+ Add listen address</button>
           </div>
           <p class="text-xs text-gray-400" data-i18n="set.listenFormat">Format: host:port. Examples: 0.0.0.0:8080 (all IPv4), [::]:8080 (all IPv6), [::1]:8080 (IPv6 localhost), 192.168.1.10:3128.</p>
+          <p class="text-xs text-gray-400">The TLS variants ("over TLS") present a certificate signed by this proxy's CA, so clients must trust the CA to connect to the proxy endpoint itself. Restart after saving changes.</p>
         </div>
 
         <!-- TUN / tun2socks - hidden pending fixes; doesn't work reliably yet -->
@@ -501,13 +505,13 @@
 
         listenMode(entry) {
           const head = String(entry || '').split('@')[0].split(':')[0].toLowerCase();
-          const known = ['regular','socks5'];
+          const known = ['regular','https','socks4','socks5','tls'];
           return known.includes(head) ? head : 'regular';
         },
         listenAddr(entry) {
           const e = String(entry || '');
           const head = e.split('@')[0].split(':')[0].toLowerCase();
-          const known = ['regular','socks5'];
+          const known = ['regular','https','socks4','socks5','tls'];
           if (!known.includes(head)) return e;
           const at = e.indexOf('@');
           return at >= 0 ? e.slice(at + 1) : '';
@@ -518,7 +522,7 @@
           return `${mode}@${addr}`;
         },
         defaultPortFor(mode) {
-          return ({ regular: 8080, socks5: 1080 })[mode];
+          return ({ regular: 8080, https: 8443, socks4: 1080, socks5: 1080, tls: 1443 })[mode];
         },
         usedPorts(exceptIndex) {
           const ports = new Set();

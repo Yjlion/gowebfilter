@@ -342,7 +342,12 @@
                 <tbody>
                   <template x-for="eng in safeEngines" :key="eng.id">
                     <tr class="border-t border-gray-50">
-                      <td class="py-2 pr-4 font-medium text-gray-700" x-text="eng.label"></td>
+                      <td class="py-2 pr-4 font-medium text-gray-700">
+                        <span class="inline-flex items-center gap-2">
+                          <span class="shrink-0 leading-none" x-html="eng.icon"></span>
+                          <span x-text="eng.label"></span>
+                        </span>
+                      </td>
                       <td class="py-2 px-3 text-center">
                         <input type="checkbox" class="toggle" x-model="policy.safesearch.engines[eng.id].enabled" />
                       </td>
@@ -369,6 +374,7 @@
           <div class="section-header" @click="open.yt = !open.yt">
             <div class="flex items-center gap-3">
               <input type="checkbox" class="toggle" x-model="policy.youtube.enabled" @click.stop />
+              <span class="shrink-0 leading-none" x-html="youtubeIcon"></span>
               <div>
                 <div class="text-sm font-semibold text-gray-900" data-i18n="ed.youtube">YouTube Channel Filter</div>
                 <div class="text-xs text-gray-500" data-i18n="ed.youtubeDesc">Block or allow specific YouTube channels</div>
@@ -642,6 +648,22 @@
       return hex.match(/.{2}/g).join(':');
     }
 
+    // engineTile builds an inline-SVG brand tile (a rounded square in `color`
+    // with a white `letter`) for a search engine, rendered offline via x-html.
+    function engineTile(color, letter) {
+      return '<svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">' +
+        '<rect width="20" height="20" rx="5" fill="' + color + '"/>' +
+        '<text x="10" y="14.5" text-anchor="middle" font-size="12" font-weight="700" ' +
+        'fill="#fff" font-family="Arial, Helvetica, sans-serif">' + letter + '</text></svg>';
+    }
+
+    // The iconic YouTube play button (red rounded rect + white triangle),
+    // inline so it renders without any CDN in the Android WebView.
+    const YOUTUBE_ICON =
+      '<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">' +
+      '<rect x="1" y="4.5" width="22" height="15" rx="4.2" fill="#FF0000"/>' +
+      '<path d="M10 8.5l6.2 3.5L10 15.5z" fill="#fff"/></svg>';
+
     function editor() {
       const params = new URLSearchParams(location.search);
       const editName = params.get('name');
@@ -662,13 +684,17 @@
         macScanning: false,
         macScanError: '',
         open: { schedule: false, url: false, doh: false, safe: false, yt: false, text: false, img: false, mitm: false, bp: false },
+        youtubeIcon: YOUTUBE_ICON,
         // SafeSearch engines (id must match proxy/addons/safesearch.py). ai=false
         // hides the AI column for engines with no AI assistant to block.
+        // icon is an inline SVG (rendered offline, no CDN) — a rounded tile in
+        // the engine's brand color with its initial, kept visually consistent
+        // across engines.
         safeEngines: [
-          { id: 'google', label: 'Google', ai: true },
-          { id: 'bing', label: 'Bing', ai: true },
-          { id: 'duckduckgo', label: 'DuckDuckGo', ai: true },
-          { id: 'yahoo', label: 'Yahoo', ai: false },
+          { id: 'google', label: 'Google', ai: true, icon: engineTile('#4285F4', 'G') },
+          { id: 'bing', label: 'Bing', ai: true, icon: engineTile('#0D8484', 'b') },
+          { id: 'duckduckgo', label: 'DuckDuckGo', ai: true, icon: engineTile('#DE5833', 'd') },
+          { id: 'yahoo', label: 'Yahoo', ai: false, icon: engineTile('#5F01D1', 'Y') },
         ],
         // Family-safety DoH resolvers (RFC 8484). The model stores the URL; the
         // dropdown falls back to "Custom…" for any value not in this list.

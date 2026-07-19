@@ -69,6 +69,27 @@ func (d *dashboardScreen) build() widget.Widget {
 		}))
 	}
 
+	statusCard := card(
+		primitives.HBox(
+			statusDot(11, func() widget.Color {
+				st, _, loaded := d.model.Get()
+				switch {
+				case loaded && st.ProxyRunning:
+					return colOk
+				case loaded:
+					return colBlocked
+				default:
+					return colDotIdle
+				}
+			}),
+			primitives.TextFn(d.model.RunningLabel).FontSize(15).Bold(),
+		).Gap(8).CrossAlign(primitives.CrossAxisCenter),
+		primitives.TextFn(d.model.ListenersLabel).FontSize(13).Color(colMuted),
+		primitives.TextFn(d.model.MgmtLabel).FontSize(13).Color(colMuted),
+		primitives.TextFn(d.model.Tun2SocksLabel).FontSize(13).Color(colMuted),
+		errorText(d.model.ErrorLabel),
+	)
+
 	return primitives.VBox(
 		noticeText(func() string {
 			if d.u.restartNeeded.Get() {
@@ -80,13 +101,11 @@ func (d *dashboardScreen) build() widget.Widget {
 			return ""
 		}),
 		sectionTitle("Status"),
-		primitives.TextFn(d.model.RunningLabel).FontSize(14).Bold(),
-		primitives.TextFn(d.model.ListenersLabel).FontSize(13),
-		primitives.TextFn(d.model.MgmtLabel).FontSize(13),
-		primitives.TextFn(d.model.Tun2SocksLabel).FontSize(13),
-		errorText(d.model.ErrorLabel),
+		statusCard,
 		primitives.HBox(buttons...).Gap(8),
 		sectionTitle("Recent blocks"),
+		logHeaderRow(),
+		hairline(),
 		primitives.Expanded(d.listSwap),
-	).Padding(16).Gap(10)
+	).Padding(16).Gap(10).CrossAlign(primitives.CrossAxisStretch)
 }

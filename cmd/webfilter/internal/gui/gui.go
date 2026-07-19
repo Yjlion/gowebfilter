@@ -194,17 +194,20 @@ func (u *ui) runRenderLoop() error {
 
 
 func (u *ui) buildRoot() widget.Widget {
-	header := primitives.HBox(
-		primitives.Text("WebFilter").FontSize(20).Bold(),
-		primitives.TextFn(func() string {
-			if u.opts.SelfHosted {
-				return "engine hosted by this window — closing it stops filtering"
-			}
-			return "attached to running instance at " + u.opts.MgmtURL
-		}).FontSize(12).Color(widget.RGBA8(90, 90, 100, 255)),
-		primitives.Expanded(primitives.Box()),
-		u.btnOutlined("Open Web UI", func() { _ = u.opts.OpenBrowser(u.opts.MgmtURL) }),
-	).Padding(12).Gap(16).CrossAlign(primitives.CrossAxisCenter)
+	header := primitives.VBox(
+		primitives.HBox(
+			primitives.Text("WebFilter").FontSize(20).Bold(),
+			primitives.TextFn(func() string {
+				if u.opts.SelfHosted {
+					return "engine hosted by this window — closing it stops filtering"
+				}
+				return "attached to running instance at " + u.opts.MgmtURL
+			}).FontSize(12).Color(colMuted),
+			primitives.Expanded(primitives.Box()),
+			u.btnOutlined("Open Web UI", func() { _ = u.opts.OpenBrowser(u.opts.MgmtURL) }),
+		).PaddingXY(16, 12).Gap(16).CrossAlign(primitives.CrossAxisCenter),
+		hairline(),
+	).CrossAlign(primitives.CrossAxisStretch)
 
 	tabs := tabview.New(
 		[]tabview.Tab{
