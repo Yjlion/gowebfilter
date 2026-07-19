@@ -46,7 +46,9 @@ expected verification commands after changes.
   loop.
 - **Native desktop GUI** (`webfilter gui`, `cmd/webfilter/internal/gui/`,
   github.com/gogpu/ui — pure Go, WebGPU, keeps `CGO_ENABLED=0`): dashboard,
-  policy editor, log viewer, and settings; everything else defers to an
+  policy editor, log viewer, settings, and an Advanced tab (proxy client
+  authentication, upstream proxy, full tun2socks config — a second view over
+  the settings screen's shared form/save state); everything else defers to an
   "Open Web UI" button. Deliberate decisions, in case someone is tempted to
   revisit them:
   - **It is an HTTP client of the mgmt API, always** — even when it
@@ -84,7 +86,14 @@ expected verification commands after changes.
     the 30fps anim pumper); avoid `core/listview` (renders blank in this loop)
     and `core/scrollview` (self-invalidates ~100fps when overflowing) in favor
     of the tiny `gui.scrollBox`; and `redraw()`/`onTabSelected` must mark the
-    root needs-layout so async data and tab switches re-lay-out. Verify layout
+    root needs-layout so async data and tab switches re-lay-out. The tab
+    strip is the custom `gui.tabBar` (icon+label via `github.com/gogpu/ui/icon`
+    and the canvas `RenderSVG` path) because `core/tabview` tabs are bare
+    label strings; content switching is `contentSwap.SetChild` in
+    `onTabSelected`. Log rows are click-to-copy (`ui.copyText` →
+    `gogpu.App.ClipboardWrite`) because gogpu/ui has no selectable-text
+    widget and the textfield's Ctrl+C buffer never reaches the OS clipboard.
+    Verify layout
     changes with the headless `offscreen` snapshot test
     (`GUI_SNAPSHOT_DIR=<dir> go test ./cmd/webfilter/internal/gui -run TestRenderSnapshots`)
     and idle CPU by watching the process after data loads (should be ~0%).

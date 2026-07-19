@@ -34,6 +34,51 @@ func TestSettingsFormRoundTripPreservesHiddenFields(t *testing.T) {
 	}
 }
 
+// TestSettingsFormAdvancedFields covers the Advanced tab's fields: proxy
+// auth and the full tun2socks config must survive a Load -> Apply round trip
+// (the password never travels through the merged document — it goes to the
+// server as new_proxy_auth_password separately).
+func TestSettingsFormAdvancedFields(t *testing.T) {
+	base := models.NewGlobalSettings()
+	base.ProxyAuthEnabled = true
+	base.ProxyAuthUsername = "proxyuser"
+	base.ProxyAuthPasswordHash = "$scrypt$proxysecret" // not exposed by the form
+	base.Tun2Socks.DeviceName = "custom-tun"
+	base.Tun2Socks.TunAddress = "198.18.5.1"
+
+	form := LoadSettingsForm(base)
+	if !form.ProxyAuthEnabled || form.ProxyAuthUsername != "proxyuser" {
+		t.Fatalf("proxy auth not loaded: %+v", form)
+	}
+	if form.NewProxyAuthPassword != "" {
+		t.Fatalf("password material must never load into the form")
+	}
+	if form.Tun2SocksDeviceName != "custom-tun" || form.Tun2SocksTunAddress != "198.18.5.1" {
+		t.Fatalf("tun device fields not loaded: %+v", form)
+	}
+
+	form.ProxyAuthUsername = " renamed "
+	form.Tun2SocksInterfaceName = "eth0"
+	form.Tun2SocksTunGateway = "198.18.5.2"
+	form.Tun2SocksTunNetmask = "255.255.0.0"
+
+	out, err := form.Apply(base)
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if out.ProxyAuthUsername != "renamed" || !out.ProxyAuthEnabled {
+		t.Errorf("proxy auth after apply: enabled=%v username=%q", out.ProxyAuthEnabled, out.ProxyAuthUsername)
+	}
+	if out.ProxyAuthPasswordHash != "$scrypt$proxysecret" {
+		t.Errorf("stored hash disturbed by Apply")
+	}
+	if out.Tun2Socks.DeviceName != "custom-tun" || out.Tun2Socks.InterfaceName != "eth0" ||
+		out.Tun2Socks.TunAddress != "198.18.5.1" || out.Tun2Socks.TunGateway != "198.18.5.2" ||
+		out.Tun2Socks.TunNetmask != "255.255.0.0" {
+		t.Errorf("tun2socks after apply: %+v", out.Tun2Socks)
+	}
+}
+
 func TestSettingsFormValidation(t *testing.T) {
 	base := models.NewGlobalSettings()
 	cases := []struct {
@@ -61,6 +106,14 @@ func TestSplitLinesAcceptsCommasAndNewlines(t *testing.T) {
 	}
 	if out := SplitLines(""); len(out) != 0 {
 		t.Errorf("SplitLines(\"\") = %v, want empty", out)
+	}
+}
+
+func TestLogRowClipboardLine(t *testing.T) {
+	r := LogRow{Time: "12:00:00", Client: "192.168.1.5", Action: "blocked", Target: "ads.example", Detail: "url_filter"}
+	want := "12:00:00\t192.168.1.5\tblocked\tads.example\turl_filter"
+	if got := r.ClipboardLine(); got != want {
+		t.Errorf("ClipboardLine = %q, want %q", got, want)
 	}
 }
 

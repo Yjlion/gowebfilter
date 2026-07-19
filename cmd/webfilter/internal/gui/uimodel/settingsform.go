@@ -32,11 +32,20 @@ type SettingsForm struct {
 	PacDirectIPs     string // one per line
 	DisableTray      bool
 
-	Tun2SocksEnabled     bool
-	Tun2SocksProxyTarget string
-	Tun2SocksDNSServers  string // one per line
-	Tun2SocksAutoRoutes  bool
-	Tun2SocksBypassCIDRs string // one per line
+	ProxyAuthEnabled     bool
+	ProxyAuthUsername    string
+	NewProxyAuthPassword string // sent as new_proxy_auth_password only when non-empty
+
+	Tun2SocksEnabled       bool
+	Tun2SocksProxyTarget   string
+	Tun2SocksDNSServers    string // one per line
+	Tun2SocksAutoRoutes    bool
+	Tun2SocksBypassCIDRs   string // one per line
+	Tun2SocksDeviceName    string
+	Tun2SocksInterfaceName string
+	Tun2SocksTunAddress    string
+	Tun2SocksTunGateway    string
+	Tun2SocksTunNetmask    string
 }
 
 // LoadSettingsForm converts fetched settings into editable form fields.
@@ -59,11 +68,19 @@ func LoadSettingsForm(s models.GlobalSettings) SettingsForm {
 		PacDirectIPs:     strings.Join(s.PacDirectIPs, ", "),
 		DisableTray:      s.DisableTray,
 
-		Tun2SocksEnabled:     s.Tun2Socks.Enabled,
-		Tun2SocksProxyTarget: s.Tun2Socks.ProxyTarget,
-		Tun2SocksDNSServers:  strings.Join(s.Tun2Socks.DNSServers, ", "),
-		Tun2SocksAutoRoutes:  s.Tun2Socks.AutoRoutes,
-		Tun2SocksBypassCIDRs: strings.Join(s.Tun2Socks.BypassCIDRs, ", "),
+		ProxyAuthEnabled:  s.ProxyAuthEnabled,
+		ProxyAuthUsername: s.ProxyAuthUsername,
+
+		Tun2SocksEnabled:       s.Tun2Socks.Enabled,
+		Tun2SocksProxyTarget:   s.Tun2Socks.ProxyTarget,
+		Tun2SocksDNSServers:    strings.Join(s.Tun2Socks.DNSServers, ", "),
+		Tun2SocksAutoRoutes:    s.Tun2Socks.AutoRoutes,
+		Tun2SocksBypassCIDRs:   strings.Join(s.Tun2Socks.BypassCIDRs, ", "),
+		Tun2SocksDeviceName:    s.Tun2Socks.DeviceName,
+		Tun2SocksInterfaceName: s.Tun2Socks.InterfaceName,
+		Tun2SocksTunAddress:    s.Tun2Socks.TunAddress,
+		Tun2SocksTunGateway:    s.Tun2Socks.TunGateway,
+		Tun2SocksTunNetmask:    s.Tun2Socks.TunNetmask,
 	}
 }
 
@@ -103,11 +120,19 @@ func (f SettingsForm) Apply(base models.GlobalSettings) (models.GlobalSettings, 
 	out.PacDirectIPs = SplitLines(f.PacDirectIPs)
 	out.DisableTray = f.DisableTray
 
+	out.ProxyAuthEnabled = f.ProxyAuthEnabled
+	out.ProxyAuthUsername = strings.TrimSpace(f.ProxyAuthUsername)
+
 	out.Tun2Socks.Enabled = f.Tun2SocksEnabled
 	out.Tun2Socks.ProxyTarget = strings.TrimSpace(f.Tun2SocksProxyTarget)
 	out.Tun2Socks.DNSServers = SplitLines(f.Tun2SocksDNSServers)
 	out.Tun2Socks.AutoRoutes = f.Tun2SocksAutoRoutes
 	out.Tun2Socks.BypassCIDRs = SplitLines(f.Tun2SocksBypassCIDRs)
+	out.Tun2Socks.DeviceName = strings.TrimSpace(f.Tun2SocksDeviceName)
+	out.Tun2Socks.InterfaceName = strings.TrimSpace(f.Tun2SocksInterfaceName)
+	out.Tun2Socks.TunAddress = strings.TrimSpace(f.Tun2SocksTunAddress)
+	out.Tun2Socks.TunGateway = strings.TrimSpace(f.Tun2SocksTunGateway)
+	out.Tun2Socks.TunNetmask = strings.TrimSpace(f.Tun2SocksTunNetmask)
 
 	return out, nil
 }
