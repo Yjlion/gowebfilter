@@ -82,6 +82,7 @@ func newSnapshotUI(t *testing.T) *ui {
 	u.pols = newPoliciesScreen(u)
 	u.logs = newLogsScreen(u)
 	u.sets = newSettingsScreen(u)
+	u.adv = newAdvancedScreen(u, u.sets)
 	u.login = newLoginController(u)
 	return u
 }
@@ -113,11 +114,12 @@ func TestRenderSnapshots(t *testing.T) {
 		{"policies", tabPolicies},
 		{"logs", tabLogs},
 		{"settings", tabSettings},
+		{"advanced", tabAdvanced},
 	} {
 		name, tab := tc.name, tc.tab
-		// Fresh ui per tab: tabview only lays out the selected tab, and the
-		// layout cache would otherwise skip re-layout on tab switches that
-		// don't come through the real event path.
+		// Fresh ui per tab: only the selected tab's content is laid out, and
+		// the layout cache would otherwise skip re-layout on tab switches
+		// that don't come through the real event path.
 		u := newSnapshotUI(t)
 		root := u.buildRoot()
 		u.dash.refresh()
@@ -128,7 +130,10 @@ func TestRenderSnapshots(t *testing.T) {
 			u.pols.open("kids")
 			waitFor(t, func() bool { return u.pols.editorGen.Load() > 0 })
 		}
+		// Select the tab the way a click would: the custom tabBar sets the
+		// signal and buildRoot's contentSwap holds the active content.
 		u.activeTab.Set(tab)
+		u.contentSwap.SetChild(u.tabContents[tab])
 		r := offscreen.NewRenderer(1100, 780,
 			offscreen.WithBackground(widget.RGBA8(250, 250, 252, 255)),
 		)

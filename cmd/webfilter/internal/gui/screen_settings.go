@@ -4,7 +4,6 @@ import (
 	"sync"
 
 	"github.com/gogpu/ui/core/checkbox"
-	"github.com/gogpu/ui/core/collapsible"
 	"github.com/gogpu/ui/core/textfield"
 	"github.com/gogpu/ui/primitives"
 	"github.com/gogpu/ui/state"
@@ -18,6 +17,10 @@ import (
 // settingsScreen edits GlobalSettings through string/bool signals mirroring
 // uimodel.SettingsForm; unlike policies the widget tree is static, so the
 // signals are created once and (re)filled on every reload.
+//
+// The Advanced tab (screen_advanced.go) renders a second view over this same
+// screen state: one form, one merge base, one save/reload path, so the two
+// tabs can never clobber each other's edits.
 type settingsScreen struct {
 	u *ui
 
@@ -39,11 +42,21 @@ type settingsScreen struct {
 	pacHosts     state.Signal[string]
 	pacIPs       state.Signal[string]
 	disableTray  state.Signal[bool]
-	tunEnabled   state.Signal[bool]
-	tunTarget    state.Signal[string]
-	tunDNS       state.Signal[string]
-	tunRoutes    state.Signal[bool]
-	tunBypass    state.Signal[string]
+
+	paEnabled     state.Signal[bool]
+	paUsername    state.Signal[string]
+	paNewPassword state.Signal[string]
+
+	tunEnabled state.Signal[bool]
+	tunTarget  state.Signal[string]
+	tunDNS     state.Signal[string]
+	tunRoutes  state.Signal[bool]
+	tunBypass  state.Signal[string]
+	tunDevice  state.Signal[string]
+	tunIface   state.Signal[string]
+	tunAddr    state.Signal[string]
+	tunGateway state.Signal[string]
+	tunNetmask state.Signal[string]
 
 	saveErr state.Signal[string]
 	saveMsg state.Signal[string]
@@ -52,30 +65,38 @@ type settingsScreen struct {
 
 func newSettingsScreen(u *ui) *settingsScreen {
 	return &settingsScreen{
-		u:            u,
-		proxyListen:  state.NewSignal(""),
-		mgmtHost:     state.NewSignal(""),
-		mgmtPort:     state.NewSignal(""),
-		uiLanguage:   state.NewSignal(""),
-		logBlocks:    state.NewSignal(false),
-		logRequests:  state.NewSignal(false),
-		logRetention: state.NewSignal(""),
-		authEnabled:  state.NewSignal(false),
-		newPassword:  state.NewSignal(""),
-		upstream:     state.NewSignal(""),
-		upstreamAuth: state.NewSignal(""),
-		pacProxyHost: state.NewSignal(""),
-		pacHosts:     state.NewSignal(""),
-		pacIPs:       state.NewSignal(""),
-		disableTray:  state.NewSignal(false),
-		tunEnabled:   state.NewSignal(false),
-		tunTarget:    state.NewSignal(""),
-		tunDNS:       state.NewSignal(""),
-		tunRoutes:    state.NewSignal(false),
-		tunBypass:    state.NewSignal(""),
-		saveErr:      state.NewSignal(""),
-		saveMsg:      state.NewSignal(""),
-		locked:       state.NewSignal(false),
+		u:             u,
+		proxyListen:   state.NewSignal(""),
+		mgmtHost:      state.NewSignal(""),
+		mgmtPort:      state.NewSignal(""),
+		uiLanguage:    state.NewSignal(""),
+		logBlocks:     state.NewSignal(false),
+		logRequests:   state.NewSignal(false),
+		logRetention:  state.NewSignal(""),
+		authEnabled:   state.NewSignal(false),
+		newPassword:   state.NewSignal(""),
+		upstream:      state.NewSignal(""),
+		upstreamAuth:  state.NewSignal(""),
+		pacProxyHost:  state.NewSignal(""),
+		pacHosts:      state.NewSignal(""),
+		pacIPs:        state.NewSignal(""),
+		disableTray:   state.NewSignal(false),
+		paEnabled:     state.NewSignal(false),
+		paUsername:    state.NewSignal(""),
+		paNewPassword: state.NewSignal(""),
+		tunEnabled:    state.NewSignal(false),
+		tunTarget:     state.NewSignal(""),
+		tunDNS:        state.NewSignal(""),
+		tunRoutes:     state.NewSignal(false),
+		tunBypass:     state.NewSignal(""),
+		tunDevice:     state.NewSignal(""),
+		tunIface:      state.NewSignal(""),
+		tunAddr:       state.NewSignal(""),
+		tunGateway:    state.NewSignal(""),
+		tunNetmask:    state.NewSignal(""),
+		saveErr:       state.NewSignal(""),
+		saveMsg:       state.NewSignal(""),
+		locked:        state.NewSignal(false),
 	}
 }
 
@@ -109,37 +130,53 @@ func (s *settingsScreen) reload() {
 	s.pacHosts.Set(f.PacDirectHosts)
 	s.pacIPs.Set(f.PacDirectIPs)
 	s.disableTray.Set(f.DisableTray)
+	s.paEnabled.Set(f.ProxyAuthEnabled)
+	s.paUsername.Set(f.ProxyAuthUsername)
+	s.paNewPassword.Set("")
 	s.tunEnabled.Set(f.Tun2SocksEnabled)
 	s.tunTarget.Set(f.Tun2SocksProxyTarget)
 	s.tunDNS.Set(f.Tun2SocksDNSServers)
 	s.tunRoutes.Set(f.Tun2SocksAutoRoutes)
 	s.tunBypass.Set(f.Tun2SocksBypassCIDRs)
+	s.tunDevice.Set(f.Tun2SocksDeviceName)
+	s.tunIface.Set(f.Tun2SocksInterfaceName)
+	s.tunAddr.Set(f.Tun2SocksTunAddress)
+	s.tunGateway.Set(f.Tun2SocksTunGateway)
+	s.tunNetmask.Set(f.Tun2SocksTunNetmask)
 	s.saveErr.Set("")
 	s.u.redraw()
 }
 
 func (s *settingsScreen) form() uimodel.SettingsForm {
 	return uimodel.SettingsForm{
-		ProxyListen:          s.proxyListen.Get(),
-		MgmtHost:             s.mgmtHost.Get(),
-		MgmtPort:             s.mgmtPort.Get(),
-		UILanguage:           s.uiLanguage.Get(),
-		LogBlocks:            s.logBlocks.Get(),
-		LogRequests:          s.logRequests.Get(),
-		LogRetentionDays:     s.logRetention.Get(),
-		AuthEnabled:          s.authEnabled.Get(),
-		NewPassword:          s.newPassword.Get(),
-		UpstreamProxy:        s.upstream.Get(),
-		UpstreamAuth:         s.upstreamAuth.Get(),
-		PacProxyHost:         s.pacProxyHost.Get(),
-		PacDirectHosts:       s.pacHosts.Get(),
-		PacDirectIPs:         s.pacIPs.Get(),
-		DisableTray:          s.disableTray.Get(),
-		Tun2SocksEnabled:     s.tunEnabled.Get(),
-		Tun2SocksProxyTarget: s.tunTarget.Get(),
-		Tun2SocksDNSServers:  s.tunDNS.Get(),
-		Tun2SocksAutoRoutes:  s.tunRoutes.Get(),
-		Tun2SocksBypassCIDRs: s.tunBypass.Get(),
+		ProxyListen:            s.proxyListen.Get(),
+		MgmtHost:               s.mgmtHost.Get(),
+		MgmtPort:               s.mgmtPort.Get(),
+		UILanguage:             s.uiLanguage.Get(),
+		LogBlocks:              s.logBlocks.Get(),
+		LogRequests:            s.logRequests.Get(),
+		LogRetentionDays:       s.logRetention.Get(),
+		AuthEnabled:            s.authEnabled.Get(),
+		NewPassword:            s.newPassword.Get(),
+		UpstreamProxy:          s.upstream.Get(),
+		UpstreamAuth:           s.upstreamAuth.Get(),
+		PacProxyHost:           s.pacProxyHost.Get(),
+		PacDirectHosts:         s.pacHosts.Get(),
+		PacDirectIPs:           s.pacIPs.Get(),
+		DisableTray:            s.disableTray.Get(),
+		ProxyAuthEnabled:       s.paEnabled.Get(),
+		ProxyAuthUsername:      s.paUsername.Get(),
+		NewProxyAuthPassword:   s.paNewPassword.Get(),
+		Tun2SocksEnabled:       s.tunEnabled.Get(),
+		Tun2SocksProxyTarget:   s.tunTarget.Get(),
+		Tun2SocksDNSServers:    s.tunDNS.Get(),
+		Tun2SocksAutoRoutes:    s.tunRoutes.Get(),
+		Tun2SocksBypassCIDRs:   s.tunBypass.Get(),
+		Tun2SocksDeviceName:    s.tunDevice.Get(),
+		Tun2SocksInterfaceName: s.tunIface.Get(),
+		Tun2SocksTunAddress:    s.tunAddr.Get(),
+		Tun2SocksTunGateway:    s.tunGateway.Get(),
+		Tun2SocksTunNetmask:    s.tunNetmask.Get(),
 	}
 }
 
@@ -156,9 +193,10 @@ func (s *settingsScreen) save() {
 		return
 	}
 	newPassword := s.newPassword.Get()
+	newProxyAuthPassword := s.paNewPassword.Get()
 
 	go func() {
-		saved, err := s.u.opts.Client.UpdateSettings(merged, newPassword)
+		saved, err := s.u.opts.Client.UpdateSettings(merged, newPassword, newProxyAuthPassword)
 		if err != nil {
 			if !s.u.handleAuthErr(err) {
 				if isManagedLocked(err) {
@@ -176,6 +214,7 @@ func (s *settingsScreen) save() {
 		s.base = saved
 		s.mu.Unlock()
 		s.newPassword.Set("")
+		s.paNewPassword.Set("")
 		s.saveErr.Set("")
 		s.saveMsg.Set("Saved.")
 		s.u.restartNeeded.Set(true) // settings need an engine restart, always
@@ -183,87 +222,99 @@ func (s *settingsScreen) save() {
 	}()
 }
 
-func (s *settingsScreen) build() widget.Widget {
-	tf := func(sig state.Signal[string], placeholder string) widget.Widget {
-		return textfield.New(
-			textfield.ValueSignal(sig),
-			textfield.Placeholder(placeholder),
-			textfield.PainterOpt(material3.TextFieldPainter{Theme: s.u.m3}),
-			textfield.DisabledFn(s.locked.Get),
-		)
-	}
-	cb := func(label string, sig state.Signal[bool]) widget.Widget {
-		return checkbox.New(
-			checkbox.LabelOpt(label),
-			checkbox.CheckedSignal(sig),
-			checkbox.PainterOpt(material3.CheckboxPainter{Theme: s.u.m3}),
-			checkbox.DisabledFn(s.locked.Get),
-		)
-	}
-
-	tunSection := collapsible.New(
-		collapsible.Title("tun2socks (whole-OS capture)"),
-		collapsible.Content(primitives.VBox(
-			cb("Enabled", s.tunEnabled),
-			fieldLabel("Proxy target (empty = local SOCKS5 listener)"), tf(s.tunTarget, "127.0.0.1:1080"),
-			fieldLabel("DNS servers (comma-separated)"), tf(s.tunDNS, "1.1.1.3"),
-			cb("Install routes automatically", s.tunRoutes),
-			fieldLabel("Bypass CIDRs"), tf(s.tunBypass, "192.168.0.0/16"),
-		).Gap(6).Padding(8)),
-		collapsible.Expanded(false),
+// tf is a standard single-line text field bound to sig, disabled while the
+// MDM lock is active. Shared by the Settings and Advanced tabs.
+func (s *settingsScreen) tf(sig state.Signal[string], placeholder string) widget.Widget {
+	return textfield.New(
+		textfield.ValueSignal(sig),
+		textfield.Placeholder(placeholder),
+		textfield.PainterOpt(material3.TextFieldPainter{Theme: s.u.m3}),
+		textfield.DisabledFn(s.locked.Get),
 	)
+}
 
+// tfPassword is tf with masked input.
+func (s *settingsScreen) tfPassword(sig state.Signal[string], placeholder string) widget.Widget {
+	return textfield.New(
+		textfield.ValueSignal(sig),
+		textfield.Placeholder(placeholder),
+		textfield.InputTypeOpt(textfield.TypePassword),
+		textfield.PainterOpt(material3.TextFieldPainter{Theme: s.u.m3}),
+		textfield.DisabledFn(s.locked.Get),
+	)
+}
+
+// cb is a checkbox bound to sig, disabled while the MDM lock is active.
+func (s *settingsScreen) cb(label string, sig state.Signal[bool]) widget.Widget {
+	return checkbox.New(
+		checkbox.LabelOpt(label),
+		checkbox.CheckedSignal(sig),
+		checkbox.PainterOpt(material3.CheckboxPainter{Theme: s.u.m3}),
+		checkbox.DisabledFn(s.locked.Get),
+	)
+}
+
+// lockNotice and restartNotice head both the Settings and Advanced forms.
+func (s *settingsScreen) lockNotice() widget.Widget {
+	return errorText(func() string {
+		if s.locked.Get() {
+			return "Settings are managed by your organization (read-only)."
+		}
+		return ""
+	})
+}
+
+func (s *settingsScreen) restartNotice() widget.Widget {
+	return noticeText(func() string {
+		if s.u.restartNeeded.Get() {
+			return "Saved settings take effect after an engine restart (see Dashboard)."
+		}
+		return ""
+	})
+}
+
+// saveRow is the shared Save/Reload button row with inline status.
+func (s *settingsScreen) saveRow() widget.Widget {
+	return primitives.HBox(
+		s.u.btn("Save", s.save),
+		s.u.btnOutlined("Reload", func() { go s.reload() }),
+		errorText(s.saveErr.Get),
+		noticeText(s.saveMsg.Get),
+	).Gap(8).CrossAlign(primitives.CrossAxisCenter)
+}
+
+func (s *settingsScreen) build() widget.Widget {
 	form := primitives.VBox(
-		errorText(func() string {
-			if s.locked.Get() {
-				return "Settings are managed by your organization (read-only)."
-			}
-			return ""
-		}),
-		noticeText(func() string {
-			if s.u.restartNeeded.Get() {
-				return "Saved settings take effect after an engine restart (see Dashboard)."
-			}
-			return ""
-		}),
+		s.lockNotice(),
+		s.restartNotice(),
 
 		sectionTitle("Listeners"),
 		fieldLabel("Proxy listeners (comma-separated: host:port, regular@/socks4@/socks5@host:port; TLS: https@/tls@host:port)"),
-		tf(s.proxyListen, "0.0.0.0:8080"),
+		s.tf(s.proxyListen, "0.0.0.0:8080"),
 
 		sectionTitle("Management API"),
-		fieldLabel("Host (empty = all interfaces)"), tf(s.mgmtHost, "0.0.0.0"),
-		fieldLabel("Port"), tf(s.mgmtPort, "8000"),
-		fieldLabel("UI language (e.g. en, de)"), tf(s.uiLanguage, "en"),
-		cb("Disable system tray on Windows `run`", s.disableTray),
+		fieldLabel("Host (empty = all interfaces)"), s.tf(s.mgmtHost, "0.0.0.0"),
+		fieldLabel("Port"), s.tf(s.mgmtPort, "8000"),
+		fieldLabel("UI language (e.g. en, de)"), s.tf(s.uiLanguage, "en"),
+		s.cb("Disable system tray on Windows `run`", s.disableTray),
 
 		sectionTitle("Logging"),
-		cb("Log blocked requests", s.logBlocks),
-		cb("Log all requests", s.logRequests),
-		fieldLabel("Retention (days)"), tf(s.logRetention, "30"),
+		s.cb("Log blocked requests", s.logBlocks),
+		s.cb("Log all requests", s.logRequests),
+		fieldLabel("Retention (days)"), s.tf(s.logRetention, "30"),
 
 		sectionTitle("Authentication"),
-		cb("Require password for the management UI", s.authEnabled),
-		fieldLabel("New password (leave empty to keep current)"), tf(s.newPassword, ""),
-
-		sectionTitle("Upstream proxy"),
-		fieldLabel("Upstream proxy (host:port, empty = direct)"), tf(s.upstream, ""),
-		fieldLabel("Upstream auth (user:pass)"), tf(s.upstreamAuth, ""),
+		s.cb("Require password for the management UI", s.authEnabled),
+		fieldLabel("New password (leave empty to keep current)"), s.tfPassword(s.newPassword, ""),
 
 		sectionTitle("PAC / WPAD"),
-		fieldLabel("Proxy host advertised in proxy.pac"), tf(s.pacProxyHost, ""),
-		fieldLabel("Direct hosts"), tf(s.pacHosts, "*.lan"),
-		fieldLabel("Direct IPs/CIDRs"), tf(s.pacIPs, "192.168.0.0/16"),
+		fieldLabel("Proxy host advertised in proxy.pac"), s.tf(s.pacProxyHost, ""),
+		fieldLabel("Direct hosts"), s.tf(s.pacHosts, "*.lan"),
+		fieldLabel("Direct IPs/CIDRs"), s.tf(s.pacIPs, "192.168.0.0/16"),
 
-		tunSection,
+		s.saveRow(),
 
-		primitives.HBox(
-			s.u.btn("Save", s.save),
-			s.u.btnOutlined("Reload", func() { go s.reload() }),
-			errorText(s.saveErr.Get),
-			noticeText(s.saveMsg.Get),
-		).Gap(8).CrossAlign(primitives.CrossAxisCenter),
-
+		fieldLabel("Proxy authentication, upstream proxy and tun2socks live in the Advanced tab."),
 		fieldLabel("Certificates, categories, analytics, backup and tools live in the Web UI."),
 	).Padding(16).Gap(8).MaxWidthValue(760)
 

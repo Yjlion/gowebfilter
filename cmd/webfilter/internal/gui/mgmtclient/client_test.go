@@ -100,7 +100,7 @@ func TestSettingsRoundTripPreservesUntouchedFields(t *testing.T) {
 		t.Fatalf("Settings: %v", err)
 	}
 	orig.AuthEnabled = true
-	if _, err := c.UpdateSettings(orig, "hunter2hunter2"); err != nil {
+	if _, err := c.UpdateSettings(orig, "hunter2hunter2", ""); err != nil {
 		t.Fatalf("UpdateSettings (set password): %v", err)
 	}
 	// Auth is live from this point; pick up a session cookie.
@@ -117,7 +117,7 @@ func TestSettingsRoundTripPreservesUntouchedFields(t *testing.T) {
 		t.Fatalf("auth_enabled did not persist")
 	}
 	cur.LogRetentionDays = 7
-	updated, err := c.UpdateSettings(cur, "")
+	updated, err := c.UpdateSettings(cur, "", "")
 	if err != nil {
 		t.Fatalf("UpdateSettings: %v", err)
 	}
@@ -132,6 +132,47 @@ func TestSettingsRoundTripPreservesUntouchedFields(t *testing.T) {
 	// and the session cookie must remain valid after the settings write.
 	if _, err := c.Settings(); err != nil {
 		t.Fatalf("Settings after round trip: %v", err)
+	}
+}
+
+// TestProxyAuthPasswordTravelsSeparately: the Advanced tab's proxy-auth
+// password must reach the server as new_proxy_auth_password (which it
+// hashes), never as a raw hash field, and enabling proxy auth with a
+// password in the same PUT must validate server-side.
+func TestProxyAuthPasswordTravelsSeparately(t *testing.T) {
+	_, c, _ := newTestServer(t)
+
+	cur, err := c.Settings()
+	if err != nil {
+		t.Fatalf("Settings: %v", err)
+	}
+	cur.ProxyAuthEnabled = true
+	cur.ProxyAuthUsername = "proxyuser"
+	updated, err := c.UpdateSettings(cur, "", "swordfish-swordfish")
+	if err != nil {
+		t.Fatalf("UpdateSettings (proxy auth): %v", err)
+	}
+	if !updated.ProxyAuthEnabled || updated.ProxyAuthUsername != "proxyuser" {
+		t.Errorf("proxy auth fields not persisted: enabled=%v username=%q",
+			updated.ProxyAuthEnabled, updated.ProxyAuthUsername)
+	}
+	// The GET DTO must never leak the hash but must report a password is set.
+	// (models.GlobalSettings has no has_proxy_auth field, so re-fetch proves
+	// only that the enabled state persisted; enabling without a hash would
+	// have failed validation above, which is the real contract.)
+	refetched, err := c.Settings()
+	if err != nil {
+		t.Fatalf("Settings refetch: %v", err)
+	}
+	if refetched.ProxyAuthPasswordHash != "" {
+		t.Errorf("proxy_auth_password_hash leaked through GET /api/settings")
+	}
+
+	// A later unrelated round trip must not clobber the stored hash: enabled
+	// stays on, and the server would reject the PUT if the hash were lost.
+	refetched.LogRetentionDays = 9
+	if _, err := c.UpdateSettings(refetched, "", ""); err != nil {
+		t.Fatalf("UpdateSettings (round trip after proxy auth): %v", err)
 	}
 }
 
@@ -217,7 +258,7 @@ func TestManagedLockMapsToErrManagedLocked(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Settings under lock: %v", err)
 	}
-	if _, err := c.UpdateSettings(cur, ""); !errors.Is(err, mgmtclient.ErrManagedLocked) {
+	if _, err := c.UpdateSettings(cur, "", ""); !errors.Is(err, mgmtclient.ErrManagedLocked) {
 		t.Errorf("UpdateSettings under lock = %v, want ErrManagedLocked", err)
 	}
 	p, err := c.Policy("default")
@@ -245,7 +286,7 @@ func TestAuthFlow(t *testing.T) {
 		t.Fatalf("Settings: %v", err)
 	}
 	cur.AuthEnabled = true
-	if _, err := c.UpdateSettings(cur, "correcthorse"); err != nil {
+	if _, err := c.UpdateSettings(cur, "correcthorse", ""); err != nil {
 		t.Fatalf("enable auth: %v", err)
 	}
 

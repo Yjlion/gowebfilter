@@ -68,7 +68,9 @@ Request/block/audit logs go to SQLite at `logs/webfilter.db`.
   windowing stack. Sub-packages `mgmtclient/` (typed loopback HTTP client)
   and `uimodel/` (headless form/poll view-models) import no gogpu packages
   and carry the tests; the widget files (`gui.go`, `screen_*.go`) are thin
-  over them. Covers dashboard/policies/logs/settings; everything else defers
+  over them. Covers dashboard/policies/logs/settings/advanced (advanced =
+  proxy authentication, upstream proxy, tun2socks — a second view over the
+  settings screen's shared form state); everything else defers
   to the "Open Web UI" button. No build tags — headless Linux just never
   runs `webfilter gui` (an X11/Wayland display is a runtime need of that one
   command, not a build dependency).
@@ -162,7 +164,11 @@ Request/block/audit logs go to SQLite at `logs/webfilter.db`.
   listener; configured via the `tun2socks` block in settings. When it's
   enabled and no SOCKS5 listener is configured, `run` adds one on
   `127.0.0.1:1080`.
-- `ui/` — management web UI, copied verbatim from the Python original
+- `ui/` — management web UI, originally copied verbatim from the Python
+  original; the Go port has since added pages (`advanced.html`: proxy
+  authentication, upstream proxy, tun2socks — the settings save bar PUTs the
+  whole settings document from whichever page saves, so the two pages can't
+  clobber each other)
 - `packaging/` — systemd units, `install.sh`, `.deb` build, Windows-service
   notes (see `packaging/README.md`)
 
@@ -359,6 +365,19 @@ Request/block/audit logs go to SQLite at `logs/webfilter.db`.
   requests a frame on an actual wheel event. Lists are a `VBox` of ordinary
   row widgets inside it, capped at `maxListRows`; the full history is behind
   "Open Web UI".
+- **The GUI's tab strip is the custom `gui.tabBar`, not `core/tabview`** —
+  tabview's `Tab` is a bare label string and cannot render the per-tab icons
+  (`github.com/gogpu/ui/icon`, drawn via the canvas `RenderSVG` path). The
+  tab bar only sets `activeTab` and fires `onTabSelected`; the actual content
+  switch is `contentSwap.SetChild(tabContents[idx])` inside `onTabSelected` —
+  anything selecting a tab programmatically (see `snapshot_test.go`) must do
+  both, or the highlight moves while the content stays.
+- **Copy-to-clipboard must go through `ui.copyText` →
+  `gogpu.App.ClipboardWrite`.** gogpu/ui's textfield "clipboard" (Ctrl+C) is
+  an internal placeholder buffer that never reaches the OS clipboard, and
+  there is no selectable-text widget — that's why log rows are click-to-copy
+  `clickable` wrappers instead of selectable text. `copyText` is a no-op
+  (returns false) when `gogpuApp` is nil (offscreen snapshot tests).
 - **The GUI's gg GPU accelerator is registered by `cmd/webfilter/cmd_gui.go`
   (`_ "github.com/gogpu/gg/gpu"`), NOT by the `gui` package.** That blank
   import swaps gg's software rasterizer for the GPU one process-wide; if the

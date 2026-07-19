@@ -1,7 +1,9 @@
 package gui
 
 import (
+	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/gogpu/ui/core/dropdown"
 	"github.com/gogpu/ui/core/textfield"
@@ -25,6 +27,7 @@ type logsScreen struct {
 	filter  state.Signal[string]
 	paused  state.Signal[bool]
 	fetchEr state.Signal[string]
+	copyMsg state.Signal[string]
 
 	listSwap *swapWidget
 }
@@ -36,6 +39,7 @@ func newLogsScreen(u *ui) *logsScreen {
 		filter:  state.NewSignal(""),
 		paused:  state.NewSignal(false),
 		fetchEr: state.NewSignal(""),
+		copyMsg: state.NewSignal(""),
 	}
 }
 
@@ -59,20 +63,43 @@ func (s *logsScreen) poll() {
 	}
 }
 
-// updateVisible recomputes the filtered rows and rebuilds the list.
+// updateVisible recomputes the filtered rows and rebuilds the list. There is
+// no selectable-text widget in gogpu/ui, so each row is wrapped in a
+// clickable that copies the row to the OS clipboard instead.
 func (s *logsScreen) updateVisible() {
 	filter := s.filter.Get()
 	rows := s.poller.Rows()
 	items := make([]widget.Widget, 0, len(rows))
 	for _, r := range rows {
 		if r.MatchesFilter(filter) {
-			items = append(items, logRowWidget(r.Time, r.Client, r.Action, r.Target, r.Detail))
+			row := r
+			items = append(items, newClickable(
+				logRowWidget(row.Time, row.Client, row.Action, row.Target, row.Detail),
+				func() {
+					if s.u.copyText(row.ClipboardLine()) {
+						s.copyMsg.Set("Copied row to clipboard.")
+						s.u.redraw()
+					}
+				},
+			))
 		}
 	}
 	if s.listSwap != nil {
 		s.listSwap.SetChild(scrollList(items))
 	}
 	s.u.redraw()
+}
+
+// visibleLines returns the currently filtered rows as clipboard lines.
+func (s *logsScreen) visibleLines() []string {
+	filter := s.filter.Get()
+	var lines []string
+	for _, r := range s.poller.Rows() {
+		if r.MatchesFilter(filter) {
+			lines = append(lines, r.ClipboardLine())
+		}
+	}
+	return lines
 }
 
 func (s *logsScreen) build() widget.Widget {
@@ -123,12 +150,23 @@ func (s *logsScreen) build() widget.Widget {
 				go s.poll()
 			}
 		}),
+		s.u.btnOutlined("Copy all", func() {
+			lines := s.visibleLines()
+			if len(lines) == 0 {
+				return
+			}
+			if s.u.copyText(strings.Join(lines, "\n")) {
+				s.copyMsg.Set(fmt.Sprintf("Copied %d rows to clipboard.", len(lines)))
+				s.u.redraw()
+			}
+		}),
 		primitives.TextFn(func() string {
 			if s.paused.Get() {
 				return "paused"
 			}
 			return ""
-		}).FontSize(12).Color(widget.RGBA8(179, 38, 30, 255)),
+		}).FontSize(12).Color(colBlocked),
+		noticeText(s.copyMsg.Get),
 	).Gap(8).CrossAlign(primitives.CrossAxisCenter)
 
 	return primitives.VBox(
@@ -137,5 +175,6 @@ func (s *logsScreen) build() widget.Widget {
 		logHeaderRow(),
 		hairline(),
 		primitives.Expanded(s.listSwap),
+		fieldLabel("Click a row to copy it; Copy all copies every visible row."),
 	).Padding(16).Gap(10).CrossAlign(primitives.CrossAxisStretch)
 }
