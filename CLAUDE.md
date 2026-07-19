@@ -164,7 +164,11 @@ Request/block/audit logs go to SQLite at `logs/webfilter.db`.
   listener; configured via the `tun2socks` block in settings. When it's
   enabled and no SOCKS5 listener is configured, `run` adds one on
   `127.0.0.1:1080`.
-- `ui/` — management web UI, copied verbatim from the Python original
+- `ui/` — management web UI, originally copied verbatim from the Python
+  original; the Go port has since added pages (`advanced.html`: proxy
+  authentication, upstream proxy, tun2socks — the settings save bar PUTs the
+  whole settings document from whichever page saves, so the two pages can't
+  clobber each other)
 - `packaging/` — systemd units, `install.sh`, `.deb` build, Windows-service
   notes (see `packaging/README.md`)
 
