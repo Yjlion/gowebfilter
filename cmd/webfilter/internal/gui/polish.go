@@ -12,6 +12,7 @@ import (
 // values rather than scattering raw RGBA literals (the pre-polish code had the
 // same muted gray hard-coded in five files).
 var (
+	colAccent   = widget.Hex(0x2563EB) // brand blue — also seeds the material3 theme
 	colCardBG   = widget.RGBA8(255, 255, 255, 255)
 	colBorder   = widget.RGBA8(226, 228, 233, 255)
 	colDivider  = widget.RGBA8(233, 234, 238, 255)

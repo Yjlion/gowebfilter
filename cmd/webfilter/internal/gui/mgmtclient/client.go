@@ -196,9 +196,10 @@ func (c *Client) Settings() (models.GlobalSettings, error) {
 }
 
 // UpdateSettings PUTs a settings document (full or partial - the server
-// merges over current values). newPassword, when non-empty, travels as the
-// separate new_password field the server hashes; raw hashes are never sent.
-func (c *Client) UpdateSettings(s models.GlobalSettings, newPassword string) (models.GlobalSettings, error) {
+// merges over current values). newPassword and newProxyAuthPassword, when
+// non-empty, travel as the separate new_password / new_proxy_auth_password
+// fields the server hashes; raw hashes are never sent.
+func (c *Client) UpdateSettings(s models.GlobalSettings, newPassword, newProxyAuthPassword string) (models.GlobalSettings, error) {
 	data, err := json.Marshal(s)
 	if err != nil {
 		return models.GlobalSettings{}, err
@@ -214,6 +215,9 @@ func (c *Client) UpdateSettings(s models.GlobalSettings, newPassword string) (mo
 	delete(doc, "proxy_auth_password_hash")
 	if newPassword != "" {
 		doc["new_password"] = newPassword
+	}
+	if newProxyAuthPassword != "" {
+		doc["new_proxy_auth_password"] = newProxyAuthPassword
 	}
 	var out models.GlobalSettings
 	err = c.do(http.MethodPut, "/api/settings", doc, &out)

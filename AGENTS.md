@@ -168,9 +168,19 @@ for local dev. They persist to disk; the mgmt API's
   imported by `cmd/webfilter/cmd_gui.go`, NOT the `gui` package, or the
   `offscreen` snapshot test renders blank; (5) `gui.redraw()`/`onTabSelected`
   mark the root needs-layout so async data and tab switches re-lay-out.
-- Snapshot-test the four screens headlessly with
+- The tab strip is the custom `gui.tabBar` (icon+label, drawn via the canvas
+  `RenderSVG` path with `github.com/gogpu/ui/icon`), not `core/tabview` —
+  tabview tabs are bare label strings and cannot show icons. The tab bar only
+  sets `activeTab`; the content switch is `contentSwap.SetChild(...)` in
+  `onTabSelected`, so programmatic tab selection (snapshot tests) must do
+  both. The Advanced tab (proxy auth, upstream proxy, tun2socks) is a second
+  view over the settings screen's shared form state — one save/reload path.
+- OS clipboard access is `ui.copyText` → `gogpu.App.ClipboardWrite`; the ui
+  textfield's Ctrl+C "clipboard" is an internal placeholder and there is no
+  selectable-text widget, hence the click-to-copy log rows.
+- Snapshot-test the five screens headlessly with
   `GUI_SNAPSHOT_DIR=<dir> go test ./cmd/webfilter/internal/gui -run TestRenderSnapshots`
-  (writes dashboard/policies/logs/settings PNGs; skipped without the env).
+  (writes dashboard/policies/logs/settings/advanced PNGs; skipped without the env).
 
 ## Live testing
 

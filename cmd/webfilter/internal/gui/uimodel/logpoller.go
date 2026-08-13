@@ -170,6 +170,12 @@ func (r LogRow) MatchesFilter(filter string) bool {
 	return false
 }
 
+// ClipboardLine renders the row as one tab-separated line (display-column
+// order) for the logs screen's click-to-copy and Copy-all actions.
+func (r LogRow) ClipboardLine() string {
+	return strings.Join([]string{r.Time, r.Client, r.Action, r.Target, r.Detail}, "\t")
+}
+
 func parenthesize(s string) string {
 	if s == "" {
 		return ""

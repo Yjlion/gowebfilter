@@ -18,7 +18,7 @@ import (
 	"github.com/gogpu/gg/integration/ggcanvas"
 	"github.com/gogpu/gogpu"
 	uiapp "github.com/gogpu/ui/app"
-	"github.com/gogpu/ui/core/tabview"
+	"github.com/gogpu/ui/icon"
 	"github.com/gogpu/ui/primitives"
 	"github.com/gogpu/ui/render"
 	"github.com/gogpu/ui/state"
@@ -53,6 +53,7 @@ const (
 	tabPolicies  = 1
 	tabLogs      = 2
 	tabSettings  = 3
+	tabAdvanced  = 4
 )
 
 type ui struct {
@@ -69,7 +70,14 @@ type ui struct {
 	pols  *policiesScreen
 	logs  *logsScreen
 	sets  *settingsScreen
+	adv   *advancedScreen
 	login *loginController
+
+	// tabContents holds each tab's built screen; contentSwap shows the
+	// active one (the custom tabBar replaced core/tabview, which owned this
+	// switching before but could not render tab icons).
+	tabContents []widget.Widget
+	contentSwap *swapWidget
 }
 
 // Run opens the window and blocks until it is closed. Must be called on the
@@ -78,7 +86,7 @@ type ui struct {
 func Run(o Options) error {
 	u := &ui{
 		opts:          o,
-		m3:            material3.New(widget.Hex(0x2563EB)),
+		m3:            material3.New(colAccent),
 		activeTab:     state.NewSignal(tabDashboard),
 		engineBanner:  state.NewSignal(""),
 		restartNeeded: state.NewSignal(false),
@@ -98,6 +106,7 @@ func Run(o Options) error {
 	u.pols = newPoliciesScreen(u)
 	u.logs = newLogsScreen(u)
 	u.sets = newSettingsScreen(u)
+	u.adv = newAdvancedScreen(u, u.sets)
 	u.login = newLoginController(u)
 
 	u.uiApp.SetRoot(u.buildRoot())
@@ -209,30 +218,38 @@ func (u *ui) buildRoot() widget.Widget {
 		hairline(),
 	).CrossAlign(primitives.CrossAxisStretch)
 
-	tabs := tabview.New(
-		[]tabview.Tab{
-			{Label: "Dashboard", Content: u.dash.build()},
-			{Label: "Policies", Content: u.pols.build()},
-			{Label: "Logs", Content: u.logs.build()},
-			{Label: "Settings", Content: u.sets.build()},
-		},
-		tabview.SelectedSignalOpt(u.activeTab),
-		tabview.OnSelect(u.onTabSelected),
-		tabview.PainterOpt(material3.TabViewPainter{Theme: u.m3}),
-	)
+	u.tabContents = []widget.Widget{
+		u.dash.build(),
+		u.pols.build(),
+		u.logs.build(),
+		u.sets.build(),
+		u.adv.build(),
+	}
+	u.contentSwap = newSwap(u.tabContents[u.activeTab.Get()])
+
+	bar := newTabBar([]tabBarItem{
+		{icon.ToolStructure, "Dashboard"},
+		{icon.ExpFolder, "Policies"},
+		{icon.ToolTerminal, "Logs"},
+		{icon.ExpSettings, "Settings"},
+		{icon.ToolServices, "Advanced"},
+	}, u.activeTab, u.onTabSelected)
 
 	return primitives.VBox(
 		header,
 		errorText(u.engineBanner.Get),
-		primitives.Expanded(tabs),
-	)
+		bar,
+		primitives.Expanded(u.contentSwap),
+	).CrossAlign(primitives.CrossAxisStretch)
 }
 
 func (u *ui) onTabSelected(idx int) {
-	// Relayout immediately so the newly-selected tab's content lays out this
-	// frame rather than staying blank until the async fetch below returns
-	// (the tabview only lays out the selected tab, and a click marks widgets
-	// needs-redraw but not needs-layout).
+	// Swap in the selected tab's content, then relayout immediately so it
+	// lays out this frame rather than staying blank until the async fetch
+	// below returns (redraw marks the root needs-layout).
+	if u.contentSwap != nil && idx >= 0 && idx < len(u.tabContents) {
+		u.contentSwap.SetChild(u.tabContents[idx])
+	}
 	u.redraw()
 	switch idx {
 	case tabDashboard:
@@ -243,7 +260,18 @@ func (u *ui) onTabSelected(idx int) {
 		go u.logs.poll()
 	case tabSettings:
 		go u.sets.reload()
+	case tabAdvanced:
+		go u.adv.reload()
 	}
+}
+
+// copyText writes s to the OS clipboard. Returns false when there is no
+// platform window (offscreen snapshot tests) or the platform write fails.
+func (u *ui) copyText(s string) bool {
+	if u.gogpuApp == nil {
+		return false
+	}
+	return u.gogpuApp.ClipboardWrite(s) == nil
 }
 
 // redraw asks the windowing layer for a frame; every background data change

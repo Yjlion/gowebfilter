@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title data-i18n="doc.advanced">Advanced — WebFilter Proxy</title>
+  <link rel="stylesheet" href="tailwind.css" />
+  <link rel="stylesheet" href="theme.css" />
+  <script src="chrome.js"></script>
+  <script src="i18n.js"></script>
+  <script defer src="alpine.min.js"></script>
+</head>
+<body class="bg-canvas min-h-screen" x-data="advancedPage()" x-init="init()">
+
+  <div class="flex h-screen overflow-hidden">
+    <aside class="wf-sidebar w-56 bg-sidebar text-sidebar-ink flex flex-col flex-shrink-0">
+      <div class="px-6 py-5 border-b border-sidebar-border">
+        <div class="flex items-center gap-2">
+          <svg class="w-6 h-6 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+          </svg>
+          <span class="font-bold text-sm">WebFilter Proxy</span>
+        </div>
+      </div>
+      <nav class="flex-1 px-3 py-4 space-y-1">
+        <a href="index.html" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sidebar-muted hover:bg-sidebar-active hover:text-sidebar-ink text-sm transition-colors">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+          <span data-i18n="nav.dashboard">Dashboard</span>
+        </a>
+        <a href="policies.html" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sidebar-muted hover:bg-sidebar-active hover:text-sidebar-ink text-sm transition-colors">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+          <span data-i18n="nav.policies">Policies</span>
+        </a>
+        <a href="logs.html" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sidebar-muted hover:bg-sidebar-active hover:text-sidebar-ink text-sm transition-colors">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+          <span data-i18n="nav.logs">Logs</span>
+        </a>
+        <a href="analytics.html" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sidebar-muted hover:bg-sidebar-active hover:text-sidebar-ink text-sm transition-colors">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+          <span data-i18n="nav.analytics">Analytics</span>
+        </a>
+        <a href="tools.html" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sidebar-muted hover:bg-sidebar-active hover:text-sidebar-ink text-sm transition-colors">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.42 15.17L17.25 21A2.652 2.652 0 0021 17.25l-5.877-5.877M11.42 15.17l2.496-3.03c.317-.384.74-.626 1.208-.766M11.42 15.17l-4.655 5.653a2.548 2.548 0 11-3.586-3.586l6.837-5.63m5.108-.233c.55-.164 1.163-.188 1.743-.14a4.5 4.5 0 004.486-6.336l-3.276 3.277a3.004 3.004 0 01-2.25-2.25l3.276-3.276a4.5 4.5 0 00-6.336 4.486c.091 1.076-.071 2.264-.904 2.95l-.102.085m-1.745 1.437L5.909 7.5H4.5L2.25 3.75l1.5-1.5L7.5 4.5v1.409l4.26 4.26m-1.745 1.437l1.745-1.437m6.615 8.206L15.75 15.75M4.867 19.125h.008v.008h-.008v-.008z"/></svg>
+          <span data-i18n="nav.tools">Tools</span>
+        </a>
+        <a href="settings.html" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sidebar-muted hover:bg-sidebar-active hover:text-sidebar-ink text-sm transition-colors">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+          <span data-i18n="nav.settings">Settings</span>
+        </a>
+        <a href="advanced.html" class="flex items-center gap-3 px-3 py-2 rounded-lg bg-sidebar-active text-sidebar-ink text-sm font-medium">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75"/></svg>
+          <span data-i18n="nav.advanced">Advanced</span>
+        </a>
+      </nav>
+      <div class="px-3 py-4 border-t border-sidebar-border space-y-2">
+        <label class="block px-3">
+          <span class="text-xs text-sidebar-muted" data-i18n="lang.label">Language</span>
+          <select class="wf-lang-select mt-1 w-full bg-sidebar-active text-sidebar-ink text-xs rounded px-2 py-1 border border-sidebar-border focus:outline-none"></select>
+        </label>
+        <a href="/api/ca-cert" class="flex items-center gap-2 text-xs text-sidebar-muted hover:text-sidebar-ink transition-colors px-3 py-2">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+          <span data-i18n="nav.downloadCert">Download CA Cert</span>
+        </a>
+        <button x-show="settings.auth_enabled && settings.has_password" x-cloak @click="logout()"
+                class="flex items-center gap-2 text-xs text-sidebar-muted hover:text-sidebar-ink transition-colors px-3 py-2 w-full">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+          <span data-i18n="nav.signOut">Sign out</span>
+        </button>
+      </div>
+    </aside>
+
+    <main class="flex-1 overflow-auto">
+      <div class="px-8 pt-6 pb-24 max-w-2xl mx-auto">
+        <div class="mb-6">
+          <h1 class="text-2xl font-bold text-gray-900" data-i18n="adv.title">Advanced</h1>
+          <p class="text-sm text-gray-500 mt-1" data-i18n="adv.subtitle">Proxy authentication, upstream proxy, and whole-OS capture</p>
+        </div>
+
+        <!-- Proxy Authentication -->
+        <div class="bg-card rounded-xl shadow-sm border border-gray-100 p-6 space-y-4 mb-4">
+          <div>
+            <h2 class="text-sm font-semibold text-gray-900">Proxy Authentication</h2>
+            <p class="text-xs text-gray-500 mt-0.5">Require clients to present a username and password before they can use the proxy (HTTP Basic, RFC 7235). Applies to HTTP proxy requests and HTTPS CONNECT tunnels.</p>
+          </div>
+          <label class="flex items-center gap-3 cursor-pointer">
+            <input type="checkbox" class="w-4 h-4 accent-blue-600" x-model="settings.proxy_auth_enabled" />
+            <span class="text-sm text-gray-700">Require credentials to use the proxy</span>
+          </label>
+          <div>
+            <label class="text-xs font-medium text-gray-700 block mb-1">Username</label>
+            <input type="text" x-model="settings.proxy_auth_username" placeholder="proxyuser"
+                   autocomplete="off" spellcheck="false"
+                   class="w-full sm:w-64 border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label class="text-xs font-medium text-gray-700 block mb-1">
+              <span x-text="settings.has_proxy_auth ? 'Change proxy password' : 'Set proxy password'"></span>
+              <span x-show="settings.has_proxy_auth" class="text-green-600"> · a password is currently set</span>
+            </label>
+            <input type="password" x-model="newProxyAuthPassword" autocomplete="new-password"
+                   :placeholder="settings.has_proxy_auth ? 'Leave blank to keep current password' : 'Enter password'"
+                   class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <p class="text-xs text-gray-400 mt-1">Password is stored salted + hashed (PBKDF2). Credentials travel over the network as Base64 (HTTP Basic) — use on a trusted LAN or behind HTTPS/VPN.</p>
+          </div>
+        </div>
+
+        <!-- Upstream Proxy -->
+        <div class="bg-card rounded-xl shadow-sm border border-gray-100 p-6 space-y-4 mb-4">
+          <div>
+            <h2 class="text-sm font-semibold text-gray-900">Upstream Proxy</h2>
+            <p class="text-xs text-gray-500 mt-0.5">When set, all regular-mode listeners forward through this parent proxy. Restart the proxy after changing.</p>
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="text-xs font-medium text-gray-700 block mb-1">Upstream Proxy URL</label>
+              <input type="text" x-model="settings.upstream_proxy" placeholder="http://proxy.example:3128"
+                     class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label class="text-xs font-medium text-gray-700 block mb-1">Upstream Auth <span class="text-gray-400">(optional)</span></label>
+              <input type="text" x-model="settings.upstream_auth" placeholder="user:pass"
+                     class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+          </div>
+        </div>
+
+        <!-- TUN / tun2socks -->
+        <div class="bg-card rounded-xl shadow-sm border border-gray-100 p-6 space-y-4 mb-4">
+          <div>
+            <h2 class="text-sm font-semibold text-gray-900">TUN / tun2socks</h2>
+            <p class="text-xs text-gray-500 mt-0.5">Capture this machine's traffic through a TUN interface and send it into the local SOCKS5 proxy. Needs administrator/root privileges. Restart after saving changes.</p>
+          </div>
+          <div class="grid grid-cols-2 gap-3 text-xs">
+            <div class="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+              <div class="text-gray-500">Runtime</div>
+              <div class="font-medium" x-text="status.tun2socks && status.tun2socks.running ? 'Running' : 'Stopped'"></div>
+            </div>
+            <div class="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+              <div class="text-gray-500">Platform</div>
+              <div class="font-medium" x-text="status.tun2socks ? `${status.tun2socks.platform}${status.tun2socks.supported ? '' : ' (unsupported)'}` : 'unknown'"></div>
+            </div>
+            <div class="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+              <div class="text-gray-500">Privilege</div>
+              <div class="font-medium" x-text="status.tun2socks && status.tun2socks.privilege_ok ? status.tun2socks.privilege : 'needs admin/root'"></div>
+            </div>
+            <div class="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+              <div class="text-gray-500">Proxy target</div>
+              <div class="font-mono" x-text="status.tun2socks && status.tun2socks.required_proxy ? status.tun2socks.required_proxy : 'auto'"></div>
+            </div>
+          </div>
+          <div x-show="status.tun2socks && status.tun2socks.last_error" x-cloak
+               class="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2"
+               x-text="status.tun2socks.last_error"></div>
+          <label class="flex items-center gap-3 cursor-pointer">
+            <input type="checkbox" class="w-4 h-4 accent-blue-600" x-model="settings.tun2socks.enabled" />
+            <span class="text-sm text-gray-700">Enable TUN capture on startup</span>
+          </label>
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="text-xs font-medium text-gray-700 block mb-1">Device name</label>
+              <input type="text" x-model="settings.tun2socks.device_name" placeholder="webfilter-tun"
+                     class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label class="text-xs font-medium text-gray-700 block mb-1">Outbound interface <span class="text-gray-400">(optional)</span></label>
+              <input type="text" x-model="settings.tun2socks.interface_name" placeholder="Wi-Fi / eth0"
+                     class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label class="text-xs font-medium text-gray-700 block mb-1">TUN address</label>
+              <input type="text" x-model="settings.tun2socks.tun_address" placeholder="198.18.0.1"
+                     class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label class="text-xs font-medium text-gray-700 block mb-1">Gateway</label>
+              <input type="text" x-model="settings.tun2socks.tun_gateway" placeholder="198.18.0.1"
+                     class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label class="text-xs font-medium text-gray-700 block mb-1">Netmask</label>
+              <input type="text" x-model="settings.tun2socks.tun_netmask" placeholder="255.254.0.0"
+                     class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label class="text-xs font-medium text-gray-700 block mb-1">Proxy target <span class="text-gray-400">(optional)</span></label>
+              <input type="text" x-model="settings.tun2socks.proxy_target" placeholder="auto: socks5://127.0.0.1:1080"
+                     class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+          </div>
+          <label class="flex items-center gap-3 cursor-pointer">
+            <input type="checkbox" class="w-4 h-4 accent-blue-600" x-model="settings.tun2socks.auto_routes" />
+            <span class="text-sm text-gray-700">Configure TUN address, DNS, and default route automatically</span>
+          </label>
+          <div>
+            <label class="text-xs font-medium text-gray-700 block mb-1">DNS servers</label>
+            <div class="space-y-2">
+              <template x-for="(dns, i) in settings.tun2socks.dns_servers" :key="i">
+                <div class="flex items-center gap-2">
+                  <input type="text" x-model="settings.tun2socks.dns_servers[i]" placeholder="1.1.1.3"
+                         class="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  <button type="button" @click="settings.tun2socks.dns_servers.splice(i, 1)"
+                          class="px-2 py-2 text-gray-400 hover:text-red-500" title="Remove">✕</button>
+                </div>
+              </template>
+              <button type="button" @click="settings.tun2socks.dns_servers.push('')"
+                      class="text-sm text-blue-600 hover:text-blue-800 font-medium">+ Add DNS server</button>
+            </div>
+          </div>
+          <div>
+            <label class="text-xs font-medium text-gray-700 block mb-1">Bypass CIDRs</label>
+            <div class="space-y-2">
+              <template x-for="(cidr, i) in settings.tun2socks.bypass_cidrs" :key="i">
+                <div class="flex items-center gap-2">
+                  <input type="text" x-model="settings.tun2socks.bypass_cidrs[i]" placeholder="192.168.0.0/16"
+                         class="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  <button type="button" @click="settings.tun2socks.bypass_cidrs.splice(i, 1)"
+                          class="px-2 py-2 text-gray-400 hover:text-red-500" title="Remove">✕</button>
+                </div>
+              </template>
+              <button type="button" @click="settings.tun2socks.bypass_cidrs.push('')"
+                      class="text-sm text-blue-600 hover:text-blue-800 font-medium">+ Add bypass CIDR</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Single save bar — every section above writes the whole settings object -->
+        <div class="sticky bottom-0 -mx-8 mt-6 px-8 py-3 bg-card/95 backdrop-blur border-t border-gray-200">
+          <div x-show="alert" x-cloak class="mb-2 px-3 py-2 rounded-lg text-sm"
+               :class="alertType === 'error' ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-green-50 text-green-700 border border-green-200'"
+               x-text="alert"></div>
+          <div class="flex items-center gap-4">
+            <button @click="save()" class="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700" data-i18n="set.save">Save Settings</button>
+            <p class="text-xs text-gray-400" data-i18n="set.restartNote">Restart the proxy after changing listen addresses, ports, or the certificate directory.</p>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    function advancedPage() {
+      return {
+        // Full settings mirror: the save bar PUTs the entire document (the
+        // server merges and re-pins secrets), exactly like settings.html.
+        settings: { proxy_listen: ['0.0.0.0:8080', 'socks5@127.0.0.1:1080'], mgmt_host: '0.0.0.0', mgmt_port: 8000, cert_dir: './certs', policies_dir: './policies', logs_dir: './logs', categories_dir: './categories', log_blocks: true, log_requests: true, log_retention_days: 30, default_policy: null, auth_enabled: false, has_password: false, pac_proxy_host: '', pac_direct_hosts: [], pac_direct_ips: [], mgmt_hostname: 'web.filter', upstream_proxy: '', upstream_auth: '', ui_language: 'en', proxy_auth_enabled: false, proxy_auth_username: '', has_proxy_auth: false, tun2socks: { enabled: false, device_name: 'webfilter-tun', interface_name: '', tun_address: '198.18.0.1', tun_gateway: '198.18.0.1', tun_netmask: '255.254.0.0', dns_servers: [], auto_routes: true, bypass_cidrs: ['127.0.0.0/8', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'], proxy_target: '' } },
+        status: { proxy_port: null, tun2socks: { running: false, platform: 'unknown', supported: false, privilege_ok: false, required_proxy: '' } },
+        newProxyAuthPassword: '',
+        alert: '',
+        alertType: 'success',
+
+        async init() {
+          try {
+            const res = await fetch('/api/settings');
+            if (res.ok) {
+              const s = await res.json();
+              if (!Array.isArray(s.proxy_listen) || s.proxy_listen.length === 0) s.proxy_listen = ['0.0.0.0:8080'];
+              if (!Array.isArray(s.pac_direct_hosts)) s.pac_direct_hosts = [];
+              if (!Array.isArray(s.pac_direct_ips)) s.pac_direct_ips = [];
+              if (!s.mgmt_hostname) s.mgmt_hostname = 'web.filter';
+              s.tun2socks = this.normalizeTun(s.tun2socks);
+              this.settings = s;
+            }
+          } catch (e) {}
+          try {
+            const r = await fetch('/api/status');
+            if (r.ok) this.status = await r.json();
+          } catch (e) {}
+        },
+
+        async save() {
+          const payload = { ...this.settings };
+          // Interface language is managed by the language picker (and persisted
+          // immediately), so don't let a stale value here overwrite it.
+          delete payload.ui_language;
+          if (Array.isArray(payload.pac_direct_hosts))
+            payload.pac_direct_hosts = payload.pac_direct_hosts.map(h => (h || '').trim()).filter(Boolean);
+          if (Array.isArray(payload.pac_direct_ips))
+            payload.pac_direct_ips = payload.pac_direct_ips.map(h => (h || '').trim()).filter(Boolean);
+          if (payload.tun2socks) {
+            payload.tun2socks.dns_servers = (payload.tun2socks.dns_servers || []).map(h => (h || '').trim()).filter(Boolean);
+            payload.tun2socks.bypass_cidrs = (payload.tun2socks.bypass_cidrs || []).map(h => (h || '').trim()).filter(Boolean);
+          }
+          if (this.newProxyAuthPassword !== '') payload.new_proxy_auth_password = this.newProxyAuthPassword;
+          try {
+            const res = await fetch('/api/settings', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+            });
+            const body = await res.json().catch(() => ({}));
+            if (res.ok) {
+              body.tun2socks = this.normalizeTun(body.tun2socks);
+              this.settings = body;
+              this.newProxyAuthPassword = '';
+              this.alert = window.wfT('set.saved');
+              this.alertType = 'success';
+            } else {
+              this.alert = body.detail || window.wfT('set.saveFailed');
+              this.alertType = 'error';
+            }
+          } catch (e) {
+            this.alert = window.wfT('set.netErr');
+            this.alertType = 'error';
+          }
+          setTimeout(() => { this.alert = ''; }, 4000);
+        },
+
+        normalizeTun(t) {
+          const d = { enabled: false, device_name: 'webfilter-tun', interface_name: '', tun_address: '198.18.0.1', tun_gateway: '198.18.0.1', tun_netmask: '255.254.0.0', dns_servers: [], auto_routes: true, bypass_cidrs: ['127.0.0.0/8', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'], proxy_target: '' };
+          const out = { ...d, ...(t || {}) };
+          if (!Array.isArray(out.dns_servers)) out.dns_servers = d.dns_servers;
+          if (!Array.isArray(out.bypass_cidrs)) out.bypass_cidrs = d.bypass_cidrs;
+          return out;
+        },
+
+        async logout() { await fetch('/api/logout', { method: 'POST' }); location.href = 'login.html'; },
+      };
+    }
+  </script>
+</body>
+</html>

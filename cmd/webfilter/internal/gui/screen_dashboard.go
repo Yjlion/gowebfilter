@@ -40,7 +40,11 @@ func (d *dashboardScreen) rebuildList() {
 	rows := d.model.RecentBlockRows()
 	items := make([]widget.Widget, 0, len(rows))
 	for _, r := range rows {
-		items = append(items, logRowWidget(r.Time, r.Client, r.Action, r.Target, r.Detail))
+		row := r
+		items = append(items, newClickable(
+			logRowWidget(row.Time, row.Client, row.Action, row.Target, row.Detail),
+			func() { _ = d.u.copyText(row.ClipboardLine()) },
+		))
 	}
 	d.listSwap.SetChild(scrollList(items))
 }

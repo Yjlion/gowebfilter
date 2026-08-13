@@ -222,6 +222,80 @@ func (s *swapWidget) Children() []widget.Widget {
 
 func (s *swapWidget) AccessibilityRole() a11y.Role { return a11y.RoleGroup }
 
+// clickable wraps an inert child (a log row's HBox of Text widgets) and fires
+// onClick on a left press+release inside its bounds, following core/button's
+// hit-test convention (event Position shares the widget's Bounds space; the
+// parent Box translated it). Wheel events are left unconsumed so an enclosing
+// scrollBox still scrolls over rows.
+type clickable struct {
+	widget.WidgetBase
+	child   widget.Widget
+	onClick func()
+	pressed bool
+}
+
+func newClickable(child widget.Widget, onClick func()) *clickable {
+	c := &clickable{child: child, onClick: onClick}
+	c.SetVisible(true)
+	c.SetEnabled(true)
+	if ps, ok := child.(interface{ SetParent(widget.Widget) }); ok {
+		ps.SetParent(c)
+	}
+	return c
+}
+
+func (c *clickable) Layout(ctx widget.Context, constraints geometry.Constraints) geometry.Size {
+	size := widget.LayoutChild(c.child, ctx, constraints)
+	if sb, ok := c.child.(interface{ SetBounds(geometry.Rect) }); ok {
+		sb.SetBounds(geometry.FromPointSize(geometry.Point{}, size))
+	}
+	c.SetBounds(geometry.FromPointSize(c.Position(), size))
+	return size
+}
+
+func (c *clickable) Draw(ctx widget.Context, canvas widget.Canvas) {
+	if !c.IsVisible() || c.child == nil {
+		return
+	}
+	b := c.Bounds()
+	canvas.PushTransform(b.Min)
+	widget.StampScreenOrigin(c.child, canvas)
+	c.child.Draw(ctx, canvas)
+	canvas.PopTransform()
+}
+
+func (c *clickable) Event(_ widget.Context, ev event.Event) bool {
+	if !c.IsVisible() || !c.IsEnabled() {
+		return false
+	}
+	me, ok := ev.(*event.MouseEvent)
+	if !ok || me.Button != event.ButtonLeft {
+		return false
+	}
+	switch me.MouseType {
+	case event.MousePress:
+		c.pressed = true
+		return true
+	case event.MouseRelease:
+		wasPressed := c.pressed
+		c.pressed = false
+		if wasPressed && c.Bounds().Contains(me.Position) && c.onClick != nil {
+			c.onClick()
+			return true
+		}
+	}
+	return false
+}
+
+func (c *clickable) Children() []widget.Widget {
+	if c.child == nil {
+		return nil
+	}
+	return []widget.Widget{c.child}
+}
+
+func (c *clickable) AccessibilityRole() a11y.Role { return a11y.RoleButton }
+
 // ---- shared styling helpers ----
 
 func (u *ui) btn(label string, onClick func()) *button.Widget {
