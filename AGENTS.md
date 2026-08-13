@@ -62,11 +62,18 @@ for local dev. They persist to disk; the mgmt API's
   managed-config apply (`ApplyManagedConfig`)
 - `internal/classify/textbayes/` - embedded pure-Go Bayesian adult-text scorer
 - `internal/classify/image/` - embedded pure-Go GantMan/nsfw_model image classifier
+- `internal/tun2socks/` - supervises the **external** tun2socks binary as a
+  child process (only it needs root), downloads it sha256-verified from the
+  upstream GitHub release into `bin/` beside the executable
+- `internal/webptest/` - minimal VP8L encoder used only by tests (Go has no
+  WebP encoder)
 - `mobile/` - gomobile-bound Android entry point (`Start`, `StartProxyOnly`
   (no-TUN loopback-proxy/PAC mode), `Stop`, `Status`, …, plus JSON-string
   exports per concern: `settingsapi.go`, `managed.go`, `policiesapi.go`,
   `categoriesapi.go`, `logsapi.go`);
-  drives tun2socks from the VpnService `fd://` TUN. Build with
+  drives the tun2socks **library** in-process from the VpnService `fd://` TUN
+  (the one remaining user of that dependency; desktop supervises the binary
+  instead). Build with
   `gomobile bind -target=android/arm64,android/arm,android/amd64 -androidapi 26 -o android/app/libs/webfilter.aar ./mobile`.
   Before binding for `android/amd64` (x86_64 emulators), run
   `go run scripts/patch_libc_seccomp.go` — `modernc.org/libc`'s musl syscall
@@ -80,17 +87,24 @@ for local dev. They persist to disk; the mgmt API's
   install/save flow) consuming the gomobile AAR. Debug APKs build via
   the `.github/workflows/android.yml` workflow (manual trigger, and on `v*`
   tags from `ci.yml`'s release job, which attaches the APK to the release)
-- `firefox-extension/` - standalone MV3 Firefox WebExtension (no proxy/CA):
-  declarativeNetRequest for SafeSearch/URL/DoH, ported Bayes text scorer,
-  vendored TF.js NSFW model. Verify with `npx web-ext lint -s firefox-extension`
-  and `node firefox-extension/test/{bayes_parity,rules_check}.mjs`; regenerate
-  `bayes_model.js`/`bayes_vectors.json` (`test/gen_vectors.go`) whenever the Go
-  textbayes model changes
 - `ui/` - management web UI copied from the Python original; Alpine.js and
   qrcodejs are vendored (`ui/alpine.min.js`, `ui/qrcode.min.js`) for offline use
 
 ## Known gotchas
 
+- tun2socks runs as an external process, fed by a dedicated
+  `socks5@127.0.0.1:0` listener the engine owns (`Engine.InternalListen`), not
+  a `proxy_listen` entry — it is not user-editable and its port is assigned by
+  the OS, so read it back with `proxy.FindPurpose` after `Listen()`. There is
+  no `tun2socks.proxy_target` setting any more. A missing binary or missing
+  root must stay a `StartupSkippedError` so the proxy keeps serving.
+- The SOCKS5 UDP relay forwards all UDP except port 443 (QUIC), which is
+  dropped unconditionally — *not* gated on `url_filter.block_quic`, which
+  defaults to false. DNS is resolved through the policy's DoH filter.
+- Image decoders must be registered in both `internal/classify/image` and
+  `internal/proxy/addons/image_classifier.go`, and inline data URIs also need
+  the format in `inlineImageRe`. An undecodable image fails open (scores as
+  "not NSFW"). JPEG/PNG/GIF/WebP today.
 - Policy selection is by source IP/MAC, first match wins, tiered
   MAC -> exact-IP -> CIDR -> catch-all. Check `GET /api/policies` before
   assuming the `default` policy applies.

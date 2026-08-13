@@ -33,7 +33,6 @@ type SettingsForm struct {
 	DisableTray      bool
 
 	Tun2SocksEnabled     bool
-	Tun2SocksProxyTarget string
 	Tun2SocksDNSServers  string // one per line
 	Tun2SocksAutoRoutes  bool
 	Tun2SocksBypassCIDRs string // one per line
@@ -60,7 +59,6 @@ func LoadSettingsForm(s models.GlobalSettings) SettingsForm {
 		DisableTray:      s.DisableTray,
 
 		Tun2SocksEnabled:     s.Tun2Socks.Enabled,
-		Tun2SocksProxyTarget: s.Tun2Socks.ProxyTarget,
 		Tun2SocksDNSServers:  strings.Join(s.Tun2Socks.DNSServers, ", "),
 		Tun2SocksAutoRoutes:  s.Tun2Socks.AutoRoutes,
 		Tun2SocksBypassCIDRs: strings.Join(s.Tun2Socks.BypassCIDRs, ", "),
@@ -104,7 +102,6 @@ func (f SettingsForm) Apply(base models.GlobalSettings) (models.GlobalSettings, 
 	out.DisableTray = f.DisableTray
 
 	out.Tun2Socks.Enabled = f.Tun2SocksEnabled
-	out.Tun2Socks.ProxyTarget = strings.TrimSpace(f.Tun2SocksProxyTarget)
 	out.Tun2Socks.DNSServers = SplitLines(f.Tun2SocksDNSServers)
 	out.Tun2Socks.AutoRoutes = f.Tun2SocksAutoRoutes
 	out.Tun2Socks.BypassCIDRs = SplitLines(f.Tun2SocksBypassCIDRs)

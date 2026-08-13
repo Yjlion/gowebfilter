@@ -48,7 +48,7 @@ the proxy+mgmt server if nothing is already listening on the mgmt port),
 `gui` (native desktop management window, gogpu/ui — same self-host-or-attach
 decision as `tray`; closing the window stops a self-hosted engine but never
 an attached one), `service` (Windows service management),
-`categories update`, `oui update`, `version`.
+`categories update`, `oui update`, `tun2socks download|status`, `version`.
 
 `config/settings.json` and `policies/*.json` are gitignored runtime state —
 first start bootstraps them from `config/settings.example.json` /
@@ -59,7 +59,7 @@ Request/block/audit logs go to SQLite at `logs/webfilter.db`.
 ## Layout
 
 - `cmd/webfilter/` — cobra CLI; `runners.go` delegates engine construction to
-  `internal/app`. The desktop-only tun2socks manager (`runEngineWithTun`)
+  `internal/app`. The desktop-only tun2socks supervision (`runEngineWithTun`)
   stays here because it is root/`ip`-gated and OS-coupled.
 - `cmd/webfilter/internal/gui/` — native desktop management UI
   (github.com/gogpu/ui, pure Go/WebGPU, still CGO_ENABLED=0). Lives under
@@ -92,9 +92,12 @@ Request/block/audit logs go to SQLite at `logs/webfilter.db`.
   `CreatePolicyJson`, `DeletePolicy`), `categoriesapi.go`
   (`ListCategoriesJson`, `DownloadCategoryJson`, `DeleteCategory`), and
   `logsapi.go` (`QueryLogsJson`, `AnalyticsJson` — read-only, not
-  lock-gated)) and drives `xjasonlyu/tun2socks` directly from
-  the VpnService `fd://` descriptor — **not** via `internal/tun2socks.Manager`
-  (root/`ip`-gated). The TUN-capture file is `tun_capture.go`
+  lock-gated)) and drives the `xjasonlyu/tun2socks` **library** in-process from
+  the VpnService `fd://` descriptor — **not** via `internal/tun2socks`'s
+  external-binary supervisor (root/`ip`-gated). Android needs no elevation
+  because the OS hands the app its TUN fd, which is why the go.mod dependency
+  on the library must stay even though desktop no longer links it. The
+  TUN-capture file is `tun_capture.go`
   (`//go:build android || linux`), deliberately **not** named `*_android.go`:
   a GOOS filename suffix ANDs with the build tag and would exclude it on a
   Linux desktop, breaking `go test ./mobile`. Build:
@@ -114,17 +117,6 @@ Request/block/audit logs go to SQLite at `logs/webfilter.db`.
   `PUT /api/settings` and the `mobile/` native path (they must behave
   byte-identically), plus the managed-config apply logic
   (`ApplyManagedConfig`).
-- `firefox-extension/` — standalone MV3 Firefox WebExtension (plan doc
-  Deliverable 2): reproduces the filters with browser APIs + client-side ML —
-  no proxy, no CA, plain JS with no build step. SafeSearch/URL/DoH via
-  `declarativeNetRequest` (`background/rules_data.js` ports `safesearch.go`'s
-  engine table — keep the two in sync), the same Bayes text scorer (generated
-  `background/bayes_model.js`; `test/bayes_parity.mjs` + `test/gen_vectors.go`
-  prove score equality with the Go implementation — regenerate vectors after
-  model changes), and the same GantMan MobileNetV2 via vendored TF.js
-  (`vendor/`, see the extension's `NOTICE`). Verify with
-  `npx web-ext lint -s firefox-extension` and
-  `node firefox-extension/test/{bayes_parity,rules_check}.mjs`.
 - `internal/models/` — `Policy`/`GlobalSettings` structs + JSON schema
   (custom `UnmarshalJSON` per sub-config for defaults + legacy-schema
   migration — see `SafeSearchConfig`'s flat-to-`engines`-map migration as
@@ -157,17 +149,50 @@ Request/block/audit logs go to SQLite at `logs/webfilter.db`.
   (`//go:embed`), executed by a from-scratch pure-Go inference engine
   (`nn.go`). See `scripts/nsfw-model/README.md` for provenance/regeneration.
 - `internal/logstore/` — SQLite-backed request/block/policy-change logs
-- `internal/tun2socks/` — optional TUN-device traffic capture
-  (xjasonlyu/tun2socks) that funnels whole-OS traffic into the SOCKS5
-  listener; configured via the `tun2socks` block in settings. When it's
-  enabled and no SOCKS5 listener is configured, `run` adds one on
-  `127.0.0.1:1080`.
+- `internal/tun2socks/` — optional TUN-device traffic capture, configured via
+  the `tun2socks` block in settings. It **supervises the official tun2socks
+  binary as a child process** (`supervisor.go`) rather than linking the
+  library, so only that small process needs root/Administrator — not the
+  filtering engine. `download.go` installs it from the upstream GitHub release
+  (sha256-verified) into `bin/` beside the webfilter executable; `binary.go`
+  resolves it (installed copy first, then PATH). Reachable from
+  `POST /api/tun2socks/download` and `webfilter tun2socks download|status`.
 - `ui/` — management web UI, copied verbatim from the Python original
 - `packaging/` — systemd units, `install.sh`, `.deb` build, Windows-service
   notes (see `packaging/README.md`)
 
 ## Known gotchas (don't rediscover these the hard way)
 
+- **tun2socks is an external process, and its SOCKS5 listener is engine-owned.**
+  `internal/tun2socks` execs the downloaded binary; it does **not** link the
+  library (only `mobile/` still does — see the layout note). Capture is fed by
+  a dedicated `socks5@127.0.0.1:0` listener registered through
+  `Engine.InternalListen` (`app.EnsureTunSocksListener`), **not** a
+  `proxy_listen` entry: it never appears in settings.json or the UI's listener
+  editor and cannot be retargeted. Port 0 means the OS assigns it, so read the
+  real address back with `proxy.FindPurpose(listeners, …)` after `Listen()` —
+  which is why the supervisor must start *after* listeners are bound. The old
+  free-text `tun2socks.proxy_target` setting is gone; an old settings.json
+  still loads because encoding/json ignores the unknown key.
+- **A missing tun2socks binary, or no root, must stay a `StartupSkippedError`.**
+  TUN capture is an add-on: `runEngineWithTun` logs the skip and keeps serving
+  the proxy. Only genuine wiring bugs (e.g. no SOCKS address) return a hard
+  error that takes the process down.
+- **The SOCKS5 UDP relay forwards everything except UDP/443.** DNS (53) goes
+  through the policy's DoH filter; QUIC is dropped unconditionally so HTTP/3
+  can't tunnel past the pipeline. That drop is **not** gated on
+  `url_filter.block_quic` — that flag defaults to false and only strips
+  Alt-Svc, so gating on it would leave the bypass open by default. The rule
+  lives in `udpVerdictFor`; end-to-end tests can't tell a dropped datagram from
+  one sent to a closed port, so assert on that function.
+- **Image decoders are registered in two places.** `internal/classify/image`
+  (the detector) and `internal/proxy/addons/image_classifier.go` (dimension
+  checks + replacement rendering) each need the blank import, and inline data
+  URIs additionally need the format listed in `inlineImageRe`. Miss any one and
+  the format silently passes unfiltered: an undecodable image makes `Score`
+  return `ok=false`, which reads as "not NSFW". JPEG/PNG/GIF/WebP today;
+  AVIF and animated WebP still fail open. Test fixtures come from
+  `internal/webptest` (a minimal VP8L encoder — Go has no WebP encoder).
 - **Policy selection is by source, first match wins**, tiered
   MAC→exact-IP→CIDR→catch-all. Two modifiers layer on top: policies with
   `inactive: true` or an enabled `schedule` whose time windows don't cover
@@ -314,11 +339,6 @@ Request/block/audit logs go to SQLite at `logs/webfilter.db`.
   `seccompSyscall` shim that remaps to the *at family, and adds a go.mod
   `replace`); `-undo` reverts it — **never commit the replace line**. arm64
   real devices don't need it. `android.yml` runs the patch itself.
-- **The Firefox extension is also outside `go test ./...`.** After touching
-  `firefox-extension/`, run its lint + Node tests (see the layout entry). If
-  you change `internal/classify/textbayes/model_data.json` or the scorer, the
-  extension's generated `bayes_model.js`/`bayes_vectors.json` must be
-  regenerated or the parity contract silently rots.
 - **The native desktop GUI is an HTTP client of the mgmt API even when it
   self-hosts the engine in-process.** All reads/writes go through
   `cmd/webfilter/internal/gui/mgmtclient` to loopback HTTP — never directly

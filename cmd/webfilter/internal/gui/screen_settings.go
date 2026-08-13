@@ -40,7 +40,6 @@ type settingsScreen struct {
 	pacIPs       state.Signal[string]
 	disableTray  state.Signal[bool]
 	tunEnabled   state.Signal[bool]
-	tunTarget    state.Signal[string]
 	tunDNS       state.Signal[string]
 	tunRoutes    state.Signal[bool]
 	tunBypass    state.Signal[string]
@@ -69,7 +68,6 @@ func newSettingsScreen(u *ui) *settingsScreen {
 		pacIPs:       state.NewSignal(""),
 		disableTray:  state.NewSignal(false),
 		tunEnabled:   state.NewSignal(false),
-		tunTarget:    state.NewSignal(""),
 		tunDNS:       state.NewSignal(""),
 		tunRoutes:    state.NewSignal(false),
 		tunBypass:    state.NewSignal(""),
@@ -110,7 +108,6 @@ func (s *settingsScreen) reload() {
 	s.pacIPs.Set(f.PacDirectIPs)
 	s.disableTray.Set(f.DisableTray)
 	s.tunEnabled.Set(f.Tun2SocksEnabled)
-	s.tunTarget.Set(f.Tun2SocksProxyTarget)
 	s.tunDNS.Set(f.Tun2SocksDNSServers)
 	s.tunRoutes.Set(f.Tun2SocksAutoRoutes)
 	s.tunBypass.Set(f.Tun2SocksBypassCIDRs)
@@ -136,7 +133,6 @@ func (s *settingsScreen) form() uimodel.SettingsForm {
 		PacDirectIPs:         s.pacIPs.Get(),
 		DisableTray:          s.disableTray.Get(),
 		Tun2SocksEnabled:     s.tunEnabled.Get(),
-		Tun2SocksProxyTarget: s.tunTarget.Get(),
 		Tun2SocksDNSServers:  s.tunDNS.Get(),
 		Tun2SocksAutoRoutes:  s.tunRoutes.Get(),
 		Tun2SocksBypassCIDRs: s.tunBypass.Get(),
@@ -205,7 +201,6 @@ func (s *settingsScreen) build() widget.Widget {
 		collapsible.Title("tun2socks (whole-OS capture)"),
 		collapsible.Content(primitives.VBox(
 			cb("Enabled", s.tunEnabled),
-			fieldLabel("Proxy target (empty = local SOCKS5 listener)"), tf(s.tunTarget, "127.0.0.1:1080"),
 			fieldLabel("DNS servers (comma-separated)"), tf(s.tunDNS, "1.1.1.3"),
 			cb("Install routes automatically", s.tunRoutes),
 			fieldLabel("Bypass CIDRs"), tf(s.tunBypass, "192.168.0.0/16"),

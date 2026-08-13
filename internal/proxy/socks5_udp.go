@@ -21,41 +21,75 @@ import (
 
 // SOCKS5 UDP-relay tunables.
 const (
-	// udpAssociateIdleTimeout bounds how long a UDP association with no
-	// traffic stays open before the relay socket is torn down.
+	// udpAssociateIdleTimeout bounds how long a UDP association - and each
+	// individual destination socket within it - stays open with no traffic
+	// before being torn down.
 	udpAssociateIdleTimeout = 60 * time.Second
 	// dnsUpstreamTimeout caps a single upstream DNS resolution (plain or DoH).
 	dnsUpstreamTimeout = 5 * time.Second
-	// dnsPort is the only UDP destination port the relay forwards; every other
-	// UDP flow (e.g. QUIC on 443) is dropped so it can't bypass the MITM path.
+	// dnsPort is relayed through the policy-aware resolver rather than blindly
+	// forwarded, so DoH filtering applies to TUN-captured lookups.
 	dnsPort = 53
+	// quicPort is the one UDP destination the relay refuses. QUIC (HTTP/3) is
+	// end-to-end encrypted with no MITM seam, so forwarding UDP/443 would let a
+	// browser tunnel straight past URL filtering, SafeSearch, YouTube rewriting
+	// and the classifiers. Dropping it makes browsers fall back to TCP/TLS,
+	// which the engine can inspect. Note this is deliberately unconditional and
+	// NOT gated on url_filter.block_quic: that flag defaults to false and only
+	// strips the Alt-Svc header, so gating on it would leave the bypass open by
+	// default for every TUN user.
+	quicPort = 443
 	// maxConcurrentDNS bounds in-flight resolutions per association so one slow
 	// upstream can't stall the read loop or spawn unbounded goroutines. A
 	// browser fires many parallel DNS queries, so this must be > 1.
 	maxConcurrentDNS = 256
-	// dnsDatagramSize is the read buffer per relayed datagram. DNS-over-UDP is
-	// bounded by the EDNS0 advertised size (queries here set 1232); 4 KiB
-	// comfortably covers the SOCKS header plus an EDNS response.
-	dnsDatagramSize = 4096
+	// maxUDPSessions caps the per-destination sockets one association may hold
+	// open at once; past the cap the least recently used is evicted. Generous
+	// for real traffic, but bounds fd usage against a client that sprays
+	// datagrams at many destinations.
+	maxUDPSessions = 512
+	// udpDatagramSize is the read buffer per relayed datagram, sized to the
+	// largest a UDP payload can be so nothing is silently truncated.
+	udpDatagramSize = 65535
 )
 
 var errShortUDPPacket = errors.New("socks5: short UDP relay packet")
 
 // serveSocksUDPAssociate handles a SOCKS5 UDP ASSOCIATE request (RFC 1928).
-// It binds a loopback UDP relay socket, tells the client where to send
-// datagrams, and then services the DNS queries the client relays through it.
+// It binds a UDP relay socket, tells the client where to send datagrams, and
+// then relays the datagrams the client encapsulates through it.
 //
-// This exists for the Android TUN path: tun2socks forwards every captured UDP
-// flow to the SOCKS proxy via UDP ASSOCIATE, and DNS is UDP — without this the
-// client can never resolve a hostname, so no TCP CONNECT (and thus no
-// filtering) ever happens. Only DNS (port 53) is relayed; other UDP is dropped
-// on purpose so QUIC and friends fall back to TCP/TLS the engine can inspect.
+// This exists for the TUN paths (Android's VpnService and the desktop
+// tun2socks process): tun2socks forwards every captured UDP flow to the SOCKS
+// proxy via UDP ASSOCIATE. DNS is UDP, so without a relay a client behind the
+// TUN can never resolve a hostname and no TCP CONNECT — and therefore no
+// filtering — ever happens. Everything else the OS sends over UDP (NTP, game
+// and VoIP traffic, WireGuard, mDNS, ...) needs to reach the network too, or
+// the machine simply looks broken once the TUN is up.
+//
+// Two destinations are special:
+//
+//   - Port 53 is resolved through resolveDNS instead of being blindly
+//     forwarded, so the policy's DoH filtering applies to TUN-captured lookups.
+//   - Port 443 is dropped (see quicPort). QUIC has no MITM seam, so relaying it
+//     would hand browsers a way around the entire pipeline.
+//
+// Everything else is forwarded verbatim: the engine can't inspect opaque UDP
+// anyway, so passing it through costs no filtering coverage.
 //
 // The TCP control connection stays open for the association's lifetime; when
 // the client closes it, or the relay goes idle, the relay is torn down (RFC
 // 1928: "a UDP association terminates when the TCP connection ... terminates").
 func (e *Engine) serveSocksUDPAssociate(conn net.Conn, clientIP string) {
-	relay, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
+	// Bind the relay on the same local address the control connection arrived
+	// on. For the TUN case that is loopback; for a LAN client of a 0.0.0.0
+	// listener it is the reachable interface address, which a hardcoded
+	// 127.0.0.1 bind would not be.
+	bindIP := net.IPv4(127, 0, 0, 1)
+	if local, ok := conn.LocalAddr().(*net.TCPAddr); ok && local.IP != nil && !local.IP.IsUnspecified() {
+		bindIP = local.IP
+	}
+	relay, err := net.ListenUDP("udp", &net.UDPAddr{IP: bindIP, Port: 0})
 	if err != nil {
 		writeSocksReply(conn, repGeneralFailure)
 		return
@@ -74,52 +108,295 @@ func (e *Engine) serveSocksUDPAssociate(conn net.Conn, clientIP string) {
 		relay.Close()
 	}()
 
-	e.relaySocksUDP(relay, clientIP)
+	a := &udpAssociation{
+		engine:   e,
+		relay:    relay,
+		clientIP: clientIP,
+		peerIP:   hostOnlyOf(conn.RemoteAddr().String()),
+		sessions: make(map[string]*udpSession),
+	}
+	defer a.close()
+	a.run()
 }
 
-// relaySocksUDP reads SOCKS-encapsulated UDP datagrams from the client and
-// answers DNS queries, dropping everything else. Each query is resolved in its
-// own goroutine (bounded by maxConcurrentDNS) so a slow upstream can't stall
-// the read loop — a browser fires many DNS lookups in parallel. Returns when
-// the relay socket is closed (control connection gone) or goes idle.
-func (e *Engine) relaySocksUDP(relay *net.UDPConn, clientIP string) {
-	var wg sync.WaitGroup
-	sem := make(chan struct{}, maxConcurrentDNS)
-	defer wg.Wait()
+// udpAssociation is one live UDP ASSOCIATE: the relay socket the client sends
+// to, plus the per-destination sockets its datagrams are forwarded through.
+//
+// Each destination gets its own connected UDP socket so replies arrive on a
+// stable source port, which is what any NAT-traversing or session-oriented UDP
+// protocol expects. Sockets are reused across datagrams and expire on idle.
+type udpAssociation struct {
+	engine   *Engine
+	relay    *net.UDPConn
+	clientIP string // policy-lookup identity, from the control connection
+	peerIP   string // the only source address datagrams are accepted from
 
+	mu         sync.Mutex
+	clientAddr *net.UDPAddr // learned from the first datagram; where replies go
+	sessions   map[string]*udpSession
+	closed     bool
+	wg         sync.WaitGroup
+}
+
+// udpSession is one destination socket within an association.
+type udpSession struct {
+	conn *net.UDPConn
+	// rawAddr is the SOCKS address header of the destination, echoed verbatim
+	// on every reply so the client sees answers as coming from the address it
+	// addressed.
+	rawAddr  []byte
+	lastUsed time.Time
+}
+
+// run reads SOCKS-encapsulated datagrams from the client until the relay is
+// closed (control connection gone) or goes idle. DNS is resolved in its own
+// goroutine (bounded by maxConcurrentDNS) so a slow upstream can't stall the
+// loop; everything else is a non-blocking send onto a destination socket.
+func (a *udpAssociation) run() {
+	var dnsWG sync.WaitGroup
+	sem := make(chan struct{}, maxConcurrentDNS)
+	defer dnsWG.Wait()
+
+	// One buffer for the whole loop: anything handed to another goroutine is
+	// copied out first.
+	buf := make([]byte, udpDatagramSize)
 	for {
-		buf := make([]byte, dnsDatagramSize)
-		_ = relay.SetReadDeadline(time.Now().Add(udpAssociateIdleTimeout))
-		n, clientAddr, err := relay.ReadFromUDP(buf)
+		_ = a.relay.SetReadDeadline(time.Now().Add(udpAssociateIdleTimeout))
+		n, clientAddr, err := a.relay.ReadFromUDP(buf)
 		if err != nil {
 			return // deadline exceeded or relay closed
+		}
+		if !a.acceptFrom(clientAddr) {
+			continue
 		}
 
 		rawAddr, host, port, payload, err := decodeSocksUDPPacket(buf[:n])
 		if err != nil {
 			continue
 		}
-		// Only DNS is relayed. Dropping other UDP (notably QUIC on 443) keeps
-		// it from tunnelling around the MITM pipeline.
-		if port != dnsPort {
-			continue
+
+		switch udpVerdictFor(port) {
+		case udpDrop:
+			slog.Debug("socks5: dropped QUIC datagram", "dst", host, "client", a.clientIP)
+		case udpResolveDNS:
+			rawAddr, payload := append([]byte(nil), rawAddr...), append([]byte(nil), payload...)
+			sem <- struct{}{}
+			dnsWG.Add(1)
+			go func() {
+				defer dnsWG.Done()
+				defer func() { <-sem }()
+
+				resp := a.engine.resolveDNS(payload, host, port, a.clientIP)
+				if resp == nil {
+					return
+				}
+				// net.UDPConn writes are safe for concurrent use; loopback
+				// sends don't block, so no per-write deadline is needed.
+				_, _ = a.relay.WriteToUDP(encodeSocksUDPPacket(rawAddr, resp), clientAddr)
+			}()
+		case udpForward:
+			a.forward(rawAddr, host, port, payload)
+		}
+	}
+}
+
+// udpVerdict is what the relay does with a datagram, decided by its
+// destination port.
+type udpVerdict int
+
+const (
+	// udpForward relays the datagram verbatim over a per-destination socket.
+	udpForward udpVerdict = iota
+	// udpResolveDNS answers it through the policy-aware resolver instead.
+	udpResolveDNS
+	// udpDrop discards it.
+	udpDrop
+)
+
+// udpVerdictFor classifies a datagram by destination port. Forwarding is the
+// default because the engine cannot inspect opaque UDP anyway, so dropping it
+// buys no filtering coverage while breaking every UDP protocol on a machine
+// whose traffic a TUN is capturing.
+func udpVerdictFor(dstPort int) udpVerdict {
+	switch dstPort {
+	case quicPort:
+		return udpDrop
+	case dnsPort:
+		return udpResolveDNS
+	default:
+		return udpForward
+	}
+}
+
+// acceptFrom pins the association to the first source address it hears from and
+// ignores datagrams from anywhere else. The relay port is otherwise an open
+// forwarder for any local process that guesses it, and RFC 1928 expects
+// datagrams only from the client that opened the association.
+func (a *udpAssociation) acceptFrom(addr *net.UDPAddr) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.clientAddr == nil {
+		// Port is free to differ from the control connection's, but the host
+		// must match: only the client that authenticated may use this relay.
+		if a.peerIP != "" && addr.IP.String() != a.peerIP {
+			return false
+		}
+		a.clientAddr = addr
+		return true
+	}
+	return addr.IP.Equal(a.clientAddr.IP) && addr.Port == a.clientAddr.Port
+}
+
+// forward sends one payload to its destination over that destination's session
+// socket, opening the socket on first use.
+func (a *udpAssociation) forward(rawAddr []byte, host string, port int, payload []byte) {
+	s := a.session(rawAddr, host, port)
+	if s == nil {
+		return
+	}
+	// Refresh the idle deadline the reader goroutine is blocked on, so an
+	// actively used session doesn't expire mid-flow.
+	_ = s.conn.SetReadDeadline(time.Now().Add(udpAssociateIdleTimeout))
+	_, _ = s.conn.Write(payload)
+}
+
+// session returns the destination socket for host:port, creating it if needed.
+// Returns nil when the destination can't be dialled (unresolvable name, no
+// route), in which case the datagram is dropped - UDP is lossy by definition,
+// so the client's own retry is the recovery path.
+func (a *udpAssociation) session(rawAddr []byte, host string, port int) *udpSession {
+	key := net.JoinHostPort(host, strconv.Itoa(port))
+
+	a.mu.Lock()
+	if a.closed {
+		a.mu.Unlock()
+		return nil
+	}
+	if s, ok := a.sessions[key]; ok {
+		s.lastUsed = time.Now()
+		a.mu.Unlock()
+		return s
+	}
+	a.mu.Unlock()
+
+	// Dial outside the lock: name resolution can block.
+	conn, err := net.Dial("udp", key)
+	if err != nil {
+		slog.Debug("socks5: UDP destination unreachable", "dst", key, "err", err)
+		return nil
+	}
+	udpConn, ok := conn.(*net.UDPConn)
+	if !ok {
+		conn.Close()
+		return nil
+	}
+
+	s := &udpSession{
+		conn:     udpConn,
+		rawAddr:  append([]byte(nil), rawAddr...),
+		lastUsed: time.Now(),
+	}
+
+	a.mu.Lock()
+	if a.closed {
+		a.mu.Unlock()
+		udpConn.Close()
+		return nil
+	}
+	// Another datagram for the same destination may have raced us here; keep
+	// the winner so both sides agree on one socket per destination.
+	if existing, ok := a.sessions[key]; ok {
+		existing.lastUsed = time.Now()
+		a.mu.Unlock()
+		udpConn.Close()
+		return existing
+	}
+	evicted := a.evictLockedIfFull()
+	a.sessions[key] = s
+	a.wg.Add(1)
+	a.mu.Unlock()
+
+	if evicted != nil {
+		evicted.conn.Close()
+	}
+	go a.readSession(key, s)
+	return s
+}
+
+// evictLockedIfFull drops the least recently used session when the map is at
+// capacity, returning it so the caller can close it outside the lock. Evicting
+// the oldest rather than refusing the newest keeps a flood of one-shot
+// destinations from locking out ongoing flows' successors.
+//
+// Caller must hold a.mu.
+func (a *udpAssociation) evictLockedIfFull() *udpSession {
+	if len(a.sessions) < maxUDPSessions {
+		return nil
+	}
+	var oldestKey string
+	var oldest *udpSession
+	for k, s := range a.sessions {
+		if oldest == nil || s.lastUsed.Before(oldest.lastUsed) {
+			oldestKey, oldest = k, s
+		}
+	}
+	delete(a.sessions, oldestKey)
+	return oldest
+}
+
+// readSession pumps replies from one destination back to the client, wrapped in
+// the SOCKS UDP header. It exits when the socket is closed or goes idle for
+// udpAssociateIdleTimeout with no traffic in either direction.
+func (a *udpAssociation) readSession(key string, s *udpSession) {
+	defer a.wg.Done()
+	defer a.dropSession(key, s)
+
+	buf := make([]byte, udpDatagramSize)
+	for {
+		_ = s.conn.SetReadDeadline(time.Now().Add(udpAssociateIdleTimeout))
+		n, err := s.conn.Read(buf)
+		if err != nil {
+			return
 		}
 
-		sem <- struct{}{}
-		wg.Add(1)
-		go func(rawAddr, payload []byte, clientAddr *net.UDPAddr, host string, port int) {
-			defer wg.Done()
-			defer func() { <-sem }()
-
-			resp := e.resolveDNS(payload, host, port, clientIP)
-			if resp == nil {
-				return
-			}
-			// net.UDPConn writes are safe for concurrent use; loopback sends
-			// don't block, so no per-write deadline is needed.
-			_, _ = relay.WriteToUDP(encodeSocksUDPPacket(rawAddr, resp), clientAddr)
-		}(rawAddr, payload, clientAddr, host, port)
+		a.mu.Lock()
+		clientAddr := a.clientAddr
+		a.mu.Unlock()
+		if clientAddr == nil {
+			return
+		}
+		if _, err := a.relay.WriteToUDP(encodeSocksUDPPacket(s.rawAddr, buf[:n]), clientAddr); err != nil {
+			return
+		}
 	}
+}
+
+// dropSession removes a finished session, but only if it is still the one
+// registered under key - an eviction may already have replaced it.
+func (a *udpAssociation) dropSession(key string, s *udpSession) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.sessions[key] == s {
+		delete(a.sessions, key)
+	}
+}
+
+// close tears down every destination socket and waits for the reader
+// goroutines to finish, so an association leaves nothing behind.
+func (a *udpAssociation) close() {
+	a.mu.Lock()
+	a.closed = true
+	sessions := make([]*udpSession, 0, len(a.sessions))
+	for _, s := range a.sessions {
+		sessions = append(sessions, s)
+	}
+	a.sessions = nil
+	a.mu.Unlock()
+
+	for _, s := range sessions {
+		s.conn.Close()
+	}
+	a.wg.Wait()
 }
 
 // resolveDNS answers one DNS query. When the applicable policy enables DoH

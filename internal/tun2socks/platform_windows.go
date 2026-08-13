@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"os"
 	"time"
 
 	"github.com/yjlion/gowebfilter/internal/models"
@@ -79,16 +78,4 @@ func waitForWindowsInterface(ctx context.Context, name string, timeout time.Dura
 		case <-tick.C:
 		}
 	}
-}
-
-func openPath(path string) error {
-	return windows.ShellExecute(0, windows.StringToUTF16Ptr("open"), windows.StringToUTF16Ptr(path), nil, nil, windows.SW_SHOWNORMAL)
-}
-
-func defaultOpenPath(path string) string {
-	if path == "" {
-		wd, _ := os.Getwd()
-		return wd
-	}
-	return path
 }

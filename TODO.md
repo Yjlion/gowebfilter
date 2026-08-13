@@ -30,8 +30,11 @@
   /api/settings` requires a restart of `webfilter run` to take effect.
 - [ ] macOS support: no macOS target in `scripts/package-release.sh`, and
   tun2socks route setup is not wired on macOS (see `packaging/README.md`).
-- [ ] SOCKS5 UDP ASSOCIATE. The listener is CONNECT-only (RFC 1928 cmd 1),
-  so UDP-based protocols captured via tun2socks can't be relayed.
+- [x] SOCKS5 UDP ASSOCIATE (RFC 1928 cmd 3), so UDP captured via tun2socks is
+  relayed: DNS (port 53) resolves through the policy's DoH filter, UDP/443 is
+  dropped so QUIC can't bypass the MITM pipeline, and everything else is
+  forwarded verbatim over per-destination sockets
+  (`internal/proxy/socks5_udp.go`).
 
 ## Classifier quality
 

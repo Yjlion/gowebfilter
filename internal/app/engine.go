@@ -65,15 +65,35 @@ func BuildProxyEngine(settingsPath string) (*proxy.Engine, *state.Runtime, error
 	return eng, rt, nil
 }
 
-// EnsureTunSocksListener appends a local SOCKS5 listener when tun2socks is
-// enabled but no SOCKS5 listener is configured, so TUN-captured traffic has
-// an in-process entry point into the MITM path.
+// TunSocksListenerPurpose tags the engine-owned SOCKS5 listener that TUN
+// capture funnels traffic into.
+const TunSocksListenerPurpose = "tun2socks"
+
+// EnsureTunSocksListener registers a dedicated loopback SOCKS5 listener when
+// tun2socks is enabled, giving TUN-captured traffic an entry point into the
+// MITM path.
+//
+// It is deliberately not a proxy_listen entry and not user-configurable.
+// tun2socks needs a SOCKS5 endpoint (it relies on UDP ASSOCIATE for DNS), so
+// every other choice a user could make here - an HTTP listener, a port nothing
+// is bound to, a remote address - is simply wrong, and the old free-text
+// `proxy_target` setting made those the easy mistakes to make. Binding port 0
+// lets the OS pick a free port, so the dedicated listener can never collide
+// with a user-configured one; the caller reads the real address back off the
+// bound listener (proxy.FindPurpose) and hands it to the supervisor.
 func EnsureTunSocksListener(eng *proxy.Engine) {
-	if eng == nil || !eng.Settings.Tun2Socks.Enabled || eng.Settings.PrimarySocks5Port() != 0 {
+	if eng == nil || !eng.Settings.Tun2Socks.Enabled {
 		return
 	}
-	eng.Settings.ProxyListen = append(eng.Settings.ProxyListen, "socks5@127.0.0.1:1080")
-	slog.Info("tun2socks: added local SOCKS5 listener for TUN capture", "addr", "127.0.0.1:1080")
+	for _, internal := range eng.InternalListen {
+		if internal.Purpose == TunSocksListenerPurpose {
+			return
+		}
+	}
+	eng.InternalListen = append(eng.InternalListen, proxy.InternalListener{
+		Purpose: TunSocksListenerPurpose,
+		Spec:    "socks5@127.0.0.1:0",
+	})
 }
 
 // EnsureLocalHTTPProxyListener appends a loopback HTTP ("regular") proxy

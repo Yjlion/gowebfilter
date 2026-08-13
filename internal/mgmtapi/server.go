@@ -15,6 +15,7 @@ import (
 	"github.com/yjlion/gowebfilter/internal/config"
 	"github.com/yjlion/gowebfilter/internal/logstore"
 	"github.com/yjlion/gowebfilter/internal/models"
+	"github.com/yjlion/gowebfilter/internal/tun2socks"
 )
 
 // Server holds everything the API routes need. Settings are cached
@@ -37,6 +38,12 @@ type Server struct {
 	// can evict its leaf-certificate cache. nil (the default, e.g. under
 	// standalone `mgmt`) is a valid no-op.
 	OnCARotated func()
+
+	// Tun2Socks is the live TUN-capture supervisor when the proxy engine runs
+	// in this process (`run`, `tray`, `gui`). nil under standalone `mgmt`, in
+	// which case status falls back to the settings/filesystem view - the nil
+	// Ref handles that itself.
+	Tun2Socks *tun2socks.Ref
 
 	settingsMu sync.RWMutex
 	settings   models.GlobalSettings
@@ -118,6 +125,10 @@ func (s *Server) Router() *chi.Mux {
 
 	r.Get("/api/settings", s.handleGetSettings)
 	r.With(s.requireUnlocked).Put("/api/settings", s.handleUpdateSettings)
+
+	// Installs an executable fetched over the network, so it is gated with the
+	// other config mutations rather than treated as a read-only tool.
+	r.With(s.requireUnlocked).Post("/api/tun2socks/download", s.handleTun2SocksDownload)
 
 	r.Get("/api/logs", s.handleLogs)
 	r.Get("/api/analytics", s.handleAnalytics)

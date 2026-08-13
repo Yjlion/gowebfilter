@@ -138,7 +138,7 @@ func (e *Engine) serveSocksConn(conn net.Conn, connID uint64) {
 	case cmdUDPAssociate:
 		// UDP ASSOCIATE's DST.ADDR/DST.PORT (read above) are the address the
 		// client expects to send from; RFC 1928 lets us ignore them. The relay
-		// exists for the Android TUN path's DNS — see serveSocksUDPAssociate.
+		// exists for the TUN paths — see serveSocksUDPAssociate.
 		e.serveSocksUDPAssociate(conn, clientIP)
 		return
 	default: // cmdBind and anything else

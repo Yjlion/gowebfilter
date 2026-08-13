@@ -26,7 +26,8 @@ func runProxy(ctx context.Context, settingsPath string) error {
 		return fmt.Errorf("start proxy engine: %w", err)
 	}
 	defer rt.Logs.Close()
-	return runEngineWithTun(ctx, eng, rt)
+	// No management server in this process, so nothing consumes TUN status.
+	return runEngineWithTun(ctx, eng, rt, nil)
 }
 
 // runMgmt starts only the management HTTP server (API + embedded UI).
@@ -75,9 +76,14 @@ func runProxyAndMgmtWith(ctx context.Context, settingsPath string, mgmtSrv *mgmt
 
 	defer mgmtSrv.Logs.Close()
 	mgmtSrv.OnCARotated = rt.LeafIssuer.Clear
+	// Both components run here, so /api/tun2socks/status can report the live
+	// process rather than just what settings say. The engine publishes the
+	// supervisor into this ref once its listeners are bound.
+	var tunRef tun.Ref
+	mgmtSrv.Tun2Socks = &tunRef
 
 	errCh := make(chan error, 2)
-	go func() { errCh <- runEngineWithTun(ctx, eng, rt) }()
+	go func() { errCh <- runEngineWithTun(ctx, eng, rt, &tunRef) }()
 	go func() { errCh <- app.ServeMgmt(ctx, mgmtSrv) }()
 
 	var firstErr error
@@ -90,11 +96,16 @@ func runProxyAndMgmtWith(ctx context.Context, settingsPath string, mgmtSrv *mgmt
 	return firstErr
 }
 
-// runEngineWithTun serves the proxy listeners, with the desktop/server
-// tun2socks manager (root + `ip`-command driven) layered on when enabled.
-// The Android port does not use this path — mobile/ drives tun2socks
-// directly from the VpnService file descriptor.
-func runEngineWithTun(ctx context.Context, eng *proxy.Engine, rt *state.Runtime) error {
+// runEngineWithTun serves the proxy listeners, supervising the external
+// tun2socks process (root + `ip`/`netsh` driven) when TUN capture is enabled.
+// The Android port does not use this path — mobile/ drives the tun2socks
+// library in-process from the VpnService file descriptor, which needs no
+// elevation.
+//
+// Order matters: the dedicated SOCKS5 listener must be bound before tun2socks
+// starts, both because the supervisor needs its actual (OS-assigned) address
+// and because tun2socks would otherwise have nowhere to send captured traffic.
+func runEngineWithTun(ctx context.Context, eng *proxy.Engine, rt *state.Runtime, tunRef *tun.Ref) error {
 	app.EnsureTunSocksListener(eng)
 	listeners, err := eng.Listen()
 	if err != nil {
@@ -103,9 +114,15 @@ func runEngineWithTun(ctx context.Context, eng *proxy.Engine, rt *state.Runtime)
 	if rt != nil {
 		rt.Start(ctx)
 	}
-	tunMgr := tun.NewManager(eng.Settings)
-	if err := tunMgr.Start(ctx); err != nil {
+
+	sup := tun.NewSupervisor(eng.Settings, proxy.FindPurpose(listeners, app.TunSocksListenerPurpose))
+	if tunRef != nil {
+		tunRef.Set(sup)
+	}
+	if err := sup.Start(ctx); err != nil {
 		if tun.IsStartupSkipped(err) {
+			// TUN capture is an add-on to the proxy, not a prerequisite: an
+			// unelevated or binary-less run still filters configured clients.
 			slog.Warn("tun2socks not started", "err", err)
 			return eng.Serve(ctx, listeners)
 		}

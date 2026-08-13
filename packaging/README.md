@@ -128,19 +128,37 @@ actually run.
 ## TUN / tun2socks capture
 
 TUN capture is configured in the management UI under Settings ->
-`TUN / tun2socks`. It is disabled by default. When enabled, WebFilter starts
-a TUN device and routes captured traffic through the filtering proxy.
-Leave `proxy_target` blank to use WebFilter's local SOCKS5 listener
-(`socks5@127.0.0.1:1080` by default), or set an explicit
-`scheme://host:port` target if you understand the routing implications.
-Normal policy
-routing, MITM, logging, category filtering, SafeSearch, and classifiers
-still apply.
+`TUN / tun2socks`. It is disabled by default. When enabled, WebFilter routes
+this machine's traffic through a TUN device and into the filtering proxy.
+Normal policy routing, MITM, logging, category filtering, SafeSearch, and
+classifiers all still apply.
 
-Windows requires an elevated Administrator process and `wintun.dll`.
-Place the matching architecture DLL beside `webfilter.exe` or in `System32`.
-If the DLL is missing, WebFilter stays up and reports TUN as unavailable
-instead of exiting.
+Capture is performed by the **official `tun2socks` binary
+(<https://tun2socks.com>), run as a separate child process** — so only that
+process needs Administrator/root, not the filtering engine itself. Install it
+with the **Download tun2socks** button on the Settings page, or headlessly:
+
+```bash
+webfilter tun2socks download   # fetch + sha256-verify into ./bin/
+webfilter tun2socks status     # binary, privileges, and device state
+```
+
+The binary is installed into a `bin/` directory beside the `webfilter`
+executable, so a relocated install carries it along. Packaged installs should
+either ship it there or run the download once post-install; the `.deb` and the
+release archives do not bundle it (it is ~11 MB and platform-specific).
+
+There is no proxy-target setting. WebFilter creates a dedicated SOCKS5
+listener for capture, on a port the OS assigns, and points tun2socks at it.
+That listener is not part of `proxy_listen` and cannot be edited — tun2socks
+needs a SOCKS5 endpoint that carries UDP, so there is nothing useful to
+configure. DNS is filtered through the policy's DoH resolver, other UDP is
+relayed, and UDP/443 is dropped so QUIC cannot bypass filtering.
+
+Windows requires an elevated Administrator process and `wintun.dll`. The
+tun2socks release archive does **not** include it: place the matching
+architecture DLL beside `webfilter.exe` or in `System32`. If the DLL is
+missing, WebFilter stays up and reports TUN as unavailable instead of exiting.
 Linux requires root or equivalent capabilities for TUN and route changes.
 macOS route setup is not wired in this release.
 

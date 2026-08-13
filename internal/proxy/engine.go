@@ -43,7 +43,25 @@ type Engine struct {
 	// exported so tests can inject a custom TLSClientConfig.
 	Transport *http.Transport
 
+	// InternalListen holds listener specs the engine owns rather than the
+	// user: they are bound alongside proxy_listen but never appear in
+	// settings.json, in GET /api/settings, or in the UI's listener editor, and
+	// so cannot be edited or removed. Purpose-tagged (see Listener.Purpose) so
+	// the caller can find the one it asked for after binding.
+	//
+	// The tun2socks capture listener uses this: tun2socks requires a SOCKS5
+	// endpoint, and letting the user retarget or delete it only ever produced
+	// silently broken capture.
+	InternalListen []InternalListener
+
 	connSeq atomic.Uint64
+}
+
+// InternalListener is an engine-owned listener spec: a proxy_listen-style entry
+// plus the purpose it was registered for.
+type InternalListener struct {
+	Purpose string
+	Spec    string
 }
 
 // NewEngine loads settings.json once. Runtime/Pipeline must be assigned by
@@ -65,6 +83,21 @@ type Listener struct {
 	net.Listener
 	Mode string // base protocol: regular, socks4, socks5
 	TLS  bool   // accepted connections are TLS-terminated before dispatch
+	// Purpose is empty for user-configured proxy_listen entries and set to the
+	// registering subsystem's name for engine-owned ones (see
+	// Engine.InternalListen).
+	Purpose string
+}
+
+// FindPurpose returns the bound address of the engine-owned listener
+// registered for purpose, or "" if there is none.
+func FindPurpose(listeners []Listener, purpose string) string {
+	for _, ln := range listeners {
+		if ln.Purpose == purpose {
+			return ln.Addr().String()
+		}
+	}
+	return ""
 }
 
 // servedModes are the base proxy_listen modes this engine actually binds and
@@ -80,6 +113,12 @@ var servedModes = map[string]bool{"regular": true, "socks4": true, "socks5": tru
 // bound port when a settings fixture asks for an ephemeral one (port 0).
 func (e *Engine) Listen() ([]Listener, error) {
 	var listeners []Listener
+	closeAll := func() {
+		for _, l := range listeners {
+			_ = l.Close()
+		}
+	}
+
 	for _, entry := range e.Settings.ProxyListen {
 		spec := models.ParseListenSpec(entry)
 		if !servedModes[spec.Mode] {
@@ -89,15 +128,32 @@ func (e *Engine) Listen() ([]Listener, error) {
 		addr := net.JoinHostPort(spec.Host, strconv.Itoa(spec.Port))
 		ln, err := net.Listen("tcp", addr)
 		if err != nil {
-			for _, l := range listeners {
-				_ = l.Close()
-			}
+			closeAll()
 			return nil, fmt.Errorf("listen %s: %w", addr, err)
 		}
 		listeners = append(listeners, Listener{Listener: ln, Mode: spec.Mode, TLS: spec.TLS})
 	}
 	if len(listeners) == 0 {
 		return nil, fmt.Errorf("no supported proxy_listen entries configured")
+	}
+
+	// Engine-owned listeners bind after the user's, and a failure here is
+	// fatal rather than skippable: the subsystem that registered one cannot
+	// work without it.
+	for _, internal := range e.InternalListen {
+		spec := models.ParseListenSpec(internal.Spec)
+		if !servedModes[spec.Mode] {
+			closeAll()
+			return nil, fmt.Errorf("internal listener %q: unsupported mode %q", internal.Purpose, spec.Mode)
+		}
+		addr := net.JoinHostPort(spec.Host, strconv.Itoa(spec.Port))
+		ln, err := net.Listen("tcp", addr)
+		if err != nil {
+			closeAll()
+			return nil, fmt.Errorf("listen %s (%s): %w", addr, internal.Purpose, err)
+		}
+		slog.Info("bound internal listener", "purpose", internal.Purpose, "addr", ln.Addr().String(), "mode", spec.Mode)
+		listeners = append(listeners, Listener{Listener: ln, Mode: spec.Mode, TLS: spec.TLS, Purpose: internal.Purpose})
 	}
 	return listeners, nil
 }

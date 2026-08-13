@@ -6,6 +6,9 @@
 *.dll
 *.so
 
+# tun2socks binary downloaded at runtime, installed beside the executable
+/bin/
+
 # Runtime state (mirrors the Python original's untracked data dirs)
 /config/settings.json
 /certs/

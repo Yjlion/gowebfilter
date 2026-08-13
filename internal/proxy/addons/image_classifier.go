@@ -14,6 +14,11 @@ import (
 	"strings"
 
 	"github.com/disintegration/imaging"
+	// Registers the WebP decoder for image.Decode/DecodeConfig below, matching
+	// internal/classify/image's detector. Decode-only (x/image has no WebP
+	// encoder), which is fine: replacements are always re-encoded as
+	// JPEG/PNG/GIF and Content-Type is rewritten to match.
+	_ "golang.org/x/image/webp"
 
 	"github.com/yjlion/gowebfilter/internal/models"
 	"github.com/yjlion/gowebfilter/internal/proxy"
@@ -230,12 +235,13 @@ func isScannableText(ct string) bool {
 }
 
 // inlineImageRe matches a base64 image data URI in HTML, CSS, JS, or JSON,
-// limited to formats the Go stdlib can decode. JS/JSON string contexts may
-// escape characters of the base64 alphabet (`\/` in JSON, and Google's
-// inline scripts escape the `=` padding as `\x3d`/`=`), so those
-// escape sequences are matched as part of the URI and undone by
-// decodeInlineImage before base64 decoding.
-var inlineImageRe = regexp.MustCompile(`data:image\\?/(?:jpe?g|png|gif);base64,(?:[A-Za-z0-9+=]|\\?/|\\x3[dD]|\\u003[dD])+`)
+// limited to formats a registered decoder can read (stdlib JPEG/PNG/GIF plus
+// x/image's WebP - keep this alternation in sync with the blank imports at the
+// top of the file). JS/JSON string contexts may escape characters of the
+// base64 alphabet (`\/` in JSON, and Google's inline scripts escape the `=`
+// padding as `\x3d`/`=`), so those escape sequences are matched as part of
+// the URI and undone by decodeInlineImage before base64 decoding.
+var inlineImageRe = regexp.MustCompile(`data:image\\?/(?:jpe?g|png|gif|webp);base64,(?:[A-Za-z0-9+=]|\\?/|\\x3[dD]|\\u003[dD])+`)
 
 var inlineEscapes = strings.NewReplacer(
 	"\\/", "/",

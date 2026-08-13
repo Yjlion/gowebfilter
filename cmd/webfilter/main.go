@@ -29,6 +29,7 @@ func main() {
 		newTrayCmd(),
 		newGuiCmd(),
 		newCategoriesCmd(),
+		newTun2SocksCmd(),
 		newOuiCmd(),
 		newServiceCmd(),
 		newVersionCmd(),
