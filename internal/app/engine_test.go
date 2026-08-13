@@ -2,6 +2,7 @@ package app
 
 import (
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -48,7 +49,7 @@ func TestBuildProxyEngineBootstrapsAndWiresPipeline(t *testing.T) {
 	}
 }
 
-func TestEnsureTunSocksListenerAddsSocks5WhenMissing(t *testing.T) {
+func TestEnsureTunSocksListenerRegistersDedicatedListener(t *testing.T) {
 	settingsPath := filepath.Join(t.TempDir(), "config", "settings.json")
 	eng, rt, err := BuildProxyEngine(settingsPath)
 	if err != nil {
@@ -60,15 +61,47 @@ func TestEnsureTunSocksListenerAddsSocks5WhenMissing(t *testing.T) {
 	eng.Settings.ProxyListen = []string{"0.0.0.0:8080"}
 	EnsureTunSocksListener(eng)
 
-	if got := eng.Settings.PrimarySocks5Port(); got != 1080 {
-		t.Fatalf("PrimarySocks5Port() = %d after EnsureTunSocksListener, want 1080", got)
+	if len(eng.InternalListen) != 1 {
+		t.Fatalf("InternalListen = %v, want exactly one entry", eng.InternalListen)
+	}
+	got := eng.InternalListen[0]
+	if got.Purpose != TunSocksListenerPurpose {
+		t.Errorf("purpose = %q, want %q", got.Purpose, TunSocksListenerPurpose)
+	}
+	// Port 0 lets the OS assign, so the dedicated listener can never collide
+	// with a user-configured one.
+	if got.Spec != "socks5@127.0.0.1:0" {
+		t.Errorf("spec = %q, want socks5@127.0.0.1:0", got.Spec)
 	}
 
-	// Idempotent: a second call must not append a duplicate listener.
-	n := len(eng.Settings.ProxyListen)
+	// The listener must stay out of proxy_listen: it is not user-editable and
+	// must never be persisted to settings.json.
+	if !slices.Equal(eng.Settings.ProxyListen, []string{"0.0.0.0:8080"}) {
+		t.Errorf("proxy_listen = %v, want it untouched", eng.Settings.ProxyListen)
+	}
+
+	// Idempotent: a second call must not register a duplicate.
 	EnsureTunSocksListener(eng)
-	if len(eng.Settings.ProxyListen) != n {
-		t.Fatalf("EnsureTunSocksListener appended a duplicate listener: %v", eng.Settings.ProxyListen)
+	if len(eng.InternalListen) != 1 {
+		t.Fatalf("EnsureTunSocksListener registered a duplicate: %v", eng.InternalListen)
+	}
+}
+
+// TestEnsureTunSocksListenerSkippedWhenDisabled: the dedicated listener exists
+// only to feed TUN capture, so it must not open a port when capture is off.
+func TestEnsureTunSocksListenerSkippedWhenDisabled(t *testing.T) {
+	settingsPath := filepath.Join(t.TempDir(), "config", "settings.json")
+	eng, rt, err := BuildProxyEngine(settingsPath)
+	if err != nil {
+		t.Fatalf("BuildProxyEngine() error = %v", err)
+	}
+	defer rt.Logs.Close()
+
+	eng.Settings.Tun2Socks.Enabled = false
+	EnsureTunSocksListener(eng)
+
+	if len(eng.InternalListen) != 0 {
+		t.Errorf("InternalListen = %v, want none when tun2socks is disabled", eng.InternalListen)
 	}
 }
 

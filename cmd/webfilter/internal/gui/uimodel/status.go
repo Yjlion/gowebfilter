@@ -84,6 +84,12 @@ func (m *StatusModel) Tun2SocksLabel() string {
 	if running, _ := st.Tun2Socks["running"].(bool); running {
 		return "tun2socks: running"
 	}
+	// A missing binary is the most common reason enabled capture isn't running,
+	// and it's the one the user can fix, so name it instead of the generic
+	// "not running".
+	if present, _ := st.Tun2Socks["binary_present"].(bool); !present {
+		return "tun2socks: binary not installed"
+	}
 	return "tun2socks: enabled (not running)"
 }
 

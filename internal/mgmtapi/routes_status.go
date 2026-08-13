@@ -32,12 +32,42 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		MgmtPort:       cfg.MgmtPort,
 		RecentBlocks:   s.Logs.Tail("blocks", recentActivityLimit),
 		RecentRequests: s.Logs.Tail("requests", recentActivityLimit),
-		Tun2Socks:      tun.Inspect(cfg),
+		Tun2Socks:      s.tunStatus(),
 	})
 }
 
 func (s *Server) handleTun2SocksStatus(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, tun.Inspect(s.Settings()))
+	writeJSON(w, http.StatusOK, s.tunStatus())
+}
+
+// tunStatus reports live TUN-capture state when the proxy engine shares this
+// process, and the settings/filesystem view otherwise. A nil Ref handles the
+// standalone-`mgmt` case itself.
+func (s *Server) tunStatus() tun.Status {
+	return s.Tun2Socks.Status(s.Settings())
+}
+
+// handleTun2SocksDownload installs the official tun2socks binary beside the
+// webfilter executable. It writes an executable fetched over the network, so it
+// is registered behind requireUnlocked with the other config mutations.
+func (s *Server) handleTun2SocksDownload(w http.ResponseWriter, r *http.Request) {
+	dir, err := tun.InstallDir()
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "cannot locate the install directory: "+err.Error())
+		return
+	}
+	meta, err := tun.Download(r.Context(), dir, "")
+	if err != nil {
+		// Upstream availability, rate limits and checksum mismatches are all
+		// outside this server's control, so report them as a bad gateway with
+		// the underlying reason rather than a generic 500.
+		writeJSONError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status": "ok",
+		"binary": meta,
+	})
 }
 
 // isPortOpen checks whether something is already listening on 127.0.0.1 (or

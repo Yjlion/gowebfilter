@@ -1,4 +1,10 @@
-# Plan: Android Port, Firefox Extension, and Transparent Mode
+# Plan: Android Port and Transparent Mode
+
+> **Historical note.** This plan originally had a third deliverable, a
+> standalone Firefox WebExtension. It was built, then removed — see HANDOFF.md's
+> "Removed: the Firefox extension". The numbering below has been re-flowed;
+> Deliverable 3 (transparent mode) keeps its original number for continuity with
+> the sections that reference it.
 
 ## Context
 
@@ -9,25 +15,20 @@ YouTube rewrite, DoH, QUIC, text + image NSFW classifiers). Reaching users on
 phones and inside a browser today requires manual proxy + CA setup, which is
 fragile and, on modern Android/Chrome, increasingly blocked.
 
-This document plans three independent-but-related deliverables:
+This document plans two independent-but-related deliverables:
 
 1. **Android app** — a full-feature on-device port using `VpnService`, embedding
    the existing Go engine via gomobile so no external proxy is needed.
-2. **Firefox extension** — a *standalone, no-proxy* in-browser filter (HaramBlur
-   style) that reproduces the "similar features" set client-side.
 3. **Transparent mode** — a new listener/interception path so traffic can be
    captured without per-client proxy configuration, planned per platform and per
    use case (local device vs. network gateway).
 
-**Status:** Deliverables 1 and 2 are now scaffolded in code. D1 (Android):
-the shared Go refactor (`internal/app`), the gomobile `mobile/` package, the
-offline UI vendoring, and the Kotlin/Gradle `android/` app all landed; a
-manual GitHub workflow (`.github/workflows/android.yml`) builds the debug
-APK on demand. D2 (Firefox): `firefox-extension/` is a working MV3 scaffold —
-DNR safesearch/URL/DoH rules, the ported Bayes text scorer (with a Go↔JS
-parity test), and the TF.js NSFW image filter. Deliverable 3 (transparent
-mode) remains research/advisory. See `HANDOFF.md`'s "Android port" and
-"Firefox extension" sections for what is verified vs. not.
+**Status:** Deliverable 1 (Android) is scaffolded in code: the shared Go
+refactor (`internal/app`), the gomobile `mobile/` package, the offline UI
+vendoring, and the Kotlin/Gradle `android/` app all landed; a manual GitHub
+workflow (`.github/workflows/android.yml`) builds the debug APK on demand.
+Deliverable 3 (transparent mode) remains research/advisory. See `HANDOFF.md`'s
+"Android port" section for what is verified vs. not.
 
 Key research findings that shape the design:
 
@@ -49,7 +50,7 @@ Key research findings that shape the design:
   user CAs in apps that opt in via network-security-config; Chrome ≥99 enforces
   Certificate Transparency and rejects user CAs outright; Firefox needs its
   "Use third-party CA certificates" toggle. This is why the on-device VpnService
-  design and the standalone Firefox extension are the right shapes.
+  design is the right shape.
 
 ---
 
@@ -100,60 +101,6 @@ addon pipeline. No external proxy, no root.
 2. Confirm `fd://` device scheme + exact `engine.Key` fields against pinned `xjasonlyu/tun2socks v2.6.0` source.
 3. Exclude desktop-only deps from the mobile build: all `cmd/webfilter` (cobra, `gogpu/systray`, `godbus`, Windows service), and `internal/tun2socks/platform_*`/route-setup files.
 4. On-device image CNN latency/battery under real browsing.
-
----
-
-## Deliverable 2 — Firefox extension (standalone, no proxy)
-
-Per the decision: a self-contained in-browser filter modeled on **HaramBlur**
-(client-side NSFW blur), *not* a proxy companion. It reproduces "similar
-features" using browser APIs + client-side ML. **This is a new, separate
-codebase** (TypeScript/JS WebExtension), sharing *concepts and data assets* with
-the Go project but not code.
-
-### Feature mapping (Go addon → in-browser mechanism)
-
-| Go feature | Firefox mechanism | Fidelity |
-|---|---|---|
-| url_filter (allow/block + categories) | `declarativeNetRequest` static + dynamic rulesets, compiled from category domain lists | High |
-| safesearch (google/bing/ddg/yahoo/youtube, tabs) | `declarativeNetRequest` redirect + modifyHeaders rules; already request-side in Go | High |
-| doh_filter | `declarativeNetRequest` block of known DoH endpoints + steer to filtering resolver; optionally toggle Firefox's own DoH | Medium |
-| quic_blocker | N/A in-browser (Firefox honors its own settings); can drop Alt-Svc via DNR modifyHeaders | Low/moot |
-| image_classifier (NSFW) | **content script + NSFWJS** (TensorFlow.js) on `<img>`/`<video>`/CSS backgrounds; blur/hide overlay; hover-to-unblur. Same GantMan/nsfw_model family the Go side embeds | High (this is the HaramBlur core) |
-| text_classifier (adult text) | content-script keyword prefilter + optional lightweight client scorer over visible text; port the Bayes `model_data.json` (~3 KB) to JS | Medium |
-| youtube_filter (channel block, strip comments/recs) | content script on youtube.com: hide/remove DOM nodes by channel id/@handle/name, comments section, recommendation sidebar/home feed. DOM-level, not response rewrite | Medium-High |
-| schedule / policy | extension storage + `alarms`; per-profile (no per-client tiers) | High |
-| block_page | extension-served block page / redirect | High |
-| policy_router / mitm_control / proxy_auth / mgmt_access | N/A — proxy infrastructure, no analogue in a per-browser extension | — |
-
-### Technical approach (HaramBlur-derived)
-- **Manifest V3, Firefox flavor.** Firefox MV3 *keeps* blocking `webRequest` and
-  `webRequestBlocking`, but prefer `declarativeNetRequest` for URL/safesearch
-  (faster, survives service-worker suspension). Use `webRequest` only where DNR
-  can't express a rule.
-- **NSFW detection:** NSFWJS + TensorFlow.js (WebGL backend, WASM fallback). Run
-  inference off the main thread (web worker / offscreen where available) to keep
-  pages responsive. Cache verdicts per image URL/hash; process video by sampling
-  frames to a canvas on an interval. Face detection (vladmandic/human) is
-  optional — include only if "blur faces / gaze" is in scope.
-- **Content script** with a `MutationObserver` to catch lazy-loaded/dynamic
-  media (infinite-scroll feeds), a size/skin prefilter before running the CNN
-  (mirror the Go skin-ratio gate to save CPU), and a shared blur/overlay UI.
-- **Category/blocklist assets:** reuse the IPFire squidGuard category lists the
-  Go `categories update` command already consumes — compile them into DNR JSON
-  rulesets at build time. This keeps the two products' block data in sync.
-- **UI:** popup (on/off, blur strength, per-feature toggles, hover-to-unblur) +
-  options page (categories, safesearch engines, YouTube channel lists, schedule),
-  persisted in `browser.storage`.
-- Ships on AMO; a Chromium build is possible later but Chrome MV3 drops blocking
-  `webRequest` — DNR + content-script classifier still work there.
-
-### Notes
-- All processing is on-device/in-browser (privacy parity with HaramBlur and the
-  Go project). No CA, no proxy, no network round-trips for classification.
-- This does **not** replace the proxy for non-Firefox apps — it's a per-browser
-  layer. Users wanting whole-device coverage use Deliverable 1 (Android) or the
-  desktop proxy.
 
 ---
 
@@ -212,9 +159,7 @@ connection to that seam. Add a `transparent` listener implementation in
 2. **Android v1:** gomobile AAR + VpnService + fd tun2socks wrapper + WebView mgmt
    UI + CA install flow + per-app selection. Include image CNN opt-in. Validate
    the three risks (sqlite-on-android, `fd://` Key fields, real-device CNN cost).
-3. **Firefox extension:** standalone MV3 with DNR (url/safesearch, from IPFire
-   lists) + NSFWJS content-script blur + YouTube content script + options/popup.
-4. **Transparent mode:** implement the `transparent` listener + `SO_ORIGINAL_DST`
+3. **Transparent mode:** implement the `transparent` listener + `SO_ORIGINAL_DST`
    (Linux local REDIRECT first — highest value/lowest complexity), then gateway
    TPROXY, then macOS `pf` and Windows WinDivert/wintun. Android is delivered by #2.
 
@@ -231,12 +176,6 @@ connection to that seam. Add a `transparent` listener implementation in
     `action`/`component`, and `?kind=blocks`).
   - Confirm blocked responses are HTTP 200 block pages (per repo gotcha) — don't
     assert on status codes.
-- **Firefox extension:**
-  - `web-ext run` / `web-ext lint`; load temporary add-on. Verify: a blocklisted
-    category domain is blocked (DNR), safesearch params injected on each engine,
-    NSFW test images blur without freezing an infinite-scroll page, YouTube channel
-    hidden and comments/recs removed. Confirm all inference is local (no network
-    calls from the classifier).
 - **Transparent mode:**
   - Linux: add an `iptables REDIRECT` for a test uid, run `webfilter run` with a
     `transparent@:port` listener, curl a target *without* proxy env vars, confirm

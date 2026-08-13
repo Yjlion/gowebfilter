@@ -187,6 +187,24 @@ func TestStatusModel(t *testing.T) {
 	if got := m.Tun2SocksLabel(); got != "tun2socks: disabled" {
 		t.Errorf("tun label = %q", got)
 	}
+	// Enabled but no binary is the state a user has to act on, so it must not
+	// collapse into the generic "not running".
+	m.Set(mgmtclient.Status{
+		ProxyRunning: true,
+		MgmtPort:     8000,
+		Tun2Socks:    map[string]any{"enabled": true, "binary_present": false},
+	})
+	if got := m.Tun2SocksLabel(); got != "tun2socks: binary not installed" {
+		t.Errorf("tun label with no binary = %q", got)
+	}
+	m.Set(mgmtclient.Status{
+		ProxyRunning: true,
+		MgmtPort:     8000,
+		Tun2Socks:    map[string]any{"enabled": true, "binary_present": true, "running": true},
+	})
+	if got := m.Tun2SocksLabel(); got != "tun2socks: running" {
+		t.Errorf("tun label when running = %q", got)
+	}
 	m.SetError(errors.New("connection refused"))
 	if got := m.ErrorLabel(); got == "" {
 		t.Errorf("error not surfaced")

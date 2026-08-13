@@ -14,6 +14,7 @@ import (
 
 	"github.com/yjlion/gowebfilter/internal/models"
 	"github.com/yjlion/gowebfilter/internal/proxy/addons"
+	"github.com/yjlion/gowebfilter/internal/webptest"
 )
 
 // fakeDetector always reports the given score for every image.
@@ -80,6 +81,76 @@ func TestImageClassifierBlursNSFWImage(t *testing.T) {
 	}
 	if img.Bounds().Dx() != 200 || img.Bounds().Dy() != 200 {
 		t.Errorf("blurred image size = %v, want 200x200", img.Bounds())
+	}
+}
+
+// TestImageClassifierFiltersWebPResponse guards the WebP decoder
+// registration. image/webp already reached filterImageResponse (the gate is a
+// bare "image/" prefix), but with no decoder registered imageTooSmall could
+// not read the dimensions and the replacement actions could not re-render the
+// image - so the practical effect was that WebP passed through untouched.
+//
+// Checkerboard is the action under test because it is the one that reads the
+// original's dimensions back out (via image.DecodeConfig), so a decode
+// regression shows up as a wrong-sized replacement rather than a silent pass.
+func TestImageClassifierFiltersWebPResponse(t *testing.T) {
+	rt := newTestRuntime(t)
+	// Noisy (rather than Flat) so the body clears the 1 KB minImageBytes floor.
+	body := webptest.Noisy(200, 200, color.RGBA{R: 200, G: 60, B: 90, A: 255}, 210)
+	if len(body) < 1024 {
+		t.Fatalf("fixture is %d bytes, need > 1024 to clear minImageBytes", len(body))
+	}
+	policy, resp := newImageFlow(t, body)
+	resp.Header.Set("Content-Type", "image/webp")
+	policy.ImageClassifier.Action = models.ImageActionCheckerboard
+	fc := newFlow(t, rt, "http://example.com/thumb.webp")
+	fc.Response = resp
+	fc.ResponseBody = body
+	fc.Policy = policy
+
+	ic := addons.ImageClassifier{Detector: fakeDetector{score: 0.9, ok: true}}
+	ic.HandleResponse(fc)
+
+	if fc.WFAction != "modified" || fc.WFComponent != "image_classifier" {
+		t.Fatalf("WFAction/WFComponent = %q/%q, want modified/image_classifier", fc.WFAction, fc.WFComponent)
+	}
+	// x/image/webp is decode-only, so the stand-in is re-encoded as PNG and
+	// the Content-Type must be rewritten to match or the browser mis-renders it.
+	if ct := fc.Response.Header.Get("Content-Type"); ct != "image/png" {
+		t.Errorf("Content-Type = %q, want image/png", ct)
+	}
+	img, _, err := image.Decode(bytes.NewReader(fc.ResponseBody))
+	if err != nil {
+		t.Fatalf("decode replacement image: %v", err)
+	}
+	if img.Bounds().Dx() != 200 || img.Bounds().Dy() != 200 {
+		t.Errorf("replacement size = %v, want 200x200 (dimensions read from the WebP header)", img.Bounds())
+	}
+}
+
+// TestImageClassifierSkipsSmallWebP pins the other half of decoding: a WebP
+// under min_dimension must be recognized as too small and left alone. Without
+// a WebP decoder imageTooSmall returns false (fail-open to "classify it"), so
+// this case would wrongly get replaced.
+func TestImageClassifierSkipsSmallWebP(t *testing.T) {
+	rt := newTestRuntime(t)
+	body := webptest.Noisy(50, 50, color.RGBA{R: 200, G: 60, B: 90, A: 255}, 210)
+	body = append(body, make([]byte, 2048)...) // clear minImageBytes; trailing bytes are ignored
+	policy, resp := newImageFlow(t, body)
+	resp.Header.Set("Content-Type", "image/webp")
+	fc := newFlow(t, rt, "http://example.com/icon.webp")
+	fc.Response = resp
+	fc.ResponseBody = body
+	fc.Policy = policy
+
+	ic := addons.ImageClassifier{Detector: fakeDetector{score: 0.9, ok: true}}
+	ic.HandleResponse(fc)
+
+	if fc.WFAction != "" {
+		t.Errorf("WFAction = %q, want empty (a 50x50 WebP is under min_dimension)", fc.WFAction)
+	}
+	if !bytes.Equal(fc.ResponseBody, body) {
+		t.Error("expected the undersized WebP body to be left untouched")
 	}
 }
 
@@ -275,6 +346,37 @@ func TestImageClassifierReplacesInlineNSFWDataURI(t *testing.T) {
 	}
 	if img.Bounds().Dx() != 200 || img.Bounds().Dy() != 200 {
 		t.Errorf("replacement size = %v, want 200x200", img.Bounds())
+	}
+}
+
+// TestImageClassifierReplacesInlineWebPDataURI covers inlineImageRe's format
+// alternation, which is a separate gate from the decoder registration: even
+// with x/image/webp imported, a `data:image/webp;base64,...` URI is invisible
+// to the scanner unless the regex lists webp.
+func TestImageClassifierReplacesInlineWebPDataURI(t *testing.T) {
+	rt := newTestRuntime(t)
+	webp := base64.StdEncoding.EncodeToString(
+		webptest.Noisy(200, 200, color.RGBA{R: 200, G: 60, B: 90, A: 255}, 210))
+	html := `<html><body><img src="data:image/webp;base64,` + webp + `"></body></html>`
+	policy, resp := newInlineFlow(t, "text/html; charset=UTF-8", []byte(html))
+	policy.ImageClassifier.Action = models.ImageActionCheckerboard
+	fc := newFlow(t, rt, "http://example.com/search?q=x")
+	fc.Response = resp
+	fc.ResponseBody = []byte(html)
+	fc.Policy = policy
+
+	ic := addons.ImageClassifier{Detector: fakeDetector{score: 0.9, ok: true}}
+	ic.HandleResponse(fc)
+
+	if fc.WFAction != "modified" {
+		t.Fatalf("WFAction = %q, want modified", fc.WFAction)
+	}
+	got := string(fc.ResponseBody)
+	if strings.Contains(got, webp) {
+		t.Error("expected the inline NSFW WebP data URI to be replaced")
+	}
+	if !strings.Contains(got, "data:image/png;base64,") {
+		t.Error("expected a PNG replacement data URI in the body")
 	}
 }
 

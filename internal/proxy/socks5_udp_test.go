@@ -1,6 +1,7 @@
 package proxy_test
 
 import (
+	"bytes"
 	"encoding/binary"
 	"io"
 	"net"
@@ -53,6 +54,39 @@ func startFakeDoh(t *testing.T, rcode int) *httptest.Server {
 func socksUDPQuery(t *testing.T, socksAddr, dstAddr string, query []byte) []byte {
 	t.Helper()
 
+	relayAddr, ctrl := socksUDPAssociate(t, socksAddr)
+	defer ctrl.Close()
+
+	// Send the query wrapped in a SOCKS UDP header addressed to dstAddr.
+	uc, err := net.DialUDP("udp", nil, relayAddr)
+	if err != nil {
+		t.Fatalf("dial relay: %v", err)
+	}
+	defer uc.Close()
+	_ = uc.SetDeadline(time.Now().Add(socksUDPTestDeadline))
+
+	packet := encodeUDPRequest(t, dstAddr, query)
+	if _, err := uc.Write(packet); err != nil {
+		t.Fatalf("write relay packet: %v", err)
+	}
+
+	buf := make([]byte, 64*1024)
+	n, err := uc.Read(buf)
+	if err != nil {
+		return nil
+	}
+	// Strip RSV(2) FRAG(1) ATYP+ADDR+PORT to get the DNS response payload.
+	_, payload := decodeUDPReply(t, buf[:n])
+	return payload
+}
+
+// socksUDPAssociate performs the SOCKS5 greeting and UDP ASSOCIATE handshake,
+// returning the relay address the client should send datagrams to along with
+// the TCP control connection. The association lives only as long as that
+// connection, so the caller owns and must close it.
+func socksUDPAssociate(t *testing.T, socksAddr string) (*net.UDPAddr, net.Conn) {
+	t.Helper()
+
 	ctrl, err := net.DialTimeout("tcp", socksAddr, 5*time.Second)
 	if err != nil {
 		t.Fatalf("dial socks: %v", err)
@@ -87,33 +121,15 @@ func socksUDPQuery(t *testing.T, socksAddr, dstAddr string, query []byte) []byte
 	if head[1] != 0x00 {
 		t.Fatalf("associate reply code = 0x%02x, want 0x00", head[1])
 	}
-	relayAddr := readReplyAddr(t, ctrl)
-
-	// Send the query wrapped in a SOCKS UDP header addressed to dstAddr.
-	uc, err := net.DialUDP("udp", nil, relayAddr)
-	if err != nil {
-		t.Fatalf("dial relay: %v", err)
-	}
-	defer uc.Close()
-	_ = uc.SetDeadline(time.Now().Add(socksUDPTestDeadline))
-
-	packet := encodeUDPRequest(t, dstAddr, query)
-	if _, err := uc.Write(packet); err != nil {
-		t.Fatalf("write relay packet: %v", err)
-	}
-
-	buf := make([]byte, 64*1024)
-	n, err := uc.Read(buf)
-	if err != nil {
-		return nil
-	}
-	// Strip RSV(2) FRAG(1) ATYP+ADDR+PORT to get the DNS response payload.
-	_, payload := decodeUDPReply(t, buf[:n])
-	return payload
+	return readReplyAddr(t, ctrl), ctrl
 }
 
 // cmdUDPAssociateByte mirrors the unexported proxy.cmdUDPAssociate (0x03).
 const cmdUDPAssociateByte = 0x03
+
+// quicPort mirrors the unexported proxy.quicPort: the one UDP destination the
+// relay refuses.
+const quicPort = 443
 
 // socksUDPTestDeadline bounds each relay round-trip in tests; the drop test
 // relies on it to conclude no reply is coming for non-DNS UDP.
@@ -224,17 +240,100 @@ func TestSocks5UDPFiltersViaDoh(t *testing.T) {
 	}
 }
 
-// TestSocks5UDPDropsNonDNS verifies non-DNS UDP (here QUIC's 443) is dropped:
-// the relay must not answer, so the client read times out.
-func TestSocks5UDPDropsNonDNS(t *testing.T) {
+// TestSocks5UDPDropsQUIC checks end-to-end that UDP/443 gets no reply. Binding
+// port 443 needs root, so this cannot distinguish "the relay dropped it" from
+// "it was forwarded to a closed port" - TestUDPVerdictFor pins the rule itself.
+// What this adds is that nothing downstream of the verdict (the reply path, the
+// session map) accidentally answers a QUIC datagram anyway.
+func TestSocks5UDPDropsQUIC(t *testing.T) {
 	socksAddr, _ := startSocksEngine(t, nil, nil, nil)
+	quicAddr := net.JoinHostPort("127.0.0.1", strconv.Itoa(quicPort))
 
-	// Any payload to a non-53 port. socksUDPQuery uses a 5s client deadline; a
-	// dropped datagram yields no reply and Read returns an error → nil.
-	resp := socksUDPQuery(t, socksAddr, "1.1.1.1:443", []byte("not-dns"))
-	if resp != nil {
-		t.Errorf("non-DNS UDP got a relayed reply (%d bytes); want it dropped", len(resp))
+	// socksUDPQuery bounds the client read; a dropped datagram yields no reply.
+	if resp := socksUDPQuery(t, socksAddr, quicAddr, []byte("quic-ish")); resp != nil {
+		t.Errorf("UDP/%d got a relayed reply (%d bytes); want it dropped", quicPort, len(resp))
 	}
+}
+
+// TestSocks5UDPRelaysGenericUDP verifies that UDP other than DNS and QUIC is
+// forwarded verbatim. The engine cannot inspect opaque UDP anyway, so dropping
+// it bought no filtering coverage while breaking NTP, VoIP, games and anything
+// else the OS sends once a TUN is capturing all traffic.
+func TestSocks5UDPRelaysGenericUDP(t *testing.T) {
+	socksAddr, _ := startSocksEngine(t, nil, nil, nil)
+	echo := startUDPEcho(t)
+
+	payload := []byte("hello over plain udp")
+	resp := socksUDPQuery(t, socksAddr, echo.String(), payload)
+	if resp == nil {
+		t.Fatal("no reply relayed for generic UDP; want it forwarded")
+	}
+	if !bytes.Equal(resp, payload) {
+		t.Errorf("relayed reply = %q, want the echoed payload %q", resp, payload)
+	}
+}
+
+// TestSocks5UDPIgnoresForeignSource verifies the relay only accepts datagrams
+// from the client that opened the association. The relay port is otherwise an
+// open forwarder for any local process that guesses it.
+func TestSocks5UDPIgnoresForeignSource(t *testing.T) {
+	socksAddr, _ := startSocksEngine(t, nil, nil, nil)
+	echo := startUDPEcho(t)
+
+	relayAddr, ctrl := socksUDPAssociate(t, socksAddr)
+	defer ctrl.Close()
+
+	// First datagram pins the association to this socket's address.
+	pinned, err := net.DialUDP("udp", nil, relayAddr)
+	if err != nil {
+		t.Fatalf("dial relay: %v", err)
+	}
+	defer pinned.Close()
+	_ = pinned.SetDeadline(time.Now().Add(socksUDPTestDeadline))
+	if _, err := pinned.Write(encodeUDPRequest(t, echo.String(), []byte("first"))); err != nil {
+		t.Fatalf("write pinning datagram: %v", err)
+	}
+	buf := make([]byte, 64*1024)
+	if _, err := pinned.Read(buf); err != nil {
+		t.Fatalf("pinning datagram got no reply: %v", err)
+	}
+
+	// A second local socket is a different source port, so it must be ignored.
+	foreign, err := net.DialUDP("udp", nil, relayAddr)
+	if err != nil {
+		t.Fatalf("dial relay from a second socket: %v", err)
+	}
+	defer foreign.Close()
+	_ = foreign.SetDeadline(time.Now().Add(socksUDPTestDeadline))
+	if _, err := foreign.Write(encodeUDPRequest(t, echo.String(), []byte("intruder"))); err != nil {
+		t.Fatalf("write foreign datagram: %v", err)
+	}
+	if n, err := foreign.Read(buf); err == nil {
+		t.Errorf("relay answered a foreign source address with %d bytes; want it ignored", n)
+	}
+}
+
+// startUDPEcho runs a UDP echo server for the test's lifetime and returns its
+// address.
+func startUDPEcho(t *testing.T) *net.UDPAddr {
+	t.Helper()
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
+	if err != nil {
+		t.Fatalf("listen udp echo: %v", err)
+	}
+	t.Cleanup(func() { conn.Close() })
+
+	go func() {
+		buf := make([]byte, 64*1024)
+		for {
+			n, addr, err := conn.ReadFromUDP(buf)
+			if err != nil {
+				return
+			}
+			_, _ = conn.WriteToUDP(buf[:n], addr)
+		}
+	}()
+	return conn.LocalAddr().(*net.UDPAddr)
 }
 
 // seedDohPolicy writes a catch-all policy with DoH enabled into the runtime's

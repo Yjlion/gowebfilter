@@ -81,7 +81,13 @@ type Tun2SocksConfig struct {
 	DNSServers    []string `json:"dns_servers"`
 	AutoRoutes    bool     `json:"auto_routes"`
 	BypassCIDRs   []string `json:"bypass_cidrs"`
-	ProxyTarget   string   `json:"proxy_target"`
+
+	// There is deliberately no proxy_target field. tun2socks needs a SOCKS5
+	// endpoint that carries UDP, so the engine binds a dedicated one it owns
+	// (see app.EnsureTunSocksListener) and points tun2socks at that. The old
+	// free-text setting let a user aim capture at an HTTP listener, an unbound
+	// port, or a remote host, none of which work. Existing settings.json files
+	// keep loading: encoding/json ignores the now-unknown key.
 }
 
 func NewTun2SocksConfig() Tun2SocksConfig {
@@ -108,7 +114,6 @@ func (c *Tun2SocksConfig) UnmarshalJSON(data []byte) error {
 	c.TunAddress = trimSpace(c.TunAddress)
 	c.TunGateway = trimSpace(c.TunGateway)
 	c.TunNetmask = trimSpace(c.TunNetmask)
-	c.ProxyTarget = trimSpace(c.ProxyTarget)
 	c.DNSServers = cleanStringSlice(c.DNSServers)
 	c.BypassCIDRs = cleanStringSlice(c.BypassCIDRs)
 	if c.DeviceName == "" {

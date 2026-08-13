@@ -101,3 +101,32 @@ func TestDecodeSocksUDPPacket(t *testing.T) {
 		t.Error("expected fragmented packet to be rejected")
 	}
 }
+
+// TestUDPVerdictFor pins the relay's port policy. The QUIC case is the one that
+// matters for filtering integrity: HTTP/3 is end-to-end encrypted with no MITM
+// seam, so relaying UDP/443 would let a browser behind the TUN bypass the
+// entire addon pipeline. Everything else forwards, because the engine cannot
+// inspect opaque UDP and dropping it only breaks the OS.
+//
+// This is asserted here rather than end-to-end because a dropped datagram and
+// one forwarded to a closed port are indistinguishable from the client side.
+func TestUDPVerdictFor(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		port int
+		want udpVerdict
+	}{
+		{"quic is dropped", quicPort, udpDrop},
+		{"dns is resolved through policy", dnsPort, udpResolveDNS},
+		{"ntp forwards", 123, udpForward},
+		{"wireguard forwards", 51820, udpForward},
+		{"https over tcp's port number, but udp, is still quic", 443, udpDrop},
+		{"quic on a nonstandard port is not special-cased", 8443, udpForward},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := udpVerdictFor(tc.port); got != tc.want {
+				t.Errorf("udpVerdictFor(%d) = %v, want %v", tc.port, got, tc.want)
+			}
+		})
+	}
+}

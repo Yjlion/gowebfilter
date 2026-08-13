@@ -25,6 +25,12 @@ import (
 	"sync"
 
 	xdraw "golang.org/x/image/draw"
+	// WebP is the default thumbnail/image format on Google Images and most
+	// CDNs today; without this decoder stdimage.Decode fails and Score
+	// returns ok=false, so every NSFW WebP silently passes unfiltered.
+	// Decode-only and pure Go, so CGO_ENABLED=0 still holds. Animated WebP
+	// (ANMF) is not supported upstream and still fails open.
+	_ "golang.org/x/image/webp"
 
 	"github.com/yjlion/gowebfilter/internal/proxy/addons"
 )

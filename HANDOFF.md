@@ -33,9 +33,11 @@ expected verification commands after changes.
 - SOCKS5 support lives in `internal/proxy/socks5.go` and SOCKS4/4a in
   `internal/proxy/socks4.go`. Both implement CONNECT only and join the same
   tunnel path as HTTP CONNECT. SOCKS5 supports no-auth and username/password
-  auth through the existing `ProxyAuthGate` and also serves a DNS-only UDP
-  ASSOCIATE relay; SOCKS4 has no password channel, so an auth-required proxy
-  refuses SOCKS4 clients. BIND is rejected. HTTPS through any of these is
+  auth through the existing `ProxyAuthGate` and also serves a UDP ASSOCIATE
+  relay (`socks5_udp.go`): DNS goes through the policy's DoH filter, UDP/443 is
+  dropped so QUIC can't bypass the pipeline, everything else is forwarded
+  verbatim over per-destination sockets. SOCKS4 has no password channel, so an
+  auth-required proxy refuses SOCKS4 clients. BIND is rejected. HTTPS is
   raw-spliced when MITM is unavailable or bypassed, and MITM-filtered when a
   runtime CA is available.
 - Config and state live on disk: `config/settings.json`, `policies/*.json`,
@@ -105,15 +107,17 @@ change the order there, never per front-end.
 
 ## Android port (in progress)
 
-Deliverable 1 of `docs/plans/android-firefox-transparent-mode.md` is
+Deliverable 1 of `docs/plans/android-transparent-mode.md` is
 scaffolded: the pure-Go engine runs on-device, embedded via gomobile.
 
 - `mobile/` is the gomobile-bound entry point. `Start(dataDir, tunFd)`
   bootstraps mobile settings (loopback mgmt on 127.0.0.1, single SOCKS5
   listener, tun2socks enabled), calls `app.BuildProxyEngine`, serves the
   engine + mgmt server, and funnels the VpnService TUN into the in-process
-  SOCKS5 listener via `xjasonlyu/tun2socks`'s `fd://` device. It does **not**
-  use `internal/tun2socks.Manager` (root/`ip`-gated).
+  SOCKS5 listener via `xjasonlyu/tun2socks`'s `fd://` device. It is the only
+  remaining in-process user of that library — desktop supervises the external
+  binary instead (`internal/tun2socks`), which is root-gated; Android needs no
+  elevation because the OS hands the app its TUN fd.
 - `android/` is a Kotlin/Gradle app (VpnService, WebView mgmt dashboard,
   per-app filtering with app icons, CA-install flow). The AAR
   (`android/app/libs/webfilter.aar`) is a build artifact — see
@@ -181,32 +185,51 @@ workflow that runs gomobile + Gradle on a GitHub runner and uploads both as
 artifacts. `ci.yml`'s cross-compile matrix also covers
 `GOOS=android GOARCH=arm64` for `./mobile ./internal/...` on every push/PR.
 
-## Firefox extension (in progress)
+## Removed: the Firefox extension
 
-Deliverable 2 of `docs/plans/android-firefox-transparent-mode.md` is
-scaffolded in `firefox-extension/`: a standalone MV3 WebExtension (plain JS,
-no build step) reproducing the filters with browser APIs — no proxy, no CA.
-See its README for the full Go-addon → extension mechanism map.
+`firefox-extension/` (Deliverable 2 of the plan doc) was a standalone MV3
+WebExtension reproducing the filters with browser APIs — no proxy, no CA. It
+was **deleted** rather than maintained: it was a second full implementation of
+SafeSearch/URL/DoH (a hand-kept port of `safesearch.go`'s engine table), of the
+Bayes text scorer (a generated `bayes_model.js` guarded by a Go↔JS parity
+test), and of the NSFW image classifier (4.1 MB of vendored TF.js), all of
+which had to be re-synced by hand on every engine change. Don't reintroduce a
+parallel client-side implementation; the proxy and the Android app are the
+supported delivery paths.
 
-- SafeSearch/URL-filter/DoH-bypass via `declarativeNetRequest`; the engine
-  table (`background/rules_data.js`) is a port of `safesearch.go`, including
-  the same-domain AI/images-tab scoping and sharded-CDN handling.
-- The adult-text scorer is the same Bayes model (generated
-  `background/bayes_model.js`); `test/bayes_parity.mjs` replays Go-generated
-  vectors (`test/gen_vectors.go`) and requires exact score agreement.
-- The NSFW image filter runs the same GantMan MobileNetV2 family via
-  vendored TF.js (converted from the nsfwjs npm package's bundled model —
-  see `firefox-extension/NOTICE`), with the Go side's skin-ratio gate (0.07)
-  and combined score (`porn + hentai + 0.5*sexy`) ported verbatim.
+## TUN capture (desktop/server)
 
-**Verified:** `web-ext lint` 0 errors; Bayes JS↔Go score parity on committed
-vectors; DNR rule compilation asserted against sample URLs
-(`test/rules_check.mjs`); the vendored model loads in TF.js and produces a
-valid 5-class softmax.
+`internal/tun2socks` **supervises the official tun2socks binary as a child
+process**; it does not link the library. The earlier in-process design forced
+the whole filter — MITM engine, management API, SQLite writer — to run as
+root/Administrator, behaved differently per platform, and never worked well
+enough to ship (the web UI's card shipped `class="hidden"` with a "doesn't work
+reliably yet" comment). Confining the privileged, OS-coupled part to a small
+external process it can start, watch, and restart is what made it shippable.
 
-**Not verified (needs a real Firefox):** DNR behavior against live search
-engines, image/YouTube filtering on real pages (YouTube DOM selectors will
-need maintenance), event-page lifecycle, low-end classification latency.
+- `download.go` installs the binary from the upstream GitHub release, selecting
+  the asset for the running GOOS/GOARCH and verifying it against the release's
+  published SHA-256, staged in a temp dir and renamed into place. Provenance
+  (version/sha/timestamp) is recorded in `bin/tun2socks.json`.
+- `binary.go` resolves the executable: the copy in `bin/` beside webfilter
+  first, then PATH.
+- `supervisor.go` runs it with `--device/--proxy/--interface`, pipes its output
+  into `slog`, and restarts it with capped backoff. Route/DNS setup still shells
+  out to `ip`/`netsh` (`platform_*.go`), and Windows still needs `wintun.dll`.
+- Captured traffic enters through a **dedicated, engine-owned SOCKS5 listener**
+  (`socks5@127.0.0.1:0` via `Engine.InternalListen`), not a `proxy_listen`
+  entry. It is not user-editable: tun2socks requires a SOCKS5 endpoint that
+  carries UDP, and the old free-text `proxy_target` setting mostly let people
+  aim capture somewhere that silently didn't work. That setting is gone.
+- Reachable from `POST /api/tun2socks/download` (MDM-lock gated) and
+  `webfilter tun2socks download|status`.
+
+**Verified:** download → sha256 verify → install → `--version`, both via the
+CLI and the API, against the real v2.7.0 release; the dedicated listener binds
+on an OS-assigned port, stays out of `GET /api/settings`, and proxies filtered
+traffic; an unprivileged run logs a skip and keeps serving. **Not verified:**
+an actual TUN device coming up and carrying traffic (needs root), and anything
+on Windows (`wintun.dll`, `netsh` routes, the adapter-appearance race).
 
 ## Classifiers
 
@@ -239,6 +262,15 @@ need maintenance), event-page lifecycle, low-end classification latency.
   share the normal search hostname.
 - Google image thumbnails use sharded hosts such as
   `encrypted-tbn0.gstatic.com` through at least `encrypted-tbn3.gstatic.com`.
+- An image format with no registered decoder fails *open*: `Score` returns
+  `ok=false`, which the addon reads as "not NSFW". Decoders must be registered
+  in both `internal/classify/image` and `internal/proxy/addons`, and inline
+  data URIs also need the format listed in `inlineImageRe`. JPEG/PNG/GIF/WebP
+  are covered; AVIF and animated WebP are not.
+- The SOCKS5 UDP relay drops UDP/443 unconditionally. It is deliberately not
+  gated on `url_filter.block_quic`, which defaults to false and only strips
+  Alt-Svc — gating on it would leave HTTP/3 free to bypass the pipeline for
+  every TUN user by default.
 - Tests that construct config-backed services directly must use absolute
   temp paths for `cert_dir`, `policies_dir`, and `logs_dir`.
 - Local `main` may lag GitHub because fixes have been landing through PRs.

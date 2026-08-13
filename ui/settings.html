@@ -114,16 +114,16 @@
           <p class="text-xs text-gray-400">The TLS variants ("over TLS") present a certificate signed by this proxy's CA, so clients must trust the CA to connect to the proxy endpoint itself. Restart after saving changes.</p>
         </div>
 
-        <!-- TUN / tun2socks - hidden pending fixes; doesn't work reliably yet -->
-        <div class="hidden bg-card rounded-xl shadow-sm border border-gray-100 p-6 space-y-4 mb-4">
+        <!-- TUN / tun2socks -->
+        <div class="bg-card rounded-xl shadow-sm border border-gray-100 p-6 space-y-4 mb-4">
           <div>
             <h2 class="text-sm font-semibold text-gray-900">TUN / tun2socks</h2>
-            <p class="text-xs text-gray-500 mt-0.5">Capture this machine's traffic through a TUN interface and send it into the local SOCKS5 proxy. Restart after saving changes.</p>
+            <p class="text-xs text-gray-500 mt-0.5">Capture this machine's traffic through a TUN interface and send it into the filter. This runs the official <span class="font-mono">tun2socks</span> binary as a separate process, so only it needs admin/root. Restart after saving changes.</p>
           </div>
           <div class="grid grid-cols-2 gap-3 text-xs">
             <div class="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
               <div class="text-gray-500">Runtime</div>
-              <div class="font-medium" x-text="status.tun2socks && status.tun2socks.running ? 'Running' : 'Stopped'"></div>
+              <div class="font-medium" x-text="status.tun2socks && status.tun2socks.running ? `Running (pid ${status.tun2socks.pid})` : 'Stopped'"></div>
             </div>
             <div class="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
               <div class="text-gray-500">Platform</div>
@@ -134,10 +134,29 @@
               <div class="font-medium" x-text="status.tun2socks && status.tun2socks.privilege_ok ? status.tun2socks.privilege : 'needs admin/root'"></div>
             </div>
             <div class="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
-              <div class="text-gray-500">Proxy target</div>
-              <div class="font-mono" x-text="status.tun2socks && status.tun2socks.required_proxy ? status.tun2socks.required_proxy : 'auto'"></div>
+              <div class="text-gray-500">Dedicated SOCKS5 listener</div>
+              <div class="font-mono" x-text="status.tun2socks && status.tun2socks.socks_addr ? status.tun2socks.socks_addr : 'assigned on start'"></div>
             </div>
           </div>
+          <p class="text-xs text-gray-400">Captured traffic is routed into a dedicated SOCKS5 listener the filter creates and owns. It is not part of the proxy listeners above and cannot be edited &mdash; tun2socks needs a SOCKS5 endpoint that carries UDP.</p>
+
+          <!-- tun2socks binary -->
+          <div class="rounded-lg border border-gray-100 bg-gray-50 px-3 py-3 space-y-2">
+            <div class="flex items-center justify-between gap-3">
+              <div class="text-xs">
+                <div class="text-gray-500">tun2socks binary</div>
+                <div class="font-medium" x-text="status.tun2socks && status.tun2socks.binary_present ? (status.tun2socks.binary_version || 'installed') : 'not installed'"></div>
+                <div class="font-mono text-gray-400 mt-0.5" x-show="status.tun2socks && status.tun2socks.binary_path" x-cloak
+                     x-text="status.tun2socks.binary_path"></div>
+              </div>
+              <button type="button" @click="downloadTun2socks()" :disabled="tunDownloading"
+                      class="shrink-0 bg-blue-600 text-white px-3 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
+                <span x-text="tunDownloading ? 'Downloading...' : (status.tun2socks && status.tun2socks.binary_present ? 'Re-download' : 'Download tun2socks')"></span>
+              </button>
+            </div>
+            <p class="text-xs text-gray-400">Fetched from the official GitHub releases (<span class="font-mono">tun2socks.com</span>) and verified against the published SHA-256, then installed next to this application.</p>
+          </div>
+
           <div x-show="status.tun2socks && status.tun2socks.last_error" x-cloak
                class="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2"
                x-text="status.tun2socks.last_error"></div>
@@ -169,11 +188,6 @@
             <div>
               <label class="text-xs font-medium text-gray-700 block mb-1">Netmask</label>
               <input type="text" x-model="settings.tun2socks.tun_netmask" placeholder="255.254.0.0"
-                     class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
-            </div>
-            <div>
-              <label class="text-xs font-medium text-gray-700 block mb-1">Proxy target <span class="text-gray-400">(optional)</span></label>
-              <input type="text" x-model="settings.tun2socks.proxy_target" placeholder="auto: socks5://127.0.0.1:1080"
                      class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
           </div>
@@ -495,13 +509,14 @@
   <script>
     function settingsPage() {
       return {
-        settings: { proxy_listen: ['0.0.0.0:8080', 'socks5@127.0.0.1:1080'], mgmt_host: '0.0.0.0', mgmt_port: 8000, cert_dir: './certs', policies_dir: './policies', logs_dir: './logs', categories_dir: './categories', log_blocks: true, log_requests: true, log_retention_days: 30, default_policy: null, auth_enabled: false, has_password: false, pac_proxy_host: '', pac_direct_hosts: [], pac_direct_ips: [], mgmt_hostname: 'web.filter', upstream_proxy: '', upstream_auth: '', ui_language: 'en', proxy_auth_enabled: false, proxy_auth_username: '', has_proxy_auth: false, tun2socks: { enabled: false, device_name: 'webfilter-tun', interface_name: '', tun_address: '198.18.0.1', tun_gateway: '198.18.0.1', tun_netmask: '255.254.0.0', dns_servers: [], auto_routes: true, bypass_cidrs: ['127.0.0.0/8', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'], proxy_target: '' } },
-        status: { proxy_port: null, tun2socks: { running: false, platform: 'unknown', supported: false, privilege_ok: false, required_proxy: '' } },
+        settings: { proxy_listen: ['0.0.0.0:8080', 'socks5@127.0.0.1:1080'], mgmt_host: '0.0.0.0', mgmt_port: 8000, cert_dir: './certs', policies_dir: './policies', logs_dir: './logs', categories_dir: './categories', log_blocks: true, log_requests: true, log_retention_days: 30, default_policy: null, auth_enabled: false, has_password: false, pac_proxy_host: '', pac_direct_hosts: [], pac_direct_ips: [], mgmt_hostname: 'web.filter', upstream_proxy: '', upstream_auth: '', ui_language: 'en', proxy_auth_enabled: false, proxy_auth_username: '', has_proxy_auth: false, tun2socks: { enabled: false, device_name: 'webfilter-tun', interface_name: '', tun_address: '198.18.0.1', tun_gateway: '198.18.0.1', tun_netmask: '255.254.0.0', dns_servers: [], auto_routes: true, bypass_cidrs: ['127.0.0.0/8', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'] } },
+        status: { proxy_port: null, tun2socks: { running: false, platform: 'unknown', supported: false, privilege_ok: false, socks_addr: '', binary_present: false } },
         newPassword: '',
         newProxyAuthPassword: '',
         alert: '',
         alertType: 'success',
         wg: { enabled: false },
+        tunDownloading: false,
 
         listenMode(entry) {
           const head = String(entry || '').split('@')[0].split(':')[0].toLowerCase();
@@ -586,11 +601,15 @@
               this.settings = s;
             }
           } catch (e) {}
+          await this.loadStatus();
+          await this.refreshWireguard();
+        },
+
+        async loadStatus() {
           try {
             const r = await fetch('/api/status');
             if (r.ok) this.status = await r.json();
           } catch (e) {}
-          await this.refreshWireguard();
         },
 
         pacUrl(path) { return location.origin + path; },
@@ -688,11 +707,36 @@
         },
 
         normalizeTun(t) {
-          const d = { enabled: false, device_name: 'webfilter-tun', interface_name: '', tun_address: '198.18.0.1', tun_gateway: '198.18.0.1', tun_netmask: '255.254.0.0', dns_servers: [], auto_routes: true, bypass_cidrs: ['127.0.0.0/8', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'], proxy_target: '' };
+          const d = { enabled: false, device_name: 'webfilter-tun', interface_name: '', tun_address: '198.18.0.1', tun_gateway: '198.18.0.1', tun_netmask: '255.254.0.0', dns_servers: [], auto_routes: true, bypass_cidrs: ['127.0.0.0/8', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'] };
           const out = { ...d, ...(t || {}) };
           if (!Array.isArray(out.dns_servers)) out.dns_servers = d.dns_servers;
           if (!Array.isArray(out.bypass_cidrs)) out.bypass_cidrs = d.bypass_cidrs;
           return out;
+        },
+
+        // Installs the official tun2socks binary beside this application. The
+        // download runs server-side (it needs to write next to the executable),
+        // so this just kicks it off and refreshes the status tiles afterwards.
+        async downloadTun2socks() {
+          this.tunDownloading = true;
+          try {
+            const r = await fetch('/api/tun2socks/download', { method: 'POST' });
+            const body = await r.json().catch(() => ({}));
+            if (r.ok) {
+              this.alert = `tun2socks ${body.binary ? body.binary.version : ''} installed.`;
+              this.alertType = 'success';
+              await this.loadStatus();
+            } else {
+              this.alert = body.detail || 'Download failed.';
+              this.alertType = 'error';
+            }
+          } catch (e) {
+            this.alert = window.wfT('set.netErr');
+            this.alertType = 'error';
+          } finally {
+            this.tunDownloading = false;
+          }
+          setTimeout(() => { this.alert = ''; }, 6000);
         },
 
         async logout() { await fetch('/api/logout', { method: 'POST' }); location.href = 'login.html'; },

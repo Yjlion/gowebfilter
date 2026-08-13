@@ -1,8 +1,11 @@
 package image
 
 import (
+	"image/color"
 	"os"
 	"testing"
+
+	"github.com/yjlion/gowebfilter/internal/webptest"
 )
 
 // TestScoreSkipsClassifierOnZeroSkin: images with no skin must never reach
@@ -85,4 +88,31 @@ func TestScoreRealSampleImages(t *testing.T) {
 	if nudeScore <= sceneScore {
 		t.Errorf("nude.jpg scored %.3f, scene.jpg scored %.3f - expected nude to score clearly higher", nudeScore, sceneScore)
 	}
+}
+
+// TestScoreDecodesWebP guards the golang.org/x/image/webp registration. Before
+// it, a WebP body failed stdimage.Decode and Score returned ok=false, which
+// ImageClassifier reads as "not NSFW" - so every NSFW WebP passed through
+// unfiltered. WebP is the format Google Images and most CDNs serve today, so
+// that was the majority of real thumbnail traffic.
+//
+// The fixture is a flat skin tone, which puts the skin ratio at 1.0 and so
+// carries the decoded pixels all the way through the prefilter into
+// MobileNetV2 - if the WebP decoder were missing, or wired up but producing
+// garbage, this would not reach the classifier at all.
+func TestScoreDecodesWebP(t *testing.T) {
+	d, err := New()
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	skin := color.RGBA{R: 241, G: 194, B: 125, A: 255}
+	score, ok := d.Score(webptest.Flat(240, 180, skin))
+	if !ok {
+		t.Fatal("Score() on a WebP returned ok=false - is golang.org/x/image/webp still imported by detector.go?")
+	}
+	if score == 0 {
+		t.Error("Score() = 0 on an all-skin image, want the classifier to have run")
+	}
+	t.Logf("flat skin-tone webp nsfw score: %.3f", score)
 }
