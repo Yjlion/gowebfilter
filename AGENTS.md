@@ -63,8 +63,9 @@ for local dev. They persist to disk; the mgmt API's
 - `internal/classify/textbayes/` - embedded pure-Go Bayesian adult-text scorer
 - `internal/classify/image/` - embedded pure-Go GantMan/nsfw_model image classifier
 - `internal/tun2socks/` - supervises the **external** tun2socks binary as a
-  child process (only it needs root), downloads it sha256-verified from the
-  upstream GitHub release into `bin/` beside the executable
+  child process, downloads it sha256-verified from the upstream GitHub release
+  into `bin/` beside the executable. The Linux privilege gate is root **or**
+  CAP_NET_ADMIN (see the gotcha below)
 - `internal/webptest/` - minimal VP8L encoder used only by tests (Go has no
   WebP encoder)
 - `mobile/` - gomobile-bound Android entry point (`Start`, `StartProxyOnly`
@@ -96,8 +97,16 @@ for local dev. They persist to disk; the mgmt API's
   `socks5@127.0.0.1:0` listener the engine owns (`Engine.InternalListen`), not
   a `proxy_listen` entry — it is not user-editable and its port is assigned by
   the OS, so read it back with `proxy.FindPurpose` after `Listen()`. There is
-  no `tun2socks.proxy_target` setting any more. A missing binary or missing
-  root must stay a `StartupSkippedError` so the proxy keeps serving.
+  no `tun2socks.proxy_target` setting any more. A missing binary, or no root
+  *and* no CAP_NET_ADMIN, must stay a `StartupSkippedError` so the proxy keeps
+  serving.
+- The Linux TUN privilege gate is root **or** CAP_NET_ADMIN (`unix.Capget` in
+  `platform_linux.go`), because the systemd units run unprivileged and get
+  `AmbientCapabilities` from the `packaging/tun2socks.conf` drop-in. Ambient
+  caps survive `execve` (so `ip` and the tun2socks child inherit them); file
+  caps via `setcap` do **not** work, because the units set
+  `NoNewPrivileges=true`. CAP_NET_RAW is also required whenever
+  `tun2socks.interface_name` is set (tun2socks then uses `SO_BINDTODEVICE`).
 - The SOCKS5 UDP relay forwards all UDP except port 443 (QUIC), which is
   dropped unconditionally — *not* gated on `url_filter.block_quic`, which
   defaults to false. DNS is resolved through the policy's DoH filter.
