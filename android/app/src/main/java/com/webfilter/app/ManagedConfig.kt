@@ -25,7 +25,7 @@ object ManagedConfig {
     private const val TAG = "ManagedConfig"
 
     private val SETTINGS_BOOL_KEYS = listOf("log_blocks", "log_requests", "auth_enabled")
-    private val ENGINES = listOf("google", "bing", "duckduckgo", "yahoo", "youtube")
+    private val ENGINES = listOf("google", "bing", "duckduckgo", "yahoo", "youtube", "brave", "yandex")
 
     /**
      * Reads the current application restrictions and applies them to the

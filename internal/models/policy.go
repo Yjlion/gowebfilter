@@ -177,7 +177,7 @@ func (c *ImageClassifierConfig) UnmarshalJSON(data []byte) error {
 // SafeSearchEngines lists the engines configurable per-policy; also used to
 // migrate the legacy flat schema (global block_*_tab flags) into the
 // engines map, one entry per known engine.
-var SafeSearchEngines = []string{"google", "bing", "duckduckgo", "yahoo", "youtube"}
+var SafeSearchEngines = []string{"google", "bing", "duckduckgo", "yahoo", "youtube", "brave", "yandex"}
 
 type SafeSearchEngineConfig struct {
 	Enabled        bool `json:"enabled"`

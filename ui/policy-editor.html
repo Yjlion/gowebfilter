@@ -321,7 +321,7 @@
               <input type="checkbox" class="toggle" x-model="policy.safesearch.enabled" @click.stop />
               <div>
                 <div class="text-sm font-semibold text-gray-900" data-i18n="ed.safesearch">SafeSearch</div>
-                <div class="text-xs text-gray-500" data-i18n="ed.safesearchDesc">Enforce safe search on Google, Bing, DuckDuckGo, Yahoo</div>
+                <div class="text-xs text-gray-500" data-i18n="ed.safesearchDesc">Enforce safe search on Google, Bing, DuckDuckGo, Yahoo, Brave, Yandex, YouTube</div>
               </div>
             </div>
             <svg class="w-4 h-4 text-gray-400 transition-transform" :class="open.safe ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
@@ -352,10 +352,12 @@
                         <input type="checkbox" class="toggle" x-model="policy.safesearch.engines[eng.id].enabled" />
                       </td>
                       <td class="py-2 px-3 text-center">
-                        <input type="checkbox" class="toggle" x-model="policy.safesearch.engines[eng.id].block_images_tab" />
+                        <template x-if="eng.images !== false"><input type="checkbox" class="toggle" x-model="policy.safesearch.engines[eng.id].block_images_tab" /></template>
+                        <template x-if="eng.images === false"><span class="text-gray-300">&mdash;</span></template>
                       </td>
                       <td class="py-2 px-3 text-center">
-                        <input type="checkbox" class="toggle" x-model="policy.safesearch.engines[eng.id].block_videos_tab" />
+                        <template x-if="eng.videos !== false"><input type="checkbox" class="toggle" x-model="policy.safesearch.engines[eng.id].block_videos_tab" /></template>
+                        <template x-if="eng.videos === false"><span class="text-gray-300">&mdash;</span></template>
                       </td>
                       <td class="py-2 px-3 text-center">
                         <template x-if="eng.ai"><input type="checkbox" class="toggle" x-model="policy.safesearch.engines[eng.id].block_ai_tab" /></template>
@@ -695,6 +697,9 @@
           { id: 'bing', label: 'Bing', ai: true, icon: engineTile('#0D8484', 'b') },
           { id: 'duckduckgo', label: 'DuckDuckGo', ai: true, icon: engineTile('#DE5833', 'd') },
           { id: 'yahoo', label: 'Yahoo', ai: false, icon: engineTile('#5F01D1', 'Y') },
+          { id: 'brave', label: 'Brave', ai: true, icon: engineTile('#FB542B', 'B') },
+          { id: 'yandex', label: 'Yandex', ai: true, icon: engineTile('#FC3F1D', 'Ya') },
+          { id: 'youtube', label: 'YouTube', ai: false, images: false, videos: false, icon: engineTile('#FF0000', 'YT') },
         ],
         // Family-safety DoH resolvers (RFC 8484). The model stores the URL; the
         // dropdown falls back to "Custom…" for any value not in this list.
@@ -902,6 +907,9 @@
           bing: { enabled: true, block_images_tab: false, block_videos_tab: false, block_ai_tab: false },
           duckduckgo: { enabled: true, block_images_tab: false, block_videos_tab: false, block_ai_tab: false },
           yahoo: { enabled: true, block_images_tab: false, block_videos_tab: false, block_ai_tab: false },
+          brave: { enabled: true, block_images_tab: false, block_videos_tab: false, block_ai_tab: false },
+          yandex: { enabled: true, block_images_tab: false, block_videos_tab: false, block_ai_tab: false },
+          youtube: { enabled: true, block_images_tab: false, block_videos_tab: false, block_ai_tab: false },
         }, exclude: [], include_only: [] },
         youtube: { enabled: false, mode: 'blacklist', channels: [], exclude: [], include_only: [], block_home: true, remove_comments: false, remove_recommendations: false },
         text_classifier: { enabled: false, threshold: 0.8, exclude: [], include_only: [] },

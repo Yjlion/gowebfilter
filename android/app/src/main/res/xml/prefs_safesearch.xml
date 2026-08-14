@@ -110,4 +110,46 @@
             android:title="@string/pref_block_ai_tab"
             android:defaultValue="false" />
     </PreferenceCategory>
+
+    <PreferenceCategory
+        android:title="@string/engine_brave"
+        android:icon="@drawable/ic_engine_brave">
+        <SwitchPreferenceCompat
+            android:key="safesearch_brave_enabled"
+            android:title="@string/pref_enabled"
+            android:defaultValue="true" />
+        <SwitchPreferenceCompat
+            android:key="safesearch_brave_block_images_tab"
+            android:title="@string/pref_block_images_tab"
+            android:defaultValue="false" />
+        <SwitchPreferenceCompat
+            android:key="safesearch_brave_block_videos_tab"
+            android:title="@string/pref_block_videos_tab"
+            android:defaultValue="false" />
+        <SwitchPreferenceCompat
+            android:key="safesearch_brave_block_ai_tab"
+            android:title="@string/pref_block_ai_tab"
+            android:defaultValue="false" />
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        android:title="@string/engine_yandex"
+        android:icon="@drawable/ic_engine_yandex">
+        <SwitchPreferenceCompat
+            android:key="safesearch_yandex_enabled"
+            android:title="@string/pref_enabled"
+            android:defaultValue="true" />
+        <SwitchPreferenceCompat
+            android:key="safesearch_yandex_block_images_tab"
+            android:title="@string/pref_block_images_tab"
+            android:defaultValue="false" />
+        <SwitchPreferenceCompat
+            android:key="safesearch_yandex_block_videos_tab"
+            android:title="@string/pref_block_videos_tab"
+            android:defaultValue="false" />
+        <SwitchPreferenceCompat
+            android:key="safesearch_yandex_block_ai_tab"
+            android:title="@string/pref_block_ai_tab"
+            android:defaultValue="false" />
+    </PreferenceCategory>
 </PreferenceScreen>
