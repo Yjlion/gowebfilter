@@ -68,6 +68,40 @@
 
         <div class="space-y-6">
 
+          <!-- ── 0. Classifier Health ── -->
+          <!-- Deliberately above the scanner: when a scan comes back empty or
+               errors, this is the card that explains why. -->
+          <div class="bg-card rounded-xl shadow-sm border border-gray-100">
+            <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+              <div>
+                <h2 class="text-base font-semibold text-gray-900" data-i18n="tools.health">Classifier Health</h2>
+                <p class="text-xs text-gray-400 mt-0.5" data-i18n="tools.healthDesc">Check that the embedded text and image classifiers loaded</p>
+              </div>
+              <button @click="runHealth()"
+                      :disabled="health.loading"
+                      class="px-4 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                <span x-show="!health.loading" data-i18n="tools.refresh">Refresh</span>
+                <span x-show="health.loading" data-i18n="tools.checking">Checking…</span>
+              </button>
+            </div>
+            <div class="px-6 py-5 space-y-3">
+              <div x-show="health.error" class="text-sm text-red-600 bg-red-50 rounded-lg px-4 py-2" x-text="health.error"></div>
+              <div x-show="health.result" x-cloak class="grid grid-cols-2 gap-3">
+                <template x-for="row in healthRows()" :key="row.key">
+                  <div class="rounded-lg border border-gray-100 bg-gray-50 px-4 py-3">
+                    <div class="flex items-center gap-2">
+                      <span class="text-xs font-medium text-gray-500" x-text="row.label"></span>
+                      <span class="badge"
+                            :class="row.ok ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'"
+                            x-text="row.status"></span>
+                    </div>
+                    <div class="text-xs text-gray-500 mt-1" x-text="row.detail"></div>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </div>
+
           <!-- ── 1. NSFW URL Scanner ── -->
           <div class="bg-card rounded-xl shadow-sm border border-gray-100">
             <div class="px-6 py-4 border-b border-gray-100">
@@ -110,17 +144,17 @@
               <!-- Scan result: image type -->
               <div x-show="scan.result && scan.result.type === 'image'" x-cloak class="space-y-2">
                 <div class="flex items-center gap-3">
-                  <span class="text-xs font-medium text-gray-500">Type:</span>
+                  <span class="text-xs font-medium text-gray-500" data-i18n="tools.typeLabel">Type:</span>
                   <span class="badge bg-blue-100 text-blue-700">image</span>
-                  <span class="text-xs font-medium text-gray-500 ml-2">NSFW:</span>
+                  <span class="text-xs font-medium text-gray-500 ml-2" data-i18n="tools.nsfwLabel">NSFW:</span>
                   <span class="badge" :class="scan.result.nsfw ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'"
                         x-text="scan.result.nsfw ? 'Yes' : 'No'"></span>
                 </div>
                 <div x-show="scan.result.detections && scan.result.detections.length > 0" class="overflow-x-auto">
                   <table class="w-full text-xs border-collapse">
                     <thead><tr class="border-b border-gray-100 text-left">
-                      <th class="py-1.5 pr-4 font-medium text-gray-500 uppercase">Class</th>
-                      <th class="py-1.5 pr-4 font-medium text-gray-500 uppercase">Score</th>
+                      <th class="py-1.5 pr-4 font-medium text-gray-500 uppercase" data-i18n="tools.colClass">Class</th>
+                      <th class="py-1.5 pr-4 font-medium text-gray-500 uppercase" data-i18n="tools.colScore">Score</th>
                     </tr></thead>
                     <tbody>
                       <template x-for="(d, i) in scan.result.detections" :key="i">
@@ -147,9 +181,9 @@
                 <div x-show="scan.result.images && scan.result.images.length > 0" class="overflow-x-auto">
                   <table class="w-full text-xs border-collapse">
                     <thead><tr class="border-b border-gray-100 text-left">
-                      <th class="py-1.5 pr-4 font-medium text-gray-500 uppercase">Image URL</th>
-                      <th class="py-1.5 pr-4 font-medium text-gray-500 uppercase">NSFW</th>
-                      <th class="py-1.5 font-medium text-gray-500 uppercase">Top Detection / Error</th>
+                      <th class="py-1.5 pr-4 font-medium text-gray-500 uppercase" data-i18n="tools.colImageUrl">Image URL</th>
+                      <th class="py-1.5 pr-4 font-medium text-gray-500 uppercase" data-i18n="tools.colNsfw">NSFW</th>
+                      <th class="py-1.5 font-medium text-gray-500 uppercase" data-i18n="tools.colTopDetection">Top Detection / Error</th>
                     </tr></thead>
                     <tbody>
                       <template x-for="(img, i) in scan.result.images" :key="i">
@@ -305,7 +339,7 @@
                   </table>
                 </div>
                 <div x-show="doh.result && (!doh.result.records || doh.result.records.length === 0)"
-                     class="text-xs text-gray-400">No records returned.</div>
+                     class="text-xs text-gray-400" data-i18n="tools.noRecords">No records returned.</div>
               </div>
             </div>
           </div>
@@ -322,9 +356,82 @@
                       class="px-4 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">
                 <span data-i18n="tools.checkIpBtn">Check IP</span>
               </button>
-              <span x-show="pip.loading" class="text-sm text-gray-400">Checking…</span>
+              <span x-show="pip.loading" class="text-sm text-gray-400" data-i18n="tools.checking">Checking…</span>
               <span x-show="pip.error" class="text-sm text-red-600" x-text="pip.error"></span>
               <span x-show="pip.ip" class="font-mono text-lg font-bold text-gray-900" x-text="pip.ip"></span>
+            </div>
+          </div>
+
+          <!-- ── 5. Policy Simulator ── -->
+          <div class="bg-card rounded-xl shadow-sm border border-gray-100">
+            <div class="px-6 py-4 border-b border-gray-100">
+              <h2 class="text-base font-semibold text-gray-900" data-i18n="tools.sim">Policy Simulator</h2>
+              <p class="text-xs text-gray-400 mt-0.5" data-i18n="tools.simDesc">See which policy a client would get, and what each filter would do to a URL</p>
+            </div>
+            <div class="px-6 py-5 space-y-4">
+              <div class="grid grid-cols-3 gap-3">
+                <div>
+                  <label class="block text-xs font-medium text-gray-500 mb-1" data-i18n="tools.simClientIp">Client IP</label>
+                  <input type="text" x-model="sim.clientIp" placeholder="192.168.1.50"
+                         @keydown.enter="runSim()"
+                         class="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-gray-500 mb-1" data-i18n="tools.simMac">Client MAC (optional)</label>
+                  <input type="text" x-model="sim.clientMac" placeholder="aa:bb:cc:dd:ee:ff"
+                         @keydown.enter="runSim()"
+                         class="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-gray-500 mb-1" data-i18n="tools.simUrl">URL (optional)</label>
+                  <input type="text" x-model="sim.url" placeholder="https://example.com/page"
+                         @keydown.enter="runSim()"
+                         class="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+              </div>
+              <div>
+                <button @click="runSim()"
+                        :disabled="sim.loading || !sim.clientIp"
+                        class="px-4 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                  <span x-show="!sim.loading" data-i18n="tools.simBtn">Simulate</span>
+                  <span x-show="sim.loading" data-i18n="tools.simulating">Simulating…</span>
+                </button>
+              </div>
+
+              <div x-show="sim.error" class="text-sm text-red-600 bg-red-50 rounded-lg px-4 py-2" x-text="sim.error"></div>
+
+              <div x-show="sim.result" x-cloak class="space-y-3">
+                <div class="flex flex-wrap items-center gap-3">
+                  <span class="text-xs font-medium text-gray-500" data-i18n="tools.simPolicy">Policy:</span>
+                  <span class="badge bg-blue-100 text-blue-700"
+                        x-text="sim.result.policy || (sim.result.action === 'no_policy' ? 'none' : '—')"></span>
+                  <span class="text-xs font-medium text-gray-500 ml-2" data-i18n="tools.simAction">Result:</span>
+                  <span class="badge"
+                        :class="sim.result.action === 'blocked' ? 'bg-red-100 text-red-700'
+                              : sim.result.action === 'allowed' || sim.result.action === 'ok' ? 'bg-green-100 text-green-700'
+                              : 'bg-gray-100 text-gray-700'"
+                        x-text="sim.result.action"></span>
+                </div>
+                <div class="text-xs text-gray-500" x-text="sim.result.schedule_note"></div>
+                <div x-show="sim.result.decisions && sim.result.decisions.length > 0" class="overflow-x-auto">
+                  <table class="w-full text-xs border-collapse">
+                    <thead><tr class="border-b border-gray-100 text-left">
+                      <th class="py-1.5 pr-4 font-medium text-gray-500 uppercase" data-i18n="tools.simComponent">Component</th>
+                      <th class="py-1.5 pr-4 font-medium text-gray-500 uppercase" data-i18n="tools.simDecision">Decision</th>
+                      <th class="py-1.5 font-medium text-gray-500 uppercase" data-i18n="tools.simReason">Reason</th>
+                    </tr></thead>
+                    <tbody>
+                      <template x-for="(d, i) in sim.result.decisions" :key="i">
+                        <tr class="border-b border-gray-50">
+                          <td class="py-1 pr-4 font-mono text-gray-700" x-text="d.component"></td>
+                          <td class="py-1 pr-4 text-gray-600" x-text="d.action"></td>
+                          <td class="py-1 text-gray-500" x-text="d.reason || '—'"></td>
+                        </tr>
+                      </template>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -363,8 +470,89 @@
           ip: '',
           error: '',
         },
+        health: {
+          loading: false,
+          result: null,
+          error: '',
+        },
+        sim: {
+          clientIp: '',
+          clientMac: '',
+          url: '',
+          loading: false,
+          result: null,
+          error: '',
+        },
 
-        init() {},
+        init() { this.runHealth(); },
+
+        async runHealth() {
+          this.health.loading = true;
+          this.health.error = '';
+          try {
+            const res = await fetch('/api/tools/classifier-health');
+            const data = await res.json();
+            if (!res.ok) {
+              this.health.error = data.detail || `HTTP ${res.status}`;
+            } else {
+              this.health.result = data;
+            }
+          } catch (e) {
+            this.health.error = 'Network error: ' + e.message;
+          } finally {
+            this.health.loading = false;
+          }
+        },
+
+        healthRows() {
+          const r = this.health.result;
+          if (!r) return [];
+          const rows = [];
+          const t = r.text_classifier || {};
+          rows.push({
+            key: 'text',
+            label: window.wfT('tools.healthText') || 'Text classifier',
+            status: t.status || 'unknown',
+            ok: t.status === 'available',
+            detail: t.detail || '',
+          });
+          const i = r.image_classifier || {};
+          rows.push({
+            key: 'image',
+            label: window.wfT('tools.healthImage') || 'Image classifier',
+            status: i.status || 'unknown',
+            ok: i.status === 'available',
+            detail: i.detail || '',
+          });
+          return rows;
+        },
+
+        async runSim() {
+          if (!this.sim.clientIp) return;
+          this.sim.loading = true;
+          this.sim.result = null;
+          this.sim.error = '';
+          try {
+            const body = { client_ip: this.sim.clientIp };
+            if (this.sim.clientMac.trim()) body.client_mac = this.sim.clientMac.trim();
+            if (this.sim.url.trim()) body.url = this.sim.url.trim();
+            const res = await fetch('/api/tools/policy-simulate', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(body),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+              this.sim.error = data.detail || `HTTP ${res.status}`;
+            } else {
+              this.sim.result = data;
+            }
+          } catch (e) {
+            this.sim.error = 'Network error: ' + e.message;
+          } finally {
+            this.sim.loading = false;
+          }
+        },
 
         async runScan() {
           this.scan.loading = true;
@@ -429,8 +617,13 @@
               body: JSON.stringify(body),
             });
             const data = await res.json();
-            if (!res.ok || data.error) {
-              this.doh.error = data.detail || data.error || `HTTP ${res.status}`;
+            // A failed lookup still comes back 200 with rcode=SERVFAIL and the
+            // reason in `detail` — there is no `error` field on this endpoint,
+            // so checking for one would render a failure as a success card.
+            if (!res.ok) {
+              this.doh.error = data.detail || `HTTP ${res.status}`;
+            } else if (data.rcode && data.rcode !== 'NOERROR') {
+              this.doh.error = data.detail || `Lookup failed (${data.rcode})`;
             } else {
               this.doh.result = data;
             }
@@ -448,8 +641,8 @@
           try {
             const res = await fetch('/api/tools/public-ip');
             const data = await res.json();
-            if (!res.ok || data.error) {
-              this.pip.error = data.error || `HTTP ${res.status}`;
+            if (!res.ok) {
+              this.pip.error = data.detail || `HTTP ${res.status}`;
             } else {
               this.pip.ip = data.ip;
             }

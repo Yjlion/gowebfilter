@@ -6,12 +6,16 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 
+	imageclassifier "github.com/yjlion/gowebfilter/internal/classify/image"
+	"github.com/yjlion/gowebfilter/internal/classify/textbayes"
 	"github.com/yjlion/gowebfilter/internal/neighbors"
 	"github.com/yjlion/gowebfilter/internal/proxy/addons"
 )
@@ -19,8 +23,8 @@ import (
 // registerToolsRoutes wires the diagnostic /api/tools/* endpoints that back
 // the Tools page and the policy editor's "scan network" MAC picker:
 //
-//	POST /api/tools/scan       — NSFW scan of a URL (needs the Phase 7/8 ML
-//	                             backends; returns 503 until they're built).
+//	POST /api/tools/scan       — NSFW scan of a URL, using the same embedded
+//	                             text/image classifiers as the proxy pipeline.
 //	POST /api/tools/youtube    — parse a YouTube URL + fetch oEmbed metadata.
 //	POST /api/tools/doh        — query a DoH resolver and report block status.
 //	GET  /api/tools/public-ip  — discover the host's public IP.
@@ -45,26 +49,219 @@ var toolsHTTPClient = &http.Client{
 // POST /api/tools/scan
 // ---------------------------------------------------------------------------
 
-// handleToolsScan would fetch a URL and classify it for NSFW text/images
-// using the same internal/classify/{text,image} backends the proxy pipeline
-// now uses (project plan Phases 7 & 8), but this management-API server is
-// constructed independently from the proxy engine's addon pipeline
-// (cmd_mgmt.go vs. cmd_proxy.go/runners.go's buildProxyEngine) and has no
-// loaded classifier instance to call - wiring that through is a separate,
-// not-yet-done piece of work. Rather than silently return a misleading
-// "clean" verdict, it reports 503 with a detail the Tools page surfaces
-// verbatim (it reads body.detail on any non-2xx).
+// Scan tuning defaults, matching the Tools page's own input defaults so an
+// explicit value and the placeholder behave identically.
+const (
+	defaultScanTextThreshold  = 0.80
+	defaultScanImageThreshold = 0.40
+	defaultScanMaxImages      = 50
+	maxScanMaxImages          = 200
+
+	// Page bodies are only ever fed to the text classifier, so a modest cap is
+	// plenty; images have to be decoded, so they get a bigger one.
+	scanPageByteLimit  = 4 << 20
+	scanImageByteLimit = 16 << 20
+)
+
+// handleToolsScan fetches a URL and classifies it with the same embedded
+// backends the proxy pipeline uses: internal/classify/textbayes for page text
+// (behind addons.KeywordScore's pre-filter) and internal/classify/image for
+// images. Both are constructed on demand here - they are embedded models with
+// no setup, exactly as routes_classifier_health.go does it - so this does not
+// need the proxy engine's addon pipeline.
+//
+// The response shape is dictated by ui/tools.html's result markup: "image",
+// "page", "other" and "error" types, each with its own fields.
 func (s *Server) handleToolsScan(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
-		URL string `json:"url"`
+		URL            string   `json:"url"`
+		TextThreshold  *float64 `json:"text_threshold"`
+		ImageThreshold *float64 `json:"image_threshold"`
+		MaxImages      *int     `json:"max_images"`
 	}
 	_ = readJSON(r, &payload)
-	if strings.TrimSpace(payload.URL) == "" {
+
+	raw := strings.TrimSpace(payload.URL)
+	if raw == "" {
 		writeJSONError(w, http.StatusBadRequest, "url is required")
 		return
 	}
-	writeJSONError(w, http.StatusServiceUnavailable,
-		"NSFW scanning is not available from the management API: the classifier backends are not wired into this server")
+	target, err := url.Parse(raw)
+	if err != nil || (target.Scheme != "http" && target.Scheme != "https") || target.Host == "" {
+		writeJSONError(w, http.StatusBadRequest, "url must be an absolute http:// or https:// URL")
+		return
+	}
+
+	textThreshold := clampFloat(payload.TextThreshold, defaultScanTextThreshold)
+	imageThreshold := clampFloat(payload.ImageThreshold, defaultScanImageThreshold)
+	maxImages := defaultScanMaxImages
+	if payload.MaxImages != nil && *payload.MaxImages > 0 {
+		maxImages = min(*payload.MaxImages, maxScanMaxImages)
+	}
+
+	resp, body, err := fetchForScan(target.String(), scanPageByteLimit)
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"type": "error", "error": err.Error(), "url": target.String()})
+		return
+	}
+
+	ct := resp.Header.Get("Content-Type")
+	switch {
+	case strings.HasPrefix(ct, "image/"):
+		writeJSON(w, http.StatusOK, scanImageBytes(target.String(), body, imageThreshold))
+	case strings.Contains(ct, "text/html"):
+		writeJSON(w, http.StatusOK, s.scanPage(target, body, textThreshold, imageThreshold, maxImages))
+	default:
+		writeJSON(w, http.StatusOK, map[string]any{
+			"type":         "other",
+			"url":          target.String(),
+			"content_type": ct,
+		})
+	}
+}
+
+func clampFloat(v *float64, def float64) float64 {
+	if v == nil || *v < 0 || *v > 1 {
+		return def
+	}
+	return *v
+}
+
+// detectionsFrom renders the five-class breakdown highest-score-first, which
+// is what the Tools page's "Top Detection" column reads off the head of.
+func detectionsFrom(sc imageclassifier.Scores) []map[string]any {
+	rows := []struct {
+		class string
+		score float64
+	}{
+		{"porn", sc.Porn},
+		{"hentai", sc.Hentai},
+		{"sexy", sc.Sexy},
+		{"drawings", sc.Drawings},
+		{"neutral", sc.Neutral},
+	}
+	sort.SliceStable(rows, func(i, j int) bool { return rows[i].score > rows[j].score })
+	out := make([]map[string]any, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, map[string]any{"class": r.class, "score": r.score})
+	}
+	return out
+}
+
+func scanImageBytes(u string, body []byte, threshold float64) map[string]any {
+	scores, ok := imageclassifier.ScoreDetailed(body)
+	if !ok {
+		// An undecodable image is an error, never "clean" - reporting it as
+		// safe is the failure mode this whole tool exists to catch.
+		return map[string]any{"type": "image", "url": u, "error": "image could not be decoded or classified"}
+	}
+	return map[string]any{
+		"type":       "image",
+		"url":        u,
+		"nsfw":       scores.NSFW() >= threshold,
+		"score":      scores.NSFW(),
+		"threshold":  threshold,
+		"detections": detectionsFrom(scores),
+	}
+}
+
+// imgSrcRe pulls src="..." out of <img> tags. A regex rather than a parser
+// keeps this dependency-free and matches how the proxy's own inline-image
+// scanning works; over-matching only costs an extra fetch that reports its
+// own error.
+var imgSrcRe = regexp.MustCompile(`(?i)<img\b[^>]*?\bsrc\s*=\s*["']([^"']+)["']`)
+
+func (s *Server) scanPage(page *url.URL, body []byte, textThreshold, imageThreshold float64, maxImages int) map[string]any {
+	text := addons.StripHTML(string(body))
+	keyword := addons.KeywordScore(text)
+
+	nsfwText := keyword >= 1.0
+	var mlScore any
+	if !nsfwText {
+		if model, err := textbayes.New(); err == nil {
+			if p, ok := model.Score(text); ok {
+				mlScore = p
+				nsfwText = p >= textThreshold
+			}
+		}
+	}
+
+	result := map[string]any{
+		"type": "page",
+		"url":  page.String(),
+		"text": map[string]any{
+			"nsfw":          nsfwText,
+			"keyword_score": keyword,
+			"ml_score":      mlScore,
+			"threshold":     textThreshold,
+		},
+	}
+
+	result["images"] = scanPageImages(page, body, imageThreshold, maxImages)
+	return result
+}
+
+func scanPageImages(page *url.URL, body []byte, threshold float64, maxImages int) []map[string]any {
+	seen := make(map[string]bool)
+	var targets []*url.URL
+	for _, m := range imgSrcRe.FindAllStringSubmatch(string(body), -1) {
+		ref, err := url.Parse(strings.TrimSpace(m[1]))
+		if err != nil {
+			continue
+		}
+		abs := page.ResolveReference(ref)
+		if abs.Scheme != "http" && abs.Scheme != "https" {
+			continue // skip data: URIs and anything else non-fetchable
+		}
+		if seen[abs.String()] {
+			continue
+		}
+		seen[abs.String()] = true
+		targets = append(targets, abs)
+		if len(targets) >= maxImages {
+			break
+		}
+	}
+
+	out := make([]map[string]any, len(targets))
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 8) // bounded: this runs on the mgmt server
+	for i, t := range targets {
+		wg.Add(1)
+		go func(i int, t *url.URL) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			_, imgBody, err := fetchForScan(t.String(), scanImageByteLimit)
+			if err != nil {
+				// Per-image failures are reported in the row, not fatal to the
+				// whole scan - one dead thumbnail shouldn't lose every verdict.
+				out[i] = map[string]any{"url": t.String(), "nsfw": false, "error": err.Error()}
+				return
+			}
+			out[i] = scanImageBytes(t.String(), imgBody, threshold)
+		}(i, t)
+	}
+	wg.Wait()
+	return out
+}
+
+// fetchForScan retrieves a URL for scanning, capping how much it will read.
+func fetchForScan(rawURL string, limit int64) (*http.Response, []byte, error) {
+	resp, err := toolsHTTPClient.Get(rawURL)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, nil, &httpStatusError{resp.StatusCode}
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, limit))
+	if err != nil {
+		return nil, nil, err
+	}
+	return resp, body, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -180,7 +377,9 @@ func (s *Server) handleToolsPublicIP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"ip": strings.TrimSpace(ip)})
 		return
 	}
-	writeJSON(w, http.StatusBadGateway, map[string]any{"error": "all public-ip providers failed"})
+	// Use the same {"detail": ...} envelope as every other handler; the Tools
+	// page reads body.detail on any non-2xx.
+	writeJSONError(w, http.StatusBadGateway, "all public-ip providers failed")
 }
 
 // ---------------------------------------------------------------------------

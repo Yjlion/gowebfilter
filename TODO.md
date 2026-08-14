@@ -3,12 +3,13 @@
 ## Recommended Features
 
 - [x] Policy test/simulator API (`POST /api/tools/policy-simulate`: policy
-  selection, schedule status, URL allow/block/category results, addon hints).
-  - [ ] Later: add a first-class UI view and deeper SafeSearch/YouTube
-    simulation.
+  selection, schedule status, URL allow/block/category results, addon hints),
+  surfaced as the Policy Simulator card on the Tools page.
+  - [ ] Later: deeper SafeSearch/YouTube simulation (the addon hints are still
+    "would_modify"-level rather than an actual rewritten URL).
 - [x] Classifier health checks (`GET /api/tools/classifier-health`: text ML
-  readiness vs keyword-only fallback, embedded image classifier availability).
-  - [ ] Later: surface this in the dashboard/status UI.
+  readiness vs keyword-only fallback, embedded image classifier availability),
+  surfaced as the Classifier Health card on the Tools page.
 - [x] Scheduled policy modes: schedule evaluation hardened, including
   overnight windows (`internal/models/schedule.go`), with within-tier
   "actively scheduled beats unscheduled" precedence.

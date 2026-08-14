@@ -36,6 +36,14 @@ var adultKeywordsRe = regexp.MustCompile(`(?i)\b(porn|pornography|xxx|hentai|nud
 // minKeywordHits requires multiple hits to reduce false positives.
 const minKeywordHits = 3
 
+// KeywordScore exposes the keyword pre-filter to the management API's URL
+// scanner, so a Tools verdict and a live proxy verdict can't drift apart.
+// 1.0 means "enough hits to block on keywords alone".
+func KeywordScore(text string) float64 { return keywordScore(text) }
+
+// StripHTML exposes the same tag-stripping the response path uses.
+func StripHTML(html string) string { return stripHTML(html) }
+
 func keywordScore(text string) float64 {
 	hits := len(adultKeywordsRe.FindAllString(text, -1))
 	score := float64(hits) / float64(minKeywordHits)

@@ -155,24 +155,21 @@ func TestNeighborsEndpointShape(t *testing.T) {
 	}
 }
 
-func TestScanUnavailable(t *testing.T) {
+func TestScanRejectsBadURLs(t *testing.T) {
 	s := newServerWithCategories(t, "", nil)
 
-	rr := doRequest(t, s, http.MethodPost, "/api/tools/scan", `{"url":"https://example.com"}`)
-	if rr.Code != http.StatusServiceUnavailable {
-		t.Fatalf("status = %d, want 503", rr.Code)
-	}
-	var body struct {
-		Detail string `json:"detail"`
-	}
-	_ = json.Unmarshal(rr.Body.Bytes(), &body)
-	if body.Detail == "" {
-		t.Errorf("expected a detail message the UI can surface")
-	}
-
-	rr = doRequest(t, s, http.MethodPost, "/api/tools/scan", `{"url":""}`)
-	if rr.Code != http.StatusBadRequest {
-		t.Errorf("empty url: status = %d, want 400", rr.Code)
+	for _, tc := range []struct{ name, body string }{
+		{"empty", `{"url":""}`},
+		{"missing", `{}`},
+		{"relative", `{"url":"/just/a/path"}`},
+		{"non-http scheme", `{"url":"file:///etc/passwd"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rr := doRequest(t, s, http.MethodPost, "/api/tools/scan", tc.body)
+			if rr.Code != http.StatusBadRequest {
+				t.Errorf("status = %d, want 400 (body %s)", rr.Code, rr.Body.String())
+			}
+		})
 	}
 }
 
