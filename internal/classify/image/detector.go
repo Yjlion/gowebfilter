@@ -113,10 +113,48 @@ func predict(m *nnModel, img stdimage.Image) (Scores, error) {
 // for inference.
 const prefilterSkinRatio = 0.07
 
-// detector implements addons.ImageDetector via the embedded classifier.
-type detector struct {
-	mu sync.Mutex // classifier() itself is safe for concurrent use, but Run allocates per-call - serializing keeps peak memory predictable under concurrent requests
+// NSFW is the combined unsafe score - the same number Score reports - exposed
+// so callers of ScoreDetailed can show the breakdown and the verdict together.
+func (s Scores) NSFW() float64 { return s.nsfw() }
+
+// predictMu serializes inference. classifier() itself is safe for concurrent
+// use, but Run allocates per-call - serializing keeps peak memory predictable
+// under concurrent requests.
+var predictMu sync.Mutex
+
+// ScoreDetailed classifies imageBytes and returns the full five-class
+// breakdown. ok=false means the bytes could not be decoded or the model
+// failed, and must NOT be read as "safe".
+//
+// It shares the skin prefilter with Score: an image with too little skin to be
+// worth running the CNN on comes back as all-neutral (NSFW() == 0) with
+// ok=true, which is the same verdict Score gives, just spelled out.
+func ScoreDetailed(imageBytes []byte) (Scores, bool) {
+	img, _, err := stdimage.Decode(bytes.NewReader(imageBytes))
+	if err != nil {
+		return Scores{}, false
+	}
+
+	if analyzeSkin(img).SkinRatio < prefilterSkinRatio {
+		return Scores{Neutral: 1}, true
+	}
+
+	m, err := classifier()
+	if err != nil {
+		return Scores{}, false
+	}
+
+	predictMu.Lock()
+	scores, err := predict(m, img)
+	predictMu.Unlock()
+	if err != nil {
+		return Scores{}, false
+	}
+	return scores, true
 }
+
+// detector implements addons.ImageDetector via the embedded classifier.
+type detector struct{}
 
 // New returns a ready-to-use addons.ImageDetector backed by the embedded
 // GantMan/nsfw_model classifier. It cannot fail in a normal build (the
@@ -132,25 +170,9 @@ func New() (addons.ImageDetector, error) {
 // heuristic (skinprefilter.go); only images with a meaningful skin ratio
 // reach the MobileNetV2 classifier, which then decides the final score.
 func (d *detector) Score(imageBytes []byte) (float64, bool) {
-	img, _, err := stdimage.Decode(bytes.NewReader(imageBytes))
-	if err != nil {
+	scores, ok := ScoreDetailed(imageBytes)
+	if !ok {
 		return 0, false
 	}
-
-	if analyzeSkin(img).SkinRatio < prefilterSkinRatio {
-		return 0, true
-	}
-
-	m, err := classifier()
-	if err != nil {
-		return 0, false
-	}
-
-	d.mu.Lock()
-	scores, err := predict(m, img)
-	d.mu.Unlock()
-	if err != nil {
-		return 0, false
-	}
-	return scores.nsfw(), true
+	return scores.NSFW(), true
 }

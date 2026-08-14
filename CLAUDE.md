@@ -152,8 +152,9 @@ Request/block/audit logs go to SQLite at `logs/webfilter.db`.
 - `internal/tun2socks/` — optional TUN-device traffic capture, configured via
   the `tun2socks` block in settings. It **supervises the official tun2socks
   binary as a child process** (`supervisor.go`) rather than linking the
-  library, so only that small process needs root/Administrator — not the
-  filtering engine. `download.go` installs it from the upstream GitHub release
+  library, so the filtering engine needs no elevation of its own beyond the
+  capability to create the TUN device and set routes (see the systemd gotcha
+  below). `download.go` installs it from the upstream GitHub release
   (sha256-verified) into `bin/` beside the webfilter executable; `binary.go`
   resolves it (installed copy first, then PATH). Reachable from
   `POST /api/tun2socks/download` and `webfilter tun2socks download|status`.
@@ -174,10 +175,23 @@ Request/block/audit logs go to SQLite at `logs/webfilter.db`.
   which is why the supervisor must start *after* listeners are bound. The old
   free-text `tun2socks.proxy_target` setting is gone; an old settings.json
   still loads because encoding/json ignores the unknown key.
-- **A missing tun2socks binary, or no root, must stay a `StartupSkippedError`.**
-  TUN capture is an add-on: `runEngineWithTun` logs the skip and keeps serving
-  the proxy. Only genuine wiring bugs (e.g. no SOCKS address) return a hard
-  error that takes the process down.
+- **A missing tun2socks binary, or no root *and* no CAP_NET_ADMIN, must stay a
+  `StartupSkippedError`.** TUN capture is an add-on: `runEngineWithTun` logs
+  the skip and keeps serving the proxy. Only genuine wiring bugs (e.g. no SOCKS
+  address) return a hard error that takes the process down.
+- **The Linux privilege gate is root *or* CAP_NET_ADMIN, not euid 0.**
+  `platform_linux.go`'s `hasRoutePrivileges` probes the effective capability
+  set with `unix.Capget`, because the shipped systemd units run as the
+  unprivileged `webfilter` user and get `AmbientCapabilities=CAP_NET_ADMIN
+  CAP_NET_RAW` from the `packaging/tun2socks.conf` drop-in (installed by
+  `install.sh` only when settings enable tun2socks). Two non-obvious facts
+  behind that design: **ambient** capabilities survive `execve`, so the `ip`
+  calls and the tun2socks child inherit them, whereas **file** capabilities
+  (`setcap`) are dead on arrival because the units set `NoNewPrivileges=true`;
+  and `CAP_NET_RAW` is needed too, because tun2socks calls `SO_BINDTODEVICE`
+  whenever `tun2socks.interface_name` is set. Keep `describeRoutePrivilege` a
+  pure function — it is what makes the gate testable in an unprivileged
+  `go test`.
 - **The SOCKS5 UDP relay forwards everything except UDP/443.** DNS (53) goes
   through the policy's DoH filter; QUIC is dropped unconditionally so HTTP/3
   can't tunnel past the pipeline. That drop is **not** gated on

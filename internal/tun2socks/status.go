@@ -84,7 +84,7 @@ func Inspect(settings models.GlobalSettings) Status {
 	case !status.BinaryPresent:
 		status.LastError = "The tun2socks binary is not installed. Use Download tun2socks below, or run `webfilter tun2socks download`."
 	case cfg.Enabled && !privOK:
-		status.LastError = "administrator/root privileges are required to configure the TUN device and routes."
+		status.LastError = "Administrator (Windows) or root / CAP_NET_ADMIN (Linux) is required to configure the TUN device and routes. Under systemd, add AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW to the unit - see packaging/README.md."
 	case cfg.Enabled && prereqErr != nil:
 		status.LastError = prereqErr.Error()
 	}

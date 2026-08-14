@@ -118,7 +118,7 @@
         <div class="bg-card rounded-xl shadow-sm border border-gray-100 p-6 space-y-4 mb-4">
           <div>
             <h2 class="text-sm font-semibold text-gray-900">TUN / tun2socks</h2>
-            <p class="text-xs text-gray-500 mt-0.5">Capture this machine's traffic through a TUN interface and send it into the filter. This runs the official <span class="font-mono">tun2socks</span> binary as a separate process, so only it needs admin/root. Restart after saving changes.</p>
+            <p class="text-xs text-gray-500 mt-0.5">Capture this machine's traffic through a TUN interface and send it into the filter. This runs the official <span class="font-mono">tun2socks</span> binary as a separate process. On Windows that process needs Administrator; on Linux the service needs root or CAP_NET_ADMIN (under systemd, the <span class="font-mono">tun2socks.conf</span> drop-in grants it &mdash; see packaging/README.md). Restart after saving changes.</p>
           </div>
           <div class="grid grid-cols-2 gap-3 text-xs">
             <div class="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
@@ -131,7 +131,7 @@
             </div>
             <div class="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
               <div class="text-gray-500">Privilege</div>
-              <div class="font-medium" x-text="status.tun2socks && status.tun2socks.privilege_ok ? status.tun2socks.privilege : 'needs admin/root'"></div>
+              <div class="font-medium" x-text="status.tun2socks && status.tun2socks.privilege_ok ? status.tun2socks.privilege : 'needs admin/root or CAP_NET_ADMIN'"></div>
             </div>
             <div class="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
               <div class="text-gray-500">Dedicated SOCKS5 listener</div>

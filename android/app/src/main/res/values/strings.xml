@@ -152,4 +152,6 @@
     <string name="engine_duckduckgo">DuckDuckGo</string>
     <string name="engine_yahoo">Yahoo</string>
     <string name="engine_youtube">YouTube</string>
+    <string name="engine_brave">Brave</string>
+    <string name="engine_yandex">Yandex</string>
 </resources>

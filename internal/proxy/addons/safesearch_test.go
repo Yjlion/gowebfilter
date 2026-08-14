@@ -192,3 +192,165 @@ func TestSafeSearchUnlistedEngineIsNoop(t *testing.T) {
 		t.Error("expected no effect for a domain matching no known search engine")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Brave
+// ---------------------------------------------------------------------------
+
+// Brave reads safe search from a cookie; the query param is accepted too and
+// covers the first request, before the browser has any cookie to send.
+func TestSafeSearchBraveInjectsParamAndCookie(t *testing.T) {
+	rt := newTestRuntime(t)
+	fc := newFlow(t, rt, "http://search.brave.com/search?q=cats")
+	policy := enabledPolicyWithSafeSearch(nil)
+	fc.Policy = &policy
+
+	addons.SafeSearch{}.HandleRequest(fc)
+
+	if got := fc.Request.URL.Query().Get("safesearch"); got != "strict" {
+		t.Errorf("safesearch param = %q, want strict", got)
+	}
+	if got := fc.Request.Header.Get("Cookie"); got != "safesearch=strict" {
+		t.Errorf("Cookie = %q, want safesearch=strict", got)
+	}
+	if fc.WFAction != "modified" || fc.WFComponent != "safesearch" {
+		t.Errorf("WFAction/WFComponent = %q/%q", fc.WFAction, fc.WFComponent)
+	}
+}
+
+// A browser that already has the preference set to "off" must be overridden,
+// not appended to - a duplicate cookie name would let the server pick either.
+func TestSafeSearchBraveOverridesExistingCookie(t *testing.T) {
+	rt := newTestRuntime(t)
+	fc := newFlow(t, rt, "http://search.brave.com/search?q=cats")
+	fc.Request.Header.Set("Cookie", "sid=abc; safesearch=off; theme=dark")
+	policy := enabledPolicyWithSafeSearch(nil)
+	fc.Policy = &policy
+
+	addons.SafeSearch{}.HandleRequest(fc)
+
+	got := fc.Request.Header.Get("Cookie")
+	if got != "sid=abc; safesearch=strict; theme=dark" {
+		t.Errorf("Cookie = %q, want the safesearch value replaced in place", got)
+	}
+}
+
+// Already-strict traffic must not be reported as modified.
+func TestSafeSearchBraveCookieAlreadyStrictIsNotAChange(t *testing.T) {
+	rt := newTestRuntime(t)
+	fc := newFlow(t, rt, "http://search.brave.com/?q=cats")
+	fc.Request.Header.Set("Cookie", "safesearch=strict")
+	policy := enabledPolicyWithSafeSearch(nil)
+	fc.Policy = &policy
+
+	addons.SafeSearch{}.HandleRequest(fc)
+
+	if fc.WFAction == "modified" {
+		t.Error("an already-strict cookie on a non-search path should not count as a modification")
+	}
+}
+
+// Brave's AI tab lives at /ask on the search domain itself, so it must be
+// scoped by path - the DuckDuckGo/Google regression shape.
+func TestSafeSearchBraveBlocksAskPathButNotPlainSearch(t *testing.T) {
+	policy := enabledPolicyWithSafeSearch(map[string]models.SafeSearchEngineConfig{
+		"brave": {Enabled: true, BlockAiTab: true},
+	})
+
+	rt := newTestRuntime(t)
+	ai := newFlow(t, rt, "http://search.brave.com/ask?q=cats")
+	ai.Policy = &policy
+	addons.SafeSearch{}.HandleRequest(ai)
+	if ai.Response == nil {
+		t.Error("expected /ask to be blocked when block_ai_tab is on")
+	}
+
+	plain := newFlow(t, rt, "http://search.brave.com/search?q=cats")
+	plain.Policy = &policy
+	addons.SafeSearch{}.HandleRequest(plain)
+	if plain.Response != nil {
+		t.Error("plain /search must stay allowed when only the AI tab is blocked")
+	}
+}
+
+func TestSafeSearchBraveBlocksImagesAndVideosTabs(t *testing.T) {
+	for _, tc := range []struct{ name, url string }{
+		{"images", "http://search.brave.com/images?q=cats"},
+		{"videos", "http://search.brave.com/videos?q=cats"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rt := newTestRuntime(t)
+			fc := newFlow(t, rt, tc.url)
+			policy := enabledPolicyWithSafeSearch(map[string]models.SafeSearchEngineConfig{
+				"brave": {Enabled: true, BlockImagesTab: true, BlockVideosTab: true},
+			})
+			fc.Policy = &policy
+
+			addons.SafeSearch{}.HandleRequest(fc)
+
+			if fc.Response == nil {
+				t.Errorf("expected %s tab to be blocked", tc.name)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Yandex
+// ---------------------------------------------------------------------------
+
+func TestSafeSearchYandexParamInjection(t *testing.T) {
+	for _, host := range []string{"yandex.com", "yandex.ru", "www.yandex.com"} {
+		t.Run(host, func(t *testing.T) {
+			rt := newTestRuntime(t)
+			fc := newFlow(t, rt, "http://"+host+"/search/?text=cats")
+			policy := enabledPolicyWithSafeSearch(nil)
+			fc.Policy = &policy
+
+			addons.SafeSearch{}.HandleRequest(fc)
+
+			if got := fc.Request.URL.Query().Get("fyandex"); got != "1" {
+				t.Errorf("fyandex param = %q, want 1", got)
+			}
+		})
+	}
+}
+
+func TestSafeSearchYandexBlocksImagesAndVideoTabs(t *testing.T) {
+	for _, tc := range []struct{ name, url string }{
+		{"images", "http://yandex.com/images/search?text=cats"},
+		{"video", "http://yandex.com/video/search?text=cats"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rt := newTestRuntime(t)
+			fc := newFlow(t, rt, tc.url)
+			policy := enabledPolicyWithSafeSearch(map[string]models.SafeSearchEngineConfig{
+				"yandex": {Enabled: true, BlockImagesTab: true, BlockVideosTab: true},
+			})
+			fc.Policy = &policy
+
+			addons.SafeSearch{}.HandleRequest(fc)
+
+			if fc.Response == nil {
+				t.Errorf("expected %s tab to be blocked", tc.name)
+			}
+		})
+	}
+}
+
+// Alice is Yandex's AI assistant and lives on its own domain, so unlike
+// Brave's /ask it is matched by hostname.
+func TestSafeSearchYandexBlocksAliceDomain(t *testing.T) {
+	rt := newTestRuntime(t)
+	fc := newFlow(t, rt, "http://alice.yandex.ru/")
+	policy := enabledPolicyWithSafeSearch(map[string]models.SafeSearchEngineConfig{
+		"yandex": {Enabled: true, BlockAiTab: true},
+	})
+	fc.Policy = &policy
+
+	addons.SafeSearch{}.HandleRequest(fc)
+
+	if fc.Response == nil {
+		t.Error("expected alice.yandex.ru to be blocked when block_ai_tab is on")
+	}
+}

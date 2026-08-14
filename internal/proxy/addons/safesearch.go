@@ -1,6 +1,7 @@
 package addons
 
 import (
+	"net/http"
 	"net/url"
 	"strings"
 
@@ -14,6 +15,9 @@ import (
 //     string (empty key = no param-based enforcement, e.g. YouTube).
 //   - safeHeaderKey/safeHeaderValue: injected as a request header (YouTube
 //     Restricted Mode).
+//   - safeCookieKey/safeCookieValue: overridden in the request's Cookie
+//     header (Brave, which drives safe search from a cookie rather than a
+//     query parameter).
 //   - imageCDNDomains: hostnames that serve image results wholesale for
 //     this engine, blocked outright when block_images_tab is on.
 // paramMatch is a query key/value pair that identifies a search tab. Some
@@ -39,6 +43,8 @@ type searchEngine struct {
 	safeParamValue  string
 	safeHeaderKey   string
 	safeHeaderValue string
+	safeCookieKey   string
+	safeCookieValue string
 	pathPrefix      string
 	imagesPaths     []string
 	videosPaths     []string
@@ -122,6 +128,34 @@ var searchEngines = []searchEngine{
 		pathPrefix:     "/search",
 		imagesPaths:    []string{"/images/search"},
 		videosPaths:    []string{"/video/search"},
+	},
+	{
+		name:         "brave",
+		domains:      set("search.brave.com"),
+		// Brave drives safe search from a cookie; the query parameter is
+		// accepted too and covers the first request, before any cookie exists.
+		safeParamKey:    "safesearch",
+		safeParamValue:  "strict",
+		safeCookieKey:   "safesearch",
+		safeCookieValue: "strict",
+		pathPrefix:      "/search",
+		imagesPaths:     []string{"/images"},
+		videosPaths:     []string{"/videos"},
+		// Brave's AI answer tab lives on the search domain itself
+		// (/chat redirects to /ask), so it must be scoped by path - blocking
+		// the whole hostname would take plain search down with it.
+		aiPaths: []string{"/ask", "/chat"},
+	},
+	{
+		name:           "yandex",
+		domains:        set("yandex.com", "www.yandex.com", "yandex.ru", "www.yandex.ru", "ya.ru"),
+		domainSuffix:   ".yandex.",
+		safeParamKey:   "fyandex",
+		safeParamValue: "1",
+		pathPrefix:     "/search",
+		imagesPaths:    []string{"/images/"},
+		videosPaths:    []string{"/video/"},
+		aiDomains:      set("alice.yandex.ru"),
 	},
 	{
 		name: "youtube",
@@ -282,6 +316,15 @@ func (SafeSearch) HandleRequest(fc *proxy.FlowContext) {
 		fc.WFComponent = "safesearch"
 	}
 
+	// Cookie-based enforcement (Brave) - all paths, since the preference is
+	// read on every request, not just the search one.
+	if engine.safeCookieKey != "" {
+		if injectCookie(fc.Request.Header, engine.safeCookieKey, engine.safeCookieValue) {
+			fc.WFAction = "modified"
+			fc.WFComponent = "safesearch"
+		}
+	}
+
 	// URL param enforcement - paths under pathPrefix.
 	if engine.safeParamKey != "" && strings.HasPrefix(path, engine.pathPrefix) {
 		if injectParam(fc.Request.URL, engine.safeParamKey, engine.safeParamValue) {
@@ -289,6 +332,50 @@ func (SafeSearch) HandleRequest(fc *proxy.FlowContext) {
 			fc.WFComponent = "safesearch"
 		}
 	}
+}
+
+// injectCookie forces key=value in the request's Cookie header, leaving every
+// other cookie in place, and reports whether it changed anything. A browser
+// that has the preference set to something permissive sends it on every
+// request, so overriding beats appending: a duplicate cookie name would leave
+// the server free to pick either one.
+func injectCookie(h http.Header, key, value string) bool {
+	want := key + "=" + value
+	raw := h.Get("Cookie")
+	if strings.TrimSpace(raw) == "" {
+		h.Set("Cookie", want)
+		return true
+	}
+
+	parts := strings.Split(raw, ";")
+	out := make([]string, 0, len(parts)+1)
+	found, changed := false, false
+	for _, p := range parts {
+		pair := strings.TrimSpace(p)
+		if pair == "" {
+			continue
+		}
+		name, _, _ := strings.Cut(pair, "=")
+		if strings.TrimSpace(name) != key {
+			out = append(out, pair)
+			continue
+		}
+		if found { // collapse duplicates onto the one we control
+			changed = true
+			continue
+		}
+		found = true
+		if pair != want {
+			changed = true
+		}
+		out = append(out, want)
+	}
+	if !found {
+		out = append(out, want)
+		changed = true
+	}
+	h.Set("Cookie", strings.Join(out, "; "))
+	return changed
 }
 
 // injectParam sets key=value in u's query string, reports whether it

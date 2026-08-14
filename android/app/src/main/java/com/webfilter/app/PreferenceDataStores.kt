@@ -26,7 +26,7 @@ class PolicyPreferenceDataStore(
 
     private val specs: Map<String, Spec> = buildMap {
         put("safesearch_enabled", Spec("safesearch.enabled", Kind.BOOL))
-        for (engine in listOf("google", "bing", "duckduckgo", "yahoo", "youtube")) {
+        for (engine in listOf("google", "bing", "duckduckgo", "yahoo", "youtube", "brave", "yandex")) {
             put("safesearch_${engine}_enabled", Spec("safesearch.engines.$engine.enabled", Kind.BOOL))
             put("safesearch_${engine}_block_images_tab", Spec("safesearch.engines.$engine.block_images_tab", Kind.BOOL))
             put("safesearch_${engine}_block_videos_tab", Spec("safesearch.engines.$engine.block_videos_tab", Kind.BOOL))

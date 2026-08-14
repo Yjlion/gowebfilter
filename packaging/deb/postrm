@@ -21,6 +21,10 @@ case "$1" in
     if id -u webfilter >/dev/null 2>&1; then
       deluser --system webfilter >/dev/null 2>&1 || true
     fi
+    # postinst may have written this outside dpkg's file list; leaving it
+    # behind would silently re-grant capabilities on a later reinstall.
+    rm -f /etc/systemd/system/webfilter.service.d/10-tun2socks.conf
+    rmdir --ignore-fail-on-non-empty /etc/systemd/system/webfilter.service.d 2>/dev/null || true
     rm -rf "$PREFIX"
     ;;
 esac

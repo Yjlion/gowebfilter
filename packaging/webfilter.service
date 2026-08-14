@@ -23,6 +23,9 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ReadWritePaths=/opt/webfilter
+# No capabilities are granted here on purpose: TUN capture is off by default.
+# When tun2socks is enabled, packaging/install.sh drops packaging/tun2socks.conf
+# into webfilter.service.d/ to add CAP_NET_ADMIN/CAP_NET_RAW.
 
 [Install]
 WantedBy=multi-user.target

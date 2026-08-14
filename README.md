@@ -14,6 +14,14 @@ aimed at replacing a Python + mitmproxy runtime with one static executable.
 > human security audit. Treat it as a personal/homelab project, not audited
 > security software.
 
+## Screenshots
+
+The management web UI — dashboard, policies, logs, analytics, tools and
+settings — is in [screenshots/](screenshots/), rendered against generated
+sample data. Regenerate with `bash scripts/capture_screenshots.sh`.
+
+[![Dashboard](screenshots/dashboard.png)](screenshots/)
+
 ## What it does
 
 - **TLS-intercepting forward proxy**: generates its own CA, issues per-host
