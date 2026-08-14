@@ -18,6 +18,8 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ReadWritePaths=/opt/webfilter
+# `webfilter mgmt` never supervises tun2socks, so this unit never needs the
+# packaging/tun2socks.conf capability drop-in - only webfilter-proxy.service does.
 
 [Install]
 WantedBy=multi-user.target

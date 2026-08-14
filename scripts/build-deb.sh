@@ -34,6 +34,7 @@ mkdir -p \
   "$STAGE/DEBIAN" \
   "$STAGE/opt/webfilter/config" \
   "$STAGE/opt/webfilter/policies" \
+  "$STAGE/opt/webfilter/systemd" \
   "$STAGE/lib/systemd/system"
 
 install -m 0755 "$BINARY" "$STAGE/opt/webfilter/webfilter"
@@ -43,6 +44,9 @@ if [[ -d "$REPO_ROOT/categories" ]]; then
   cp -R "$REPO_ROOT/categories" "$STAGE/opt/webfilter/categories"
 fi
 install -m 0644 "$REPO_ROOT/packaging/webfilter.service" "$STAGE/lib/systemd/system/webfilter.service"
+# Staged as inert data, NOT into webfilter.service.d/: postinst decides whether
+# to activate it, based on whether tun2socks is actually enabled.
+install -m 0644 "$REPO_ROOT/packaging/tun2socks.conf" "$STAGE/opt/webfilter/systemd/tun2socks.conf"
 
 install -m 0755 "$DEB_DIR/postinst" "$STAGE/DEBIAN/postinst"
 install -m 0755 "$DEB_DIR/postrm" "$STAGE/DEBIAN/postrm"

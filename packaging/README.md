@@ -159,8 +159,87 @@ Windows requires an elevated Administrator process and `wintun.dll`. The
 tun2socks release archive does **not** include it: place the matching
 architecture DLL beside `webfilter.exe` or in `System32`. If the DLL is
 missing, WebFilter stays up and reports TUN as unavailable instead of exiting.
-Linux requires root or equivalent capabilities for TUN and route changes.
 macOS route setup is not wired in this release.
+
+### Linux: running TUN capture under systemd
+
+The shipped units run as the unprivileged `webfilter` user, so out of the box
+TUN capture is skipped with:
+
+```
+WARN tun2socks not started err="tun2socks disabled for this run because the
+privileges it needs are unavailable: not running as root and CAP_NET_ADMIN is
+not held; ..."
+```
+
+The fix is `packaging/tun2socks.conf`, a systemd drop-in granting exactly two
+capabilities:
+
+- **`CAP_NET_ADMIN`** — the `ip tuntap` / `ip addr` / `ip link` / `ip route`
+  calls, and the tun2socks child's `TUNSETIFF` on `/dev/net/tun`.
+- **`CAP_NET_RAW`** — `SO_BINDTODEVICE`, which tun2socks uses whenever
+  `tun2socks.interface_name` is set (it passes `--interface`). Without it,
+  capture still starts but that binding fails; `webfilter tun2socks status`
+  says so explicitly.
+
+`install.sh` installs the drop-in automatically when the settings file it is
+installing has tun2socks enabled. Force or suppress it with `--tun2socks` /
+`--no-tun2socks`. To add it by hand later:
+
+```bash
+sudo install -D -m 0644 packaging/tun2socks.conf \
+  /etc/systemd/system/webfilter.service.d/10-tun2socks.conf
+sudo systemctl daemon-reload && sudo systemctl restart webfilter.service
+```
+
+In `--mode split` it goes on `webfilter-proxy.service.d/` instead:
+`webfilter mgmt` never supervises tun2socks, so the mgmt unit never needs it.
+
+Things that are easy to get wrong here:
+
+- **`setcap cap_net_admin+ep bin/tun2socks` does not work.** The units set
+  `NoNewPrivileges=true`, which disables file capabilities outright — and it
+  is the `webfilter` process, not the child, that runs `ip`. Ambient
+  capabilities are used precisely because they survive `execve`, so both the
+  `ip` calls and the tun2socks child inherit them.
+- **Do not add `PrivateDevices=yes`.** It replaces `/dev` with a minimal set
+  that has no `tun`. `ProtectSystem=strict` is fine as-is: it exempts `/dev`.
+- **In split mode the Settings page under-reports privileges.** That card is
+  rendered by `webfilter mgmt`, so it describes *that* process — it will say
+  "needs admin/root or CAP_NET_ADMIN" even while `webfilter-proxy.service`
+  holds the capabilities and capture is running.
+- **Security tradeoff, stated plainly:** with the drop-in the filtering engine
+  holds these two capabilities for its whole lifetime, so the usual "only the
+  tun2socks child is privileged" claim becomes "the engine holds two
+  capabilities instead of root, and the child inherits them". That is still
+  much narrower than `User=root`, and it is the only option compatible with
+  `NoNewPrivileges=true` (capabilities cannot be dropped process-wide from Go,
+  since they are per-thread on Linux). Compare before/after with
+  `systemd-analyze security webfilter.service`.
+- **`auto_routes` leaves state behind.** It installs a `metric 1` default route
+  via the TUN device and creates the device with `ip tuntap add`, which is
+  persistent; nothing removes either on shutdown. If capture misbehaves and
+  the box loses connectivity:
+
+  ```bash
+  sudo systemctl stop webfilter.service
+  sudo ip route del default dev webfilter-tun
+  sudo ip link del webfilter-tun
+  ```
+
+  Test this from a console, not over SSH.
+
+To verify the capability grant without touching routing at all:
+
+```bash
+sudo systemd-run --pty --uid=webfilter --gid=webfilter \
+  --working-directory=/opt/webfilter --property=NoNewPrivileges=yes \
+  --property='AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW' \
+  /opt/webfilter/webfilter tun2socks status --settings config/settings.json
+```
+
+It should print `privilege:  CAP_NET_ADMIN (ok: true)`; drop the
+`AmbientCapabilities` property and it reports `ok: false` with the remedy.
 
 ## Building a release archive locally
 

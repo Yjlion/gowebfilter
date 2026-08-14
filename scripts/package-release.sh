@@ -67,7 +67,8 @@ for target in "${TARGETS[@]}"; do
   fi
   if [[ "$goos" == "linux" ]]; then
     cp packaging/webfilter.service packaging/webfilter-proxy.service \
-      packaging/webfilter-mgmt.service packaging/install.sh "$stage/"
+      packaging/webfilter-mgmt.service packaging/tun2socks.conf \
+      packaging/install.sh "$stage/"
     chmod +x "$stage/install.sh"
     if command -v dpkg-deb >/dev/null 2>&1; then
       # Invoked via `bash` rather than executed directly: a checked-out

@@ -40,7 +40,7 @@ func TestStartSkipsWithoutPrivileges(t *testing.T) {
 		t.Skip("unsupported platform reports a different skip reason")
 	}
 	if ok, _ := hasRoutePrivileges(); ok {
-		t.Skip("test must run unprivileged to exercise the privilege gate")
+		t.Skip("test must run without root or CAP_NET_ADMIN to exercise the privilege gate")
 	}
 
 	sup := NewSupervisor(enabledSettings(), "127.0.0.1:1080")
@@ -58,7 +58,7 @@ func TestStartSkipsWithoutPrivileges(t *testing.T) {
 // classified as skippable - it should surface loudly.
 func TestStartRequiresSocksAddress(t *testing.T) {
 	if ok, _ := hasRoutePrivileges(); !ok {
-		t.Skip("the privilege gate runs first; needs a privileged process to reach this check")
+		t.Skip("the privilege gate runs first; needs root or CAP_NET_ADMIN to reach this check")
 	}
 	sup := NewSupervisor(enabledSettings(), "")
 	err := sup.Start(context.Background())

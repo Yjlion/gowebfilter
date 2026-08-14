@@ -96,7 +96,7 @@ func (s *Supervisor) Start(ctx context.Context) error {
 		return StartupSkippedError{Reason: fmt.Sprintf("tun2socks is not supported on %s yet", runtime.GOOS)}
 	}
 	if ok, detail := hasRoutePrivileges(); !ok {
-		return StartupSkippedError{Reason: fmt.Sprintf("tun2socks disabled for this run because administrator/root privileges are unavailable: %s", detail)}
+		return StartupSkippedError{Reason: fmt.Sprintf("tun2socks disabled for this run because the privileges it needs are unavailable: %s", detail)}
 	}
 	if err := checkPlatformPrerequisites(); err != nil {
 		return StartupSkippedError{Reason: fmt.Sprintf("tun2socks disabled for this run because a platform prerequisite is missing: %v", err)}

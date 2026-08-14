@@ -14,7 +14,8 @@ case "$1" in
       useradd --system --home-dir "$PREFIX" --shell /usr/sbin/nologin webfilter
     fi
 
-    mkdir -p "$PREFIX/certs" "$PREFIX/logs" "$PREFIX/data"
+    # bin/ is where `webfilter tun2socks download` puts the tun2socks binary.
+    mkdir -p "$PREFIX/certs" "$PREFIX/logs" "$PREFIX/data" "$PREFIX/bin"
 
     if [ ! -f "$PREFIX/config/settings.json" ] && [ -f "$PREFIX/config/settings.example.json" ]; then
       cp "$PREFIX/config/settings.example.json" "$PREFIX/config/settings.json"
@@ -24,6 +25,23 @@ case "$1" in
     fi
 
     chown -R webfilter:webfilter "$PREFIX"
+
+    # TUN capture needs CAP_NET_ADMIN/CAP_NET_RAW, which the shipped unit
+    # deliberately does not grant (capture is off by default). Activate the
+    # staged drop-in only when this install's settings actually enable it, and
+    # let the app parse its own config rather than grepping JSON here.
+    DROPIN=/etc/systemd/system/webfilter.service.d/10-tun2socks.conf
+    if "$PREFIX/webfilter" tun2socks status --settings "$PREFIX/config/settings.json" 2>/dev/null \
+        | grep -qE '^enabled: *true'; then
+      if [ -f "$PREFIX/systemd/tun2socks.conf" ]; then
+        install -D -m 0644 "$PREFIX/systemd/tun2socks.conf" "$DROPIN"
+        echo "webfilter: tun2socks enabled - granted webfilter.service CAP_NET_ADMIN/CAP_NET_RAW"
+      fi
+    elif [ -f "$DROPIN" ]; then
+      # Add-only: an operator may have customized it, so report rather than
+      # silently removing a privilege grant on upgrade.
+      echo "webfilter: tun2socks is disabled but $DROPIN still exists; remove it with: rm $DROPIN"
+    fi
 
     if [ -d /run/systemd/system ]; then
       systemctl daemon-reload || true
