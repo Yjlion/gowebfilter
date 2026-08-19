@@ -39,19 +39,13 @@ func (UrlFilter) HandleRequest(fc *proxy.FlowContext) {
 		}
 	}
 
-	// Shared categories, applied per mode.
+	// Shared categories, applied per mode. The verdict itself lives in
+	// proxy.CategoryVerdict because the connection-level host gate
+	// (proxy.HostFilterVerdict, for blind-spliced hosts) must reach exactly
+	// the same decision from a hostname alone.
 	if len(cfg.Categories) > 0 {
-		cat := fc.Runtime.Categories.MatchAny(host, cfg.Categories)
-		if cfg.Mode == "whitelist" {
-			// Only listed categories are allowed; block everything else.
-			if cat == "" {
-				fc.Block("Site not in an allowed category (whitelist)", "url_filter")
-			}
-			return
-		}
-		// blacklist: block domains that fall in a listed category.
-		if cat != "" {
-			fc.Block("Site category '"+cat+"' blocked by policy", "url_filter")
+		if blocked, reason := proxy.CategoryVerdict(fc.Runtime.Categories, host, cfg); blocked {
+			fc.Block(reason, "url_filter")
 			return
 		}
 	}

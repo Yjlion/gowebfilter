@@ -30,15 +30,25 @@ const (
 	// dnsPort is relayed through the policy-aware resolver rather than blindly
 	// forwarded, so DoH filtering applies to TUN-captured lookups.
 	dnsPort = 53
-	// quicPort is the one UDP destination the relay refuses. QUIC (HTTP/3) is
-	// end-to-end encrypted with no MITM seam, so forwarding UDP/443 would let a
-	// browser tunnel straight past URL filtering, SafeSearch, YouTube rewriting
-	// and the classifiers. Dropping it makes browsers fall back to TCP/TLS,
-	// which the engine can inspect. Note this is deliberately unconditional and
-	// NOT gated on url_filter.block_quic: that flag defaults to false and only
-	// strips the Alt-Svc header, so gating on it would leave the bypass open by
-	// default for every TUN user.
+	// quicPort is dropped outright. QUIC (HTTP/3) is end-to-end encrypted with
+	// no MITM seam, so forwarding UDP/443 would let a browser tunnel straight
+	// past URL filtering, SafeSearch, YouTube rewriting and the classifiers.
+	// Dropping it makes browsers fall back to TCP/TLS, which the engine can
+	// inspect. Note this is deliberately unconditional and NOT gated on
+	// url_filter.block_quic: that flag only strips the Alt-Svc header, so
+	// gating on it would leave the bypass open for anyone who turned it off.
 	quicPort = 443
+	// dotPort carries DNS-over-TLS on TCP and DNS-over-QUIC on UDP. Both are
+	// dropped/refused rather than filtered, for the same reason as QUIC: there
+	// is no seam to inspect them through (a DoT/DoQ client validates against
+	// the system trust store, not this proxy's CA), and refusing makes clients
+	// fall back to a resolver the pipeline does filter. The TCP half is
+	// enforced in handleTunnel; this constant is shared by both.
+	dotPort = 853
+	// maxSniffedDNSQuery bounds how large a datagram may be before the
+	// looks-like-DNS sniff gives up. Stub-resolver queries are tiny; a large
+	// datagram is some other protocol whose bytes happened to parse.
+	maxSniffedDNSQuery = 4096
 	// maxConcurrentDNS bounds in-flight resolutions per association so one slow
 	// upstream can't stall the read loop or spawn unbounded goroutines. A
 	// browser fires many parallel DNS queries, so this must be > 1.
@@ -67,12 +77,15 @@ var errShortUDPPacket = errors.New("socks5: short UDP relay packet")
 // and VoIP traffic, WireGuard, mDNS, ...) needs to reach the network too, or
 // the machine simply looks broken once the TUN is up.
 //
-// Two destinations are special:
+// Some destinations are special:
 //
-//   - Port 53 is resolved through resolveDNS instead of being blindly
-//     forwarded, so the policy's DoH filtering applies to TUN-captured lookups.
-//   - Port 443 is dropped (see quicPort). QUIC has no MITM seam, so relaying it
-//     would hand browsers a way around the entire pipeline.
+//   - Port 53 - and any other port carrying what looks like a DNS query, since
+//     a resolver on a nonstandard port is otherwise a free bypass - is resolved
+//     through resolveDNS instead of being blindly forwarded, so the policy's
+//     DoH filtering applies to TUN-captured lookups.
+//   - Ports 443 (QUIC) and 853 (DNS-over-QUIC) are dropped. Neither has a MITM
+//     seam, so relaying them would hand clients a way around the entire
+//     pipeline.
 //
 // Everything else is forwarded verbatim: the engine can't inspect opaque UDP
 // anyway, so passing it through costs no filtering coverage.
@@ -175,9 +188,9 @@ func (a *udpAssociation) run() {
 			continue
 		}
 
-		switch udpVerdictFor(port) {
+		switch udpVerdictFor(port, payload) {
 		case udpDrop:
-			slog.Debug("socks5: dropped QUIC datagram", "dst", host, "client", a.clientIP)
+			slog.Debug("socks5: dropped datagram with no filtering seam", "dst", host, "port", port, "client", a.clientIP)
 		case udpResolveDNS:
 			rawAddr, payload := append([]byte(nil), rawAddr...), append([]byte(nil), payload...)
 			sem <- struct{}{}
@@ -213,19 +226,73 @@ const (
 	udpDrop
 )
 
-// udpVerdictFor classifies a datagram by destination port. Forwarding is the
-// default because the engine cannot inspect opaque UDP anyway, so dropping it
-// buys no filtering coverage while breaking every UDP protocol on a machine
-// whose traffic a TUN is capturing.
-func udpVerdictFor(dstPort int) udpVerdict {
+// udpVerdictFor classifies a datagram by destination port, falling back to the
+// payload for ports that carry no fixed protocol. Forwarding is the default
+// because the engine cannot inspect opaque UDP anyway, so dropping it buys no
+// filtering coverage while breaking every UDP protocol on a machine whose
+// traffic a TUN is capturing.
+//
+// The payload sniff exists because port 53 is a convention, not a rule: a
+// client configured to resolve through a resolver on some other port would
+// otherwise skip the policy's DNS filtering entirely. Misclassifying a
+// non-DNS datagram costs little (it is still delivered to the address the
+// client chose, just via resolveDNS's own socket), but looksLikeDNSQuery is
+// strict anyway so ordinary UDP protocols are never rerouted.
+func udpVerdictFor(dstPort int, payload []byte) udpVerdict {
 	switch dstPort {
-	case quicPort:
+	case quicPort, dotPort:
 		return udpDrop
 	case dnsPort:
 		return udpResolveDNS
-	default:
-		return udpForward
 	}
+	if looksLikeDNSQuery(payload) {
+		return udpResolveDNS
+	}
+	return udpForward
+}
+
+// looksLikeDNSQuery reports whether payload is a plausible stub-resolver DNS
+// query: a well-formed header with QR/AA/TC/Z/RCODE clear, opcode QUERY,
+// exactly one question, no answer or authority records, and a question that
+// actually parses. miekg's Unpack alone is not enough - it tolerates trailing
+// bytes and untrusted section counts - so the header is checked directly
+// first.
+func looksLikeDNSQuery(payload []byte) bool {
+	const (
+		headerLen = 12
+		flagQR    = 0x8000 // response, not query
+		flagAA    = 0x0400 // authoritative answer: never set in a query
+		flagTC    = 0x0200 // truncated
+		flagZ     = 0x0040 // reserved, must be zero
+		maskRcode = 0x000F
+	)
+	// +5 is the smallest possible question: a root name plus qtype/qclass.
+	if len(payload) < headerLen+5 || len(payload) > maxSniffedDNSQuery {
+		return false
+	}
+	flags := binary.BigEndian.Uint16(payload[2:4])
+	if flags&(flagQR|flagAA|flagTC|flagZ|maskRcode) != 0 {
+		return false
+	}
+	if (flags>>11)&0xF != 0 { // opcode must be QUERY
+		return false
+	}
+	if binary.BigEndian.Uint16(payload[4:6]) != 1 { // exactly one question
+		return false
+	}
+	if binary.BigEndian.Uint16(payload[6:8]) != 0 || binary.BigEndian.Uint16(payload[8:10]) != 0 {
+		return false // a query carries no answer or authority records
+	}
+	if binary.BigEndian.Uint16(payload[10:12]) > 2 { // at most EDNS0 + TSIG
+		return false
+	}
+
+	msg := new(dns.Msg)
+	if err := msg.Unpack(payload); err != nil || len(msg.Question) != 1 {
+		return false
+	}
+	q := msg.Question[0]
+	return q.Name != "" && (q.Qclass == dns.ClassINET || q.Qclass == dns.ClassANY)
 }
 
 // acceptFrom pins the association to the first source address it hears from and

@@ -102,31 +102,115 @@ func TestDecodeSocksUDPPacket(t *testing.T) {
 	}
 }
 
-// TestUDPVerdictFor pins the relay's port policy. The QUIC case is the one that
-// matters for filtering integrity: HTTP/3 is end-to-end encrypted with no MITM
-// seam, so relaying UDP/443 would let a browser behind the TUN bypass the
-// entire addon pipeline. Everything else forwards, because the engine cannot
-// inspect opaque UDP and dropping it only breaks the OS.
+// dnsQueryWire builds a realistic stub-resolver query wire for the sniff tests.
+func dnsQueryWire(t *testing.T, name string) []byte {
+	t.Helper()
+	m := new(dns.Msg)
+	m.SetQuestion(dns.Fqdn(name), dns.TypeA)
+	m.RecursionDesired = true
+	wire, err := m.Pack()
+	if err != nil {
+		t.Fatalf("pack query: %v", err)
+	}
+	return wire
+}
+
+// dnsResponseWire builds a DNS *response* wire - which must never be treated
+// as a query to re-resolve.
+func dnsResponseWire(t *testing.T, name string) []byte {
+	t.Helper()
+	q := new(dns.Msg)
+	q.SetQuestion(dns.Fqdn(name), dns.TypeA)
+	resp := new(dns.Msg)
+	resp.SetReply(q)
+	resp.Answer = append(resp.Answer, &dns.A{
+		Hdr: dns.RR_Header{Name: dns.Fqdn(name), Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 60},
+		A:   net.IPv4(1, 2, 3, 4),
+	})
+	wire, err := resp.Pack()
+	if err != nil {
+		t.Fatalf("pack response: %v", err)
+	}
+	return wire
+}
+
+// TestUDPVerdictFor pins the relay's datagram policy. The drop cases are what
+// matter for filtering integrity: QUIC (443) and DoQ (853) are end-to-end
+// encrypted with no MITM seam, so relaying them would let a client behind the
+// TUN bypass the addon pipeline and the DNS filter respectively. DNS is routed
+// through the policy-aware resolver on any port, because "the resolver lives on
+// 53" is a convention a client can simply ignore. Everything else forwards,
+// because the engine cannot inspect opaque UDP and dropping it only breaks the
+// OS.
 //
 // This is asserted here rather than end-to-end because a dropped datagram and
 // one forwarded to a closed port are indistinguishable from the client side.
 func TestUDPVerdictFor(t *testing.T) {
+	query := dnsQueryWire(t, "example.com")
+	response := dnsResponseWire(t, "example.com")
+	// A plausible non-DNS datagram: a WireGuard handshake initiation begins
+	// with type 1 and three reserved zero bytes.
+	wireguard := append([]byte{0x01, 0x00, 0x00, 0x00}, make([]byte, 144)...)
+
 	for _, tc := range []struct {
-		name string
-		port int
-		want udpVerdict
+		name    string
+		port    int
+		payload []byte
+		want    udpVerdict
 	}{
-		{"quic is dropped", quicPort, udpDrop},
-		{"dns is resolved through policy", dnsPort, udpResolveDNS},
-		{"ntp forwards", 123, udpForward},
-		{"wireguard forwards", 51820, udpForward},
-		{"https over tcp's port number, but udp, is still quic", 443, udpDrop},
-		{"quic on a nonstandard port is not special-cased", 8443, udpForward},
+		{"quic is dropped", quicPort, nil, udpDrop},
+		{"dns-over-quic is dropped", dotPort, query, udpDrop},
+		{"dns is resolved through policy", dnsPort, query, udpResolveDNS},
+		{"ntp forwards", 123, nil, udpForward},
+		{"wireguard forwards", 51820, wireguard, udpForward},
+		{"https over tcp's port number, but udp, is still quic", 443, nil, udpDrop},
+		{"quic on a nonstandard port is not special-cased", 8443, nil, udpForward},
+		{"a resolver on a nonstandard port is still filtered", 5353, query, udpResolveDNS},
+		{"a dns response is not a query to re-resolve", 5353, response, udpForward},
+		{"an empty payload forwards", 5353, nil, udpForward},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := udpVerdictFor(tc.port); got != tc.want {
-				t.Errorf("udpVerdictFor(%d) = %v, want %v", tc.port, got, tc.want)
+			if got := udpVerdictFor(tc.port, tc.payload); got != tc.want {
+				t.Errorf("udpVerdictFor(%d, %d bytes) = %v, want %v", tc.port, len(tc.payload), got, tc.want)
 			}
 		})
+	}
+}
+
+// TestLooksLikeDNSQuery guards the sniff's strictness directly: rerouting an
+// unrelated protocol through resolveDNS would be a silent behaviour change for
+// every UDP flow on a TUN-captured machine.
+func TestLooksLikeDNSQuery(t *testing.T) {
+	query := dnsQueryWire(t, "example.com")
+
+	if !looksLikeDNSQuery(query) {
+		t.Error("a real stub-resolver query should be recognized")
+	}
+	if looksLikeDNSQuery(dnsResponseWire(t, "example.com")) {
+		t.Error("a response is not a query")
+	}
+	if looksLikeDNSQuery(query[:8]) {
+		t.Error("a truncated header is not a query")
+	}
+	if looksLikeDNSQuery(make([]byte, maxSniffedDNSQuery+1)) {
+		t.Error("an oversized datagram should not be sniffed")
+	}
+
+	truncated := append([]byte(nil), query...)
+	truncated[2] |= 0x02 // TC
+	if looksLikeDNSQuery(truncated) {
+		t.Error("a truncated-flag query should be rejected")
+	}
+
+	notify := append([]byte(nil), query...)
+	notify[2] = (notify[2] & 0x87) | (4 << 3) // opcode NOTIFY
+	if looksLikeDNSQuery(notify) {
+		t.Error("only opcode QUERY should be recognized")
+	}
+
+	twoQuestions := append([]byte(nil), query...)
+	twoQuestions[5] = 2
+	if looksLikeDNSQuery(twoQuestions) {
+		t.Error("a multi-question datagram should be rejected")
 	}
 }
