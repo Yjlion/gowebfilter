@@ -72,15 +72,21 @@ type GlobalSettings struct {
 }
 
 type Tun2SocksConfig struct {
-	Enabled       bool     `json:"enabled"`
-	DeviceName    string   `json:"device_name"`
-	InterfaceName string   `json:"interface_name"`
-	TunAddress    string   `json:"tun_address"`
-	TunGateway    string   `json:"tun_gateway"`
-	TunNetmask    string   `json:"tun_netmask"`
-	DNSServers    []string `json:"dns_servers"`
-	AutoRoutes    bool     `json:"auto_routes"`
-	BypassCIDRs   []string `json:"bypass_cidrs"`
+	Enabled       bool   `json:"enabled"`
+	DeviceName    string `json:"device_name"`
+	InterfaceName string `json:"interface_name"`
+	TunAddress    string `json:"tun_address"`
+	TunGateway    string `json:"tun_gateway"`
+	TunNetmask    string `json:"tun_netmask"`
+
+	// DNSServers is applied on Windows only, where configureWindows sets it on
+	// the adapter with netsh. Linux ignores it: DNS captured through the TUN is
+	// answered by the policy's own DoH resolver (see the SOCKS5 UDP relay in
+	// internal/proxy/socks5_udp.go), so a resolver configured on the device
+	// would never be consulted.
+	DNSServers  []string `json:"dns_servers"`
+	AutoRoutes  bool     `json:"auto_routes"`
+	BypassCIDRs []string `json:"bypass_cidrs"`
 
 	// There is deliberately no proxy_target field. tun2socks needs a SOCKS5
 	// endpoint that carries UDP, so the engine binds a dedicated one it owns

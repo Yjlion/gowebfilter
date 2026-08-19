@@ -27,7 +27,11 @@ import (
 // cross-test/cross-engine leakage.
 func NewTransport() *http.Transport {
 	return &http.Transport{
-		Proxy:                 nil,
+		Proxy: nil,
+		// Shared dialer so upstream fetches carry the TUN-capture egress mark
+		// (see upstream.go); without it the engine's own traffic is captured
+		// and fed straight back to it.
+		DialContext:           DialUpstreamContext,
 		ForceAttemptHTTP2:     false,
 		MaxIdleConns:          100,
 		IdleConnTimeout:       90 * time.Second,
@@ -270,7 +274,7 @@ func (c bufConn) Read(p []byte) (int, error) { return c.r.Read(p) }
 // blocks until the tunnel closes so the caller's connection cleanup doesn't
 // race the copy goroutines.
 func blindSplice(conn net.Conn, targetHost string, ready tunnelReady) {
-	destConn, err := net.DialTimeout("tcp", targetHost, 10*time.Second)
+	destConn, err := DialUpstreamTimeout("tcp", targetHost, upstreamTimeout)
 	if err != nil {
 		_ = ready(err)
 		return
@@ -437,9 +441,9 @@ func (e *Engine) tunnelWebSocket(w net.Conn, reader *bufio.Reader, req *http.Req
 			tlsCfg = e.Transport.TLSClientConfig.Clone()
 			tlsCfg.ServerName = req.URL.Hostname()
 		}
-		upstream, err = tls.DialWithDialer(&net.Dialer{Timeout: 10 * time.Second}, "tcp", addr, tlsCfg)
+		upstream, err = tls.DialWithDialer(UpstreamDialer(upstreamTimeout), "tcp", addr, tlsCfg)
 	} else {
-		upstream, err = net.DialTimeout("tcp", addr, 10*time.Second)
+		upstream, err = DialUpstreamTimeout("tcp", addr, upstreamTimeout)
 	}
 	if err != nil {
 		writeErrorResponse(w, http.StatusBadGateway, "proxy: "+err.Error())

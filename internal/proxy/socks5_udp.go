@@ -347,7 +347,7 @@ func (a *udpAssociation) session(rawAddr []byte, host string, port int) *udpSess
 	a.mu.Unlock()
 
 	// Dial outside the lock: name resolution can block.
-	conn, err := net.Dial("udp", key)
+	conn, err := DialUpstream("udp", key)
 	if err != nil {
 		slog.Debug("socks5: UDP destination unreachable", "dst", key, "err", err)
 		return nil
@@ -534,7 +534,7 @@ func (e *Engine) logDNSBlock(name string, policy *models.Policy, clientIP string
 // could be this proxy itself) — resolutions must go out directly.
 var proxyDohClient = &http.Client{
 	Timeout:   dnsUpstreamTimeout,
-	Transport: &http.Transport{Proxy: nil},
+	Transport: &http.Transport{Proxy: nil, DialContext: DialUpstreamContext},
 }
 
 // forwardDoh relays a raw DNS query wire to an RFC 8484 DoH server and returns
@@ -566,7 +566,7 @@ func forwardDoh(query []byte, server string) []byte {
 // forwardPlainDNS relays a raw DNS query to a plain UDP resolver and returns
 // the raw response. Returns nil on any failure.
 func forwardPlainDNS(query []byte, server string) []byte {
-	conn, err := net.DialTimeout("udp", server, dnsUpstreamTimeout)
+	conn, err := DialUpstreamTimeout("udp", server, dnsUpstreamTimeout)
 	if err != nil {
 		return nil
 	}

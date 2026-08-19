@@ -119,11 +119,19 @@ func runEngineWithTun(ctx context.Context, eng *proxy.Engine, rt *state.Runtime,
 	if tunRef != nil {
 		tunRef.Set(sup)
 	}
+	// Mark the engine's own outbound sockets before capture can route anything,
+	// not after: the moment the TUN default route exists, an unmarked upstream
+	// fetch is captured and handed straight back to this engine. The mark is
+	// inert until tun2socks installs the matching `ip rule`, so setting it up
+	// front costs nothing if capture then turns out to be skipped.
+	proxy.SetUpstreamEgressMark(tun.EgressMark)
+	defer proxy.SetUpstreamEgressMark(0)
 	if err := sup.Start(ctx); err != nil {
 		if tun.IsStartupSkipped(err) {
 			// TUN capture is an add-on to the proxy, not a prerequisite: an
 			// unelevated or binary-less run still filters configured clients.
 			slog.Warn("tun2socks not started", "err", err)
+			proxy.SetUpstreamEgressMark(0)
 			return eng.Serve(ctx, listeners)
 		}
 		for _, ln := range listeners {

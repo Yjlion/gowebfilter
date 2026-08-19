@@ -61,8 +61,10 @@ func dohShouldFilter(host string, cfg models.DohConfig) bool {
 // could be this proxy itself) - queries must go out directly. Mirrors
 // httpx.AsyncClient(trust_env=False).
 var dohHTTPClient = &http.Client{
-	Timeout:   4 * time.Second,
-	Transport: &http.Transport{Proxy: nil},
+	Timeout: 4 * time.Second,
+	// The shared dialer also carries the TUN-capture egress mark, so a DoH
+	// lookup is not itself captured and fed back into the engine.
+	Transport: &http.Transport{Proxy: nil, DialContext: proxy.DialUpstreamContext},
 }
 
 // blockAddrStrings are sinkhole and provider block-page IPs, in the order
