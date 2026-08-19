@@ -33,8 +33,13 @@ import (
 //
 // Keeping the main table untouched fixes both. The capture default lives in a
 // private table selected by a low-priority rule, so the host's real default
-// route is never disturbed; if this process dies without cleaning up, the
-// device disappears with it and the rules fall through to main.
+// route is never disturbed and recovery is always one `ip link del` (or
+// `webfilter tun2socks cleanup`) away instead of a rebuild of a route nothing
+// recorded. Note this is not the same as "a crash cannot interrupt traffic":
+// `ip tuntap add` makes a persistent device, so state left behind by a hard
+// kill still black-holes whatever the capture table selects until it is
+// removed. Teardown is layered for that reason - see Supervisor.Shutdown, the
+// unit's ExecStopPost hook, and the pre-clean below.
 const (
 	// tunTable is the private routing table holding the capture default route.
 	// 8888 is well clear of the reserved ids (main 254, default 253, local 255)

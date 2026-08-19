@@ -134,10 +134,17 @@ func runEngineWithTun(ctx context.Context, eng *proxy.Engine, rt *state.Runtime,
 			proxy.SetUpstreamEgressMark(0)
 			return eng.Serve(ctx, listeners)
 		}
+		sup.Shutdown()
 		for _, ln := range listeners {
 			_ = ln.Close()
 		}
 		return err
 	}
+	// Serve returns when ctx is cancelled; Shutdown then blocks until the
+	// capture routing is actually gone. Without the wait the process exits
+	// first and leaves the TUN device and its rules behind - which black-holes
+	// everything the capture table selects, because nothing is reading the
+	// device any more.
+	defer sup.Shutdown()
 	return eng.Serve(ctx, listeners)
 }

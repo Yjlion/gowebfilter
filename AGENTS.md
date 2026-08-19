@@ -118,6 +118,12 @@ for local dev. They persist to disk; the mgmt API's
   `SO_MARK` that rule 9000 matches. A bare `net.Dial` on the egress path is a
   capture loop. Name resolution counts: `SetUpstreamEgressMark` installs a
   `PreferGo` resolver that dials through the same hook.
+- `Supervisor.Shutdown()` is mandatory and blocking. Teardown runs on the
+  supervision goroutine and Go does not wait for goroutines at exit, so
+  without the wait the process leaves the TUN device and rules behind - and
+  because `ip tuntap add` is persistent, leftover rules black-hole whatever
+  the capture table selects. The private-table design makes that one command
+  to recover, not a non-event.
 - `internal/tun2socks/linuxroutes.go` has **no build tag on purpose** and must
   not be renamed `route_linux.go` — a `_linux` suffix is an implicit GOOS
   constraint, and the point is that the `ip` command sequences are pinned by

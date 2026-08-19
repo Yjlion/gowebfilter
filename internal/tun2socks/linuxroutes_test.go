@@ -2,8 +2,10 @@ package tun2socks
 
 import (
 	"context"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/yjlion/gowebfilter/internal/models"
 )
@@ -185,5 +187,63 @@ func TestConfigureLinuxPropagatesFailure(t *testing.T) {
 		if strings.HasPrefix(cmd, "ip rule add") {
 			t.Errorf("installed a routing rule after an earlier step failed: %s", cmd)
 		}
+	}
+}
+
+// The teardown race this guards against was found on a live host: the
+// supervision goroutine tears capture down, but a Go program does not wait for
+// its goroutines, so the process exited first and left the TUN device and its
+// routing rules installed. Nothing reads that device once the child is gone, so
+// everything the capture table selects is black-holed - the exact failure the
+// private-table design was supposed to make impossible.
+func TestShutdownWaitsForTeardown(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("configurePlatform only runs the ip commands on linux")
+	}
+	settings := enabledSettings()
+	r := &recordingRunner{}
+
+	// Stand in for the real child process: something that exists everywhere and
+	// exits when its context is cancelled.
+	sup := NewSupervisorWithRunner(settings, "127.0.0.1:1080", r)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	sup.launched.Store(true)
+	started := make(chan error, 1)
+	go sup.supervise(ctx, "/bin/sleep", started)
+	if err := <-started; err != nil {
+		t.Skipf("cannot launch a stand-in child here: %v", err)
+	}
+
+	cancel()
+	sup.Shutdown()
+
+	// Shutdown has returned, so the teardown must already have happened - not
+	// be scheduled to happen on some goroutine the caller cannot see.
+	var sawLinkDel bool
+	for _, cmd := range r.cmds {
+		if cmd == "ip link del "+settings.Tun2Socks.DeviceName {
+			sawLinkDel = true
+		}
+	}
+	if !sawLinkDel {
+		t.Errorf("Shutdown() returned without tearing the device down; ran: %v", r.cmds)
+	}
+}
+
+// Shutdown must be safe when Start never configured anything, which is the
+// common case: capture is off by default.
+func TestShutdownIsANoOpWhenNothingStarted(t *testing.T) {
+	r := &recordingRunner{}
+	sup := NewSupervisorWithRunner(enabledSettings(), "127.0.0.1:1080", r)
+	done := make(chan struct{})
+	go func() { sup.Shutdown(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Shutdown() blocked even though supervision never started")
+	}
+	if len(r.cmds) != 0 {
+		t.Errorf("Shutdown() ran commands with nothing configured: %v", r.cmds)
 	}
 }

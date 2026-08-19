@@ -169,10 +169,15 @@ ip rule 9100:                -> 8888    everything else
 
 Three consequences worth knowing:
 
-- **The host's real default route is never displaced.** If WebFilter is killed,
-  crashes, or loses power, the TUN device goes away and rules 9000/9100 match
-  nothing, so traffic falls through to `main` exactly as before. Losing
-  connectivity to a captured box is no longer a failure mode.
+- **The host's real default route is never displaced.** Recovery is therefore
+  always one command away, and a reboot always fixes it, because `main` still
+  holds the route it always did. That is the difference from the old
+  main-table design, where the displaced default had to be reconstructed by
+  hand. It is *not* a claim that a crash cannot interrupt traffic: `ip tuntap
+  add` creates a **persistent** device, so if capture is killed without
+  cleaning up, the device stays up with nothing reading it and the capture
+  table black-holes what it selects. That is what the layered teardown below
+  is for.
 - **Rule 9000 is what stops the engine looping.** The filtering engine marks
   its own outbound sockets with `SO_MARK 0x5745`, so its upstream fetches use
   the host's normal routing. Without it, every fetch would be captured by the
@@ -183,9 +188,19 @@ Three consequences worth knowing:
   without matching, so the kernel carries on to `main`. The defaults keep
   loopback and the RFC1918 ranges off the tunnel.
 
-Teardown is automatic — the engine removes all of the above when it shuts
-down, and the systemd drop-in repeats it as `ExecStopPost` in case the engine
-never got the chance. To do it by hand:
+Teardown is layered, because no single mechanism covers every way a process
+can die:
+
+1. **The engine removes its own routing on shutdown**, and blocks until it is
+   gone rather than racing its own exit.
+2. **`ExecStopPost` in the drop-in** repeats the cleanup for a crashed or
+   OOM-killed engine that never reached step 1. Note it does *not* help
+   against `systemctl kill -s KILL`, which SIGKILLs the whole control group
+   including the hook.
+3. **The next start pre-cleans** before configuring, so a run that skipped
+   both of the above is reclaimed rather than stacking duplicate rules on top.
+
+To do it by hand:
 
 ```bash
 sudo -u webfilter /opt/webfilter/webfilter tun2socks cleanup --settings /opt/webfilter/config/settings.json

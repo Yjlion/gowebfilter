@@ -225,6 +225,17 @@ Request/block/audit logs go to SQLite at `logs/webfilter.db`.
   every command is expected to fail once the state is already gone. The
   pre-clean matters because `ip rule add` is additive — without it each
   restart stacks another copy of the rules.
+- **`Supervisor.Shutdown()` must be called and must be waited on.** Teardown
+  runs on the supervision goroutine, and Go does not wait for goroutines at
+  exit — on a live host the process won that race every time and left the
+  device and rules installed, with only the unit's `ExecStopPost` actually
+  cleaning up. `runEngineWithTun` defers `sup.Shutdown()` for this reason;
+  removing it silently reintroduces the leak for anyone not running under the
+  systemd unit. And the leak is not harmless: `ip tuntap add` creates a
+  **persistent** device, so leftover rules keep selecting a TUN nothing is
+  reading, which black-holes that traffic. The private-table design makes
+  recovery trivial (`ip link del`, or a reboot); it does not make the leak a
+  non-event.
 - **`tun2socks.dns_servers` is Windows-only.** Linux ignores it: captured DNS
   is answered by the policy's DoH resolver in the SOCKS5 UDP relay, so a
   resolver set on the device would never be consulted. `tun_netmask` *is*
