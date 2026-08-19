@@ -49,7 +49,7 @@ the proxy+mgmt server if nothing is already listening on the mgmt port),
 decision as `tray`; closing the window stops a self-hosted engine but never
 an attached one), `service` (Windows service management),
 `categories update`, `oui update`, `tun2socks download|status|cleanup`,
-`version`.
+`gateway status|cleanup`, `version`.
 
 `config/settings.json` and `policies/*.json` are gitignored runtime state —
 first start bootstraps them from `config/settings.example.json` /
@@ -245,6 +245,44 @@ Request/block/audit logs go to SQLite at `logs/webfilter.db`.
 - **IPv6 is not captured.** The TUN device is IPv4-only, so a host with an IPv6
   default route reaches dual-stack destinations unfiltered. Capture logs a
   warning when it finds one at start; it does not try to fix it.
+- **Gateway mode is the only capture path where per-client policy really
+  matters, and that is why it uses REDIRECT.** netfilter rewrites the
+  destination but not the source, so `Runtime.GetPolicy` sees the LAN client's
+  real address and the MAC/IP/CIDR tiers resolve per machine. Verified on
+  hardware with three clients on three policies at once. Do not "simplify" it
+  to something that SNATs.
+- **`transparent@host:port` is served on Linux only** (`servedModes` gates on
+  `runtime.GOOS`), because it depends on `SO_ORIGINAL_DST`. The front-end
+  (`internal/proxy/transparent.go`) recovers the pre-NAT destination and then
+  hands the connection to `handleTunnel`, the same seam CONNECT and SOCKS5 use,
+  so interception, the host gate and the addon pipeline are all reached
+  unchanged. It signals readiness with a no-op: a transparent client already
+  believes it has an end-to-end connection, so any reply byte would be
+  injected into the stream.
+- **The transparent front-end peeks the SNI (or Host header) without consuming
+  it.** Transparent capture recovers an *address*, and every host-scoped rule
+  in the engine keys on a *name* - so without the peek a gateway silently stops
+  honouring hostname MITM exclusions, since every target looks like an IP.
+  Unparseable input must yield "" and fall back to the address; guessing a name
+  would misroute policy.
+- **Gateway rules live in one nftables table (`webfilter`) and nothing else is
+  touched.** `internal/gateway/ruleset.go` renders it, has no build tag, and
+  must not be renamed to anything ending `_linux` - same reason as
+  `linuxroutes.go`. The ruleset file deletes the table before creating it, so
+  re-applying replaces rather than stacking. Docker's tables coexist untouched;
+  note its `FORWARD` chain has `policy drop`, which affects forwarded traffic
+  the gateway does not intercept.
+- **`gateway.bypass_cidrs` matches destinations only; `exempt_clients` matches
+  sources.** One list doing both is a trap: tun2socks' equivalent defaults to
+  the RFC1918 ranges, so copying those across would exempt every client on the
+  LAN and silently filter nothing.
+- **`drop_quic` defaults on and must stay that way.** Transparent capture is
+  TCP-only, so leaving UDP/443 alone lets any browser negotiate HTTP/3 and skip
+  the entire pipeline.
+- **The two sysctls gateway mode changes are saved and restored**
+  (`internal/gateway/sysctl.go`). `send_redirects=0` is not optional: without
+  it the kernel tells each client to route around the gateway, and the client
+  obeys - the classic "transparent proxy works, then stops".
 - **The SOCKS5 UDP relay drops UDP/443 and UDP/853, and resolves DNS on any
   port.** QUIC (443) and DoQ (853) are dropped unconditionally so neither
   HTTP/3 nor an encrypted resolver can tunnel past the pipeline; that drop is

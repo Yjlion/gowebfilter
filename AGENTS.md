@@ -107,6 +107,17 @@ for local dev. They persist to disk; the mgmt API's
   caps via `setcap` do **not** work, because the units set
   `NoNewPrivileges=true`. CAP_NET_RAW is also required whenever
   `tun2socks.interface_name` is set (tun2socks then uses `SO_BINDTODEVICE`).
+- Gateway mode (`internal/gateway`) filters *other* machines: nftables
+  REDIRECT on the prerouting hook sends their TCP 80/443 into a transparent
+  listener, which recovers the pre-NAT destination with `SO_ORIGINAL_DST` and
+  uses the shared `handleTunnel` seam. REDIRECT preserves the source address,
+  so per-client policy tiers work - that is the whole point of the mode.
+  Linux only. All rules live in one `webfilter` nftables table (delete before
+  create, so re-apply replaces); `bypass_cidrs` is destinations,
+  `exempt_clients` is sources; `drop_quic` must stay on or HTTP/3 bypasses
+  everything; `ip_forward`/`send_redirects` are saved and restored.
+- The transparent front-end peeks SNI/Host without consuming, because
+  transparent capture recovers an address and host-scoped rules key on a name.
 - TUN capture uses **policy routing and never touches the main table**:
   default route in private table `8888`, `ip rule` pref 9100 selecting it,
   pref 9000 (`fwmark 0x5745 -> main`) exempting the engine's own traffic, and
