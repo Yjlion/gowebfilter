@@ -48,7 +48,8 @@ the proxy+mgmt server if nothing is already listening on the mgmt port),
 `gui` (native desktop management window, gogpu/ui — same self-host-or-attach
 decision as `tray`; closing the window stops a self-hosted engine but never
 an attached one), `service` (Windows service management),
-`categories update`, `oui update`, `tun2socks download|status`, `version`.
+`categories update`, `oui update`, `tun2socks download|status|cleanup`,
+`version`.
 
 `config/settings.json` and `policies/*.json` are gitignored runtime state —
 first start bootstraps them from `config/settings.example.json` /
@@ -192,6 +193,58 @@ Request/block/audit logs go to SQLite at `logs/webfilter.db`.
   whenever `tun2socks.interface_name` is set. Keep `describeRoutePrivilege` a
   pure function — it is what makes the gate testable in an unprivileged
   `go test`.
+- **Capture uses policy routing; it never writes to the main routing table.**
+  `linuxroutes.go` puts the default route in private table `8888` and selects
+  it with `ip rule` pref 9100, with pref 9000 (`fwmark 0x5745 -> main`)
+  exempting the engine's own traffic and `throw` routes in table 8888 applying
+  `bypass_cidrs`. The first implementation did `ip route replace default ...
+  metric 1` in **main**, which had two live-host failure modes that no unit
+  test could see: the engine's own upstream fetches followed the new default
+  back into the TUN and looped (engine -> tun2socks -> engine), and nothing
+  ever restored the displaced route, so stopping the service left the box
+  offline. Do not "simplify" this back into the main table.
+- **The engine marks its own upstream sockets (`SO_MARK 0x5745`) and every
+  outbound dial must go through `internal/proxy/upstream.go`.** A new
+  `net.Dial`/`net.DialTimeout`/`http.Transport` anywhere on the egress path is
+  a capture loop waiting to happen — use `DialUpstream*`,
+  `UpstreamDialer(timeout)`, or `ListenUpstreamPacket`. That includes name
+  resolution, which is why `SetUpstreamEgressMark` swaps in a `PreferGo`
+  resolver that dials through the same `Control` hook. The mark is process-wide
+  and stays 0 unless capture actually starts.
+- **`linuxroutes.go` deliberately has no build tag, and must not be renamed to
+  `route_linux.go`.** A `_linux` filename suffix is an implicit GOOS
+  constraint; the file only builds `ip` argument lists, and keeping it
+  buildable everywhere is what lets the riskiest commands in the repo be
+  pinned argument-for-argument by tests that run in ordinary CI
+  (`linuxroutes_test.go`). The dispatch in `commands.go` still gates on
+  `runtime.GOOS`.
+- **Teardown has exactly one implementation** (`unconfigurePlatform`), reached
+  from the supervisor's shutdown path, from `configureLinux`'s pre-clean, and
+  from `webfilter tun2socks cleanup` (which `packaging/tun2socks.conf` also
+  runs as `ExecStopPost`). It is best-effort and silent by design: on shutdown
+  every command is expected to fail once the state is already gone. The
+  pre-clean matters because `ip rule add` is additive — without it each
+  restart stacks another copy of the rules.
+- **`Supervisor.Shutdown()` must be called and must be waited on.** Teardown
+  runs on the supervision goroutine, and Go does not wait for goroutines at
+  exit — on a live host the process won that race every time and left the
+  device and rules installed, with only the unit's `ExecStopPost` actually
+  cleaning up. `runEngineWithTun` defers `sup.Shutdown()` for this reason;
+  removing it silently reintroduces the leak for anyone not running under the
+  systemd unit. And the leak is not harmless: `ip tuntap add` creates a
+  **persistent** device, so leftover rules keep selecting a TUN nothing is
+  reading, which black-holes that traffic. The private-table design makes
+  recovery trivial (`ip link del`, or a reboot); it does not make the leak a
+  non-event.
+- **`tun2socks.dns_servers` is Windows-only.** Linux ignores it: captured DNS
+  is answered by the policy's DoH resolver in the SOCKS5 UDP relay, so a
+  resolver set on the device would never be consulted. `tun_netmask` *is*
+  honoured on both now (it used to be hardcoded `/15` on Linux), and
+  `bypass_cidrs` is applied on Linux (it used to be validated and then ignored
+  on every platform).
+- **IPv6 is not captured.** The TUN device is IPv4-only, so a host with an IPv6
+  default route reaches dual-stack destinations unfiltered. Capture logs a
+  warning when it finds one at start; it does not try to fix it.
 - **The SOCKS5 UDP relay drops UDP/443 and UDP/853, and resolves DNS on any
   port.** QUIC (443) and DoQ (853) are dropped unconditionally so neither
   HTTP/3 nor an encrypted resolver can tunnel past the pipeline; that drop is

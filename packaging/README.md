@@ -155,6 +155,68 @@ needs a SOCKS5 endpoint that carries UDP, so there is nothing useful to
 configure. DNS is filtered through the policy's DoH resolver, other UDP is
 relayed, and UDP/443 is dropped so QUIC cannot bypass filtering.
 
+### How capture is routed (Linux)
+
+Capture never touches the main routing table. It builds a private one and
+selects it with policy rules, which is what keeps the host recoverable:
+
+```
+table 8888:  default via <tun_gateway> dev <device_name>
+             throw <cidr>            for each tun2socks.bypass_cidrs entry
+ip rule 9000:  fwmark 0x5745 -> main    the engine's own traffic
+ip rule 9100:                -> 8888    everything else
+```
+
+Three consequences worth knowing:
+
+- **The host's real default route is never displaced.** Recovery is therefore
+  always one command away, and a reboot always fixes it, because `main` still
+  holds the route it always did. That is the difference from the old
+  main-table design, where the displaced default had to be reconstructed by
+  hand. It is *not* a claim that a crash cannot interrupt traffic: `ip tuntap
+  add` creates a **persistent** device, so if capture is killed without
+  cleaning up, the device stays up with nothing reading it and the capture
+  table black-holes what it selects. That is what the layered teardown below
+  is for.
+- **Rule 9000 is what stops the engine looping.** The filtering engine marks
+  its own outbound sockets with `SO_MARK 0x5745`, so its upstream fetches use
+  the host's normal routing. Without it, every fetch would be captured by the
+  TUN and handed straight back to the engine that made it — an unbounded loop.
+  This is the reason `CAP_NET_ADMIN` is needed even for a run that never
+  touches `ip`: setting `SO_MARK` requires it too.
+- **`bypass_cidrs` are `throw` routes**, which end the lookup in table 8888
+  without matching, so the kernel carries on to `main`. The defaults keep
+  loopback and the RFC1918 ranges off the tunnel.
+
+Teardown is layered, because no single mechanism covers every way a process
+can die:
+
+1. **The engine removes its own routing on shutdown**, and blocks until it is
+   gone rather than racing its own exit.
+2. **`ExecStopPost` in the drop-in** repeats the cleanup for a crashed or
+   OOM-killed engine that never reached step 1. Note it does *not* help
+   against `systemctl kill -s KILL`, which SIGKILLs the whole control group
+   including the hook.
+3. **The next start pre-cleans** before configuring, so a run that skipped
+   both of the above is reclaimed rather than stacking duplicate rules on top.
+
+To do it by hand:
+
+```bash
+sudo /opt/webfilter/webfilter tun2socks cleanup --settings /opt/webfilter/config/settings.json
+```
+
+Run it as **root**, not as the `webfilter` user: removing the device and rules
+needs the same privileges as creating them, and the service user only holds
+them via the unit's ambient capabilities, which a plain `sudo -u webfilter`
+does not grant. The command checks and refuses rather than reporting success
+after every `ip` call silently failed.
+
+`tun2socks.dns_servers` and `tun_netmask` deserve a note: `dns_servers` is
+applied on Windows only (via `netsh`). On Linux it has no effect, because
+captured DNS is answered by the policy's own DoH resolver rather than by a
+resolver configured on the device. `tun_netmask` is honoured on both.
+
 Windows requires an elevated Administrator process and `wintun.dll`. The
 tun2socks release archive does **not** include it: place the matching
 architecture DLL beside `webfilter.exe` or in `System32`. If the DLL is
@@ -216,18 +278,21 @@ Things that are easy to get wrong here:
   `NoNewPrivileges=true` (capabilities cannot be dropped process-wide from Go,
   since they are per-thread on Linux). Compare before/after with
   `systemd-analyze security webfilter.service`.
-- **`auto_routes` leaves state behind.** It installs a `metric 1` default route
-  via the TUN device and creates the device with `ip tuntap add`, which is
-  persistent; nothing removes either on shutdown. If capture misbehaves and
-  the box loses connectivity:
-
-  ```bash
-  sudo systemctl stop webfilter.service
-  sudo ip route del default dev webfilter-tun
-  sudo ip link del webfilter-tun
-  ```
-
-  Test this from a console, not over SSH.
+- **`SO_MARK` needs `CAP_NET_ADMIN` too**, not just the `ip` calls. That is
+  fine under the drop-in, and it means the two travel together: any process
+  privileged enough to install the capture routing is privileged enough to
+  exempt itself from it. If the mark is ever refused, the engine logs
+  `could not mark upstream socket for TUN-capture bypass` once and keeps
+  serving — treat that line as "capture is looping, fix the capabilities".
+  Operators who cannot grant `CAP_NET_ADMIN` can get the same exemption from
+  outside with a uid rule instead, e.g.
+  `ip rule add pref 9000 uidrange 102-102 lookup main` for the `webfilter`
+  user — but note that exempts *everything* that user runs, not just the
+  engine's upstream sockets.
+- **IPv6 is not captured.** The TUN device is IPv4-only, so a host with an
+  IPv6 default route reaches dual-stack sites over v6, unfiltered. WebFilter
+  logs a warning at capture start when it finds one. Disable IPv6 on the host
+  if that matters.
 
 To verify the capability grant without touching routing at all:
 

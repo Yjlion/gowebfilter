@@ -41,6 +41,17 @@ type Supervisor struct {
 	// lastLogError is the child's own most recent error line, kept apart from
 	// lastError so an exit message can quote it rather than replace it.
 	lastLogError string
+
+	// launched records that supervision actually started, so Shutdown knows
+	// whether there is anything to wait for.
+	launched atomic.Bool
+
+	// done is closed when the supervision goroutine has exited and finished
+	// tearing down. Shutdown waits on it - without that the process routinely
+	// exits first and the teardown never happens (observed on a live host: on
+	// SIGTERM the device and rules survived, and only the unit's ExecStopPost
+	// hook actually removed them).
+	done chan struct{}
 }
 
 // StartupSkippedError means TUN capture could not start for an expected,
@@ -62,7 +73,7 @@ func IsStartupSkipped(err error) bool {
 // NewSupervisor returns a Supervisor for these settings, funnelling captured
 // traffic into socksAddr.
 func NewSupervisor(settings models.GlobalSettings, socksAddr string) *Supervisor {
-	return &Supervisor{settings: settings, socksAddr: socksAddr, run: osCommandRunner{}}
+	return &Supervisor{settings: settings, socksAddr: socksAddr, run: osCommandRunner{}, done: make(chan struct{})}
 }
 
 // NewSupervisorWithRunner is NewSupervisor with an injectable runner for the
@@ -72,7 +83,7 @@ func NewSupervisorWithRunner(settings models.GlobalSettings, socksAddr string, r
 	if runner == nil {
 		runner = osCommandRunner{}
 	}
-	return &Supervisor{settings: settings, socksAddr: socksAddr, run: runner}
+	return &Supervisor{settings: settings, socksAddr: socksAddr, run: runner, done: make(chan struct{})}
 }
 
 // restart backoff bounds. tun2socks exiting is usually terminal (no privileges,
@@ -82,6 +93,11 @@ func NewSupervisorWithRunner(settings models.GlobalSettings, socksAddr string, r
 const (
 	restartBackoffMin = 1 * time.Second
 	restartBackoffMax = 30 * time.Second
+
+	// teardownTimeout bounds the handful of `ip`/`netsh` calls that remove the
+	// capture routing. It runs during shutdown, so it must not be able to hang
+	// a stopping service.
+	teardownTimeout = 10 * time.Second
 )
 
 // Start brings up TUN capture and returns once the process is running (or once
@@ -117,20 +133,84 @@ func (s *Supervisor) Start(ctx context.Context) error {
 	// adapter only exists once tun2socks has started, so routes are configured
 	// after launch (waitForWindowsInterface handles the race).
 	if cfg.AutoRoutes && runtime.GOOS == "linux" {
+		warnIfIPv6DefaultRoute(ctx)
 		if err := configurePlatform(ctx, cfg, s.run); err != nil {
+			// A configure that failed halfway still created a device and may
+			// have installed rules. Take them back out rather than leaving the
+			// host in a state nothing owns.
+			s.teardown()
 			return err
 		}
 	}
 
 	started := make(chan error, 1)
+	s.launched.Store(true)
 	go s.supervise(ctx, bin, started)
-	return <-started
+	if err := <-started; err != nil {
+		s.teardown()
+		return err
+	}
+
+	// Windows configures routing *after* launch, because the Wintun adapter
+	// does not exist until tun2socks creates it - waitForWindowsInterface
+	// absorbs that race. (This call went missing when the in-process manager
+	// became an external-process supervisor, which left configureWindows with
+	// no caller at all: capture started but the adapter was never given an
+	// address, DNS, or a default route.)
+	if cfg.AutoRoutes && runtime.GOOS == "windows" {
+		if err := configurePlatform(ctx, cfg, s.run); err != nil {
+			s.teardown()
+			return err
+		}
+	}
+	return nil
+}
+
+// teardown removes the routing state this supervisor installed. It is safe to
+// call when nothing was installed, and safe to call twice.
+//
+// The context is deliberately a fresh one rather than the caller's: teardown
+// runs when the parent context has already been cancelled, and
+// exec.CommandContext on a cancelled context kills `ip` before it can do
+// anything.
+func (s *Supervisor) teardown() {
+	cfg := s.settings.Tun2Socks
+	if !cfg.AutoRoutes {
+		return // nothing was ever configured
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), teardownTimeout)
+	defer cancel()
+	unconfigurePlatform(ctx, cfg, s.run)
+}
+
+// Shutdown blocks until supervision has stopped and the capture routing has
+// been removed. Callers must run it after cancelling the context they passed to
+// Start, and before the process exits.
+//
+// This is not optional politeness. Teardown happens on the supervision
+// goroutine, and a Go program does not wait for its goroutines: on a live host
+// the process consistently won the race and exited with the TUN device and
+// its routing rules still installed. Nothing then reads that device, so traffic
+// selected into the capture table is black-holed until something removes it.
+func (s *Supervisor) Shutdown() {
+	if !s.launched.Load() {
+		// Start never got as far as configuring anything.
+		return
+	}
+	select {
+	case <-s.done:
+	case <-time.After(teardownTimeout):
+		slog.Warn("tun2socks: supervision did not stop in time; removing capture routing anyway")
+	}
+	// Idempotent, and covers the timeout path above.
+	s.teardown()
 }
 
 // supervise runs the process, restarting it with capped backoff until ctx is
 // cancelled. It reports only the *first* launch outcome on started; later
 // restarts surface through Status instead of failing an already-running proxy.
 func (s *Supervisor) supervise(ctx context.Context, bin string, started chan<- error) {
+	defer close(s.done)
 	cfg := s.settings.Tun2Socks
 	backoff := restartBackoffMin
 
@@ -165,7 +245,12 @@ func (s *Supervisor) supervise(ctx context.Context, bin string, started chan<- e
 			s.markStopped()
 
 			if ctx.Err() != nil {
-				return // shutting down: an exit here is expected
+				// Shutting down: an exit here is expected. This is the normal
+				// end of capture, and the only place that knows the child will
+				// not be restarted - so it is where the routing state that
+				// would otherwise outlive the process gets removed.
+				s.teardown()
+				return
 			}
 			slog.Warn("tun2socks exited, restarting", "err", waitErr, "backoff", backoff)
 			// The child's own last error says *why* ("create tun: operation not
@@ -180,6 +265,7 @@ func (s *Supervisor) supervise(ctx context.Context, bin string, started chan<- e
 
 		select {
 		case <-ctx.Done():
+			s.teardown()
 			return
 		case <-time.After(backoff):
 		}

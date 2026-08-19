@@ -107,6 +107,34 @@ for local dev. They persist to disk; the mgmt API's
   caps via `setcap` do **not** work, because the units set
   `NoNewPrivileges=true`. CAP_NET_RAW is also required whenever
   `tun2socks.interface_name` is set (tun2socks then uses `SO_BINDTODEVICE`).
+- TUN capture uses **policy routing and never touches the main table**:
+  default route in private table `8888`, `ip rule` pref 9100 selecting it,
+  pref 9000 (`fwmark 0x5745 -> main`) exempting the engine's own traffic, and
+  `throw` routes in 8888 for `bypass_cidrs`. Writing the default into `main`
+  (what the first version did) both looped the engine's own fetches back into
+  itself and left the host offline when the service stopped.
+- Every outbound dial must go through `internal/proxy/upstream.go`
+  (`DialUpstream*`, `UpstreamDialer`, `ListenUpstreamPacket`) so it carries the
+  `SO_MARK` that rule 9000 matches. A bare `net.Dial` on the egress path is a
+  capture loop. Name resolution counts: `SetUpstreamEgressMark` installs a
+  `PreferGo` resolver that dials through the same hook.
+- `Supervisor.Shutdown()` is mandatory and blocking. Teardown runs on the
+  supervision goroutine and Go does not wait for goroutines at exit, so
+  without the wait the process leaves the TUN device and rules behind - and
+  because `ip tuntap add` is persistent, leftover rules black-hole whatever
+  the capture table selects. The private-table design makes that one command
+  to recover, not a non-event.
+- `internal/tun2socks/linuxroutes.go` has **no build tag on purpose** and must
+  not be renamed `route_linux.go` — a `_linux` suffix is an implicit GOOS
+  constraint, and the point is that the `ip` command sequences are pinned by
+  tests that run on any platform. Teardown has one implementation
+  (`unconfigurePlatform`), shared by the supervisor's shutdown, the pre-clean
+  in `configureLinux` (needed because `ip rule add` is additive), and
+  `webfilter tun2socks cleanup` / the drop-in's `ExecStopPost`.
+- `tun2socks.dns_servers` is Windows-only (Linux answers captured DNS from the
+  policy's DoH resolver); `tun_netmask` and `bypass_cidrs` are honoured on
+  Linux. Capture is IPv4-only — a host with an IPv6 default route reaches
+  dual-stack sites unfiltered, and logs a warning saying so.
 - The SOCKS5 UDP relay drops ports 443 (QUIC) and 853 (DoQ) unconditionally —
   *not* gated on `url_filter.block_quic`. DNS is resolved through the policy's
   DoH filter, on port 53 and on any other port whose payload strictly parses

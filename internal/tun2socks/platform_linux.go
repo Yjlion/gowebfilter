@@ -3,13 +3,10 @@
 package tun2socks
 
 import (
-	"context"
 	"fmt"
 	"os"
 
 	"golang.org/x/sys/unix"
-
-	"github.com/yjlion/gowebfilter/internal/models"
 )
 
 // hasRoutePrivileges reports whether this process can create the TUN device
@@ -73,18 +70,4 @@ func effectiveCaps() capState {
 		netAdmin: data[0].Effective&(uint32(1)<<uint(unix.CAP_NET_ADMIN)) != 0,
 		netRaw:   data[0].Effective&(uint32(1)<<uint(unix.CAP_NET_RAW)) != 0,
 	}
-}
-
-func configureLinux(ctx context.Context, cfg models.Tun2SocksConfig, runner commandRunner) error {
-	_ = runner.Run(ctx, "ip", "tuntap", "add", "mode", "tun", "dev", cfg.DeviceName)
-	if err := runner.Run(ctx, "ip", "addr", "replace", cfg.TunAddress+"/15", "dev", cfg.DeviceName); err != nil {
-		return err
-	}
-	if err := runner.Run(ctx, "ip", "link", "set", "dev", cfg.DeviceName, "up"); err != nil {
-		return err
-	}
-	if err := runner.Run(ctx, "ip", "route", "replace", "default", "via", cfg.TunGateway, "dev", cfg.DeviceName, "metric", "1"); err != nil {
-		return err
-	}
-	return nil
 }

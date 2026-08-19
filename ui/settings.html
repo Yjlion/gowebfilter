@@ -197,6 +197,7 @@
           </label>
           <div>
             <label class="text-xs font-medium text-gray-700 block mb-1">DNS servers</label>
+            <p class="text-xs text-gray-400 mb-2">Windows only. On Linux, captured DNS is answered by this policy&rsquo;s DoH resolver, so a resolver set on the TUN device is never consulted.</p>
             <div class="space-y-2">
               <template x-for="(dns, i) in settings.tun2socks.dns_servers" :key="i">
                 <div class="flex items-center gap-2">
@@ -212,6 +213,7 @@
           </div>
           <div>
             <label class="text-xs font-medium text-gray-700 block mb-1">Bypass CIDRs</label>
+            <p class="text-xs text-gray-400 mb-2">Destinations that stay off the tunnel and route normally. The defaults keep loopback and private LAN ranges out of capture.</p>
             <div class="space-y-2">
               <template x-for="(cidr, i) in settings.tun2socks.bypass_cidrs" :key="i">
                 <div class="flex items-center gap-2">

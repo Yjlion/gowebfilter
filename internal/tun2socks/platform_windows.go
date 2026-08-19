@@ -79,3 +79,19 @@ func waitForWindowsInterface(ctx context.Context, name string, timeout time.Dura
 		}
 	}
 }
+
+// unconfigureWindows undoes configureWindows. The Wintun adapter itself is
+// owned by the tun2socks process and disappears when it exits, and the route
+// was added with store=active so it does not survive a reboot - but the static
+// DNS servers do, and leaving a dead resolver configured on a vanished adapter
+// is exactly the kind of state that outlives a test run. Best-effort: on the
+// shutdown path the adapter is usually already gone, so every one of these is
+// expected to fail sooner or later.
+func unconfigureWindows(ctx context.Context, cfg models.Tun2SocksConfig, runner commandRunner) {
+	_ = runner.Run(ctx, "netsh", "interface", "ipv4", "delete", "route",
+		"prefix=0.0.0.0/0", "interface="+cfg.DeviceName, "nexthop="+cfg.TunGateway, "store=active")
+	if len(cfg.DNSServers) > 0 {
+		_ = runner.Run(ctx, "netsh", "interface", "ipv4", "set", "dnsservers",
+			"name="+cfg.DeviceName, "source=dhcp")
+	}
+}

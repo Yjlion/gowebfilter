@@ -36,6 +36,10 @@ case "$1" in
       if [ -f "$PREFIX/systemd/tun2socks.conf" ]; then
         install -D -m 0644 "$PREFIX/systemd/tun2socks.conf" "$DROPIN"
         echo "webfilter: tun2socks enabled - granted webfilter.service CAP_NET_ADMIN/CAP_NET_RAW"
+        # The drop-in also carries the ExecStopPost teardown hook, so the unit
+        # has to be reloaded for it to take effect; daemon-reload below covers
+        # a fresh install, but an upgrade that only now enables capture needs
+        # the running unit restarted to pick up both.
       fi
     elif [ -f "$DROPIN" ]; then
       # Add-only: an operator may have customized it, so report rather than

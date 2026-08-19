@@ -145,7 +145,12 @@ fi
 
 if [[ "$TUN2SOCKS" == "yes" ]]; then
   echo "[install] tun2socks is enabled: granting $TUN_UNIT CAP_NET_ADMIN/CAP_NET_RAW ..."
-  install -D -m 0644 "$SCRIPT_DIR/tun2socks.conf" "$TUN_DROPIN"
+  # The drop-in ships with the default prefix baked into its ExecStopPost path,
+  # so a --prefix install has to be rewritten or the teardown hook would point
+  # at a binary that isn't there.
+  mkdir -p "$(dirname "$TUN_DROPIN")"
+  sed "s#/opt/webfilter#$PREFIX#g" "$SCRIPT_DIR/tun2socks.conf" > "$TUN_DROPIN"
+  chmod 0644 "$TUN_DROPIN"
   echo "[install]   -> $TUN_DROPIN"
 fi
 
