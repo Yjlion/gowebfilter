@@ -203,8 +203,14 @@ can die:
 To do it by hand:
 
 ```bash
-sudo -u webfilter /opt/webfilter/webfilter tun2socks cleanup --settings /opt/webfilter/config/settings.json
+sudo /opt/webfilter/webfilter tun2socks cleanup --settings /opt/webfilter/config/settings.json
 ```
+
+Run it as **root**, not as the `webfilter` user: removing the device and rules
+needs the same privileges as creating them, and the service user only holds
+them via the unit's ambient capabilities, which a plain `sudo -u webfilter`
+does not grant. The command checks and refuses rather than reporting success
+after every `ip` call silently failed.
 
 `tun2socks.dns_servers` and `tun_netmask` deserve a note: `dns_servers` is
 applied on Windows only (via `netsh`). On Linux it has no effect, because

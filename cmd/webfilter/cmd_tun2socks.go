@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"runtime"
 
 	"github.com/spf13/cobra"
@@ -65,6 +66,16 @@ func runTun2SocksCleanup(ctx context.Context, settingsPath string) error {
 		return fmt.Errorf("load settings: %w", err)
 	}
 	cfg := settings.Tun2Socks
+
+	// Removing a TUN device and routing rules needs the same privileges as
+	// creating them. Without them every `ip` call fails and the teardown is a
+	// silent no-op - which is worse than useless when the reason someone is
+	// running this is that capture is wedged. Say so instead of reporting done.
+	if ok, detail := tun.HasRoutePrivileges(); !ok {
+		return fmt.Errorf("cannot remove capture routing: %s\n       run it as root, e.g. sudo %s tun2socks cleanup --settings %s",
+			detail, os.Args[0], settingsPath)
+	}
+
 	fmt.Printf("[tun2socks] removing capture routing for device %s ...\n", cfg.DeviceName)
 	tun.Cleanup(ctx, cfg)
 	fmt.Println("[tun2socks] done (any \"cannot find\" errors above just mean there was nothing to remove)")

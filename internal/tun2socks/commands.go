@@ -67,6 +67,14 @@ func unconfigurePlatform(ctx context.Context, cfg models.Tun2SocksConfig, runner
 	}
 }
 
+// HasRoutePrivileges reports whether this process can create or remove the TUN
+// device and its routing rules, and a human-readable reason when it cannot.
+// Exported for `webfilter tun2socks cleanup`, which would otherwise run every
+// `ip` command, have each one fail, and still report success.
+func HasRoutePrivileges() (bool, string) {
+	return hasRoutePrivileges()
+}
+
 // Cleanup tears down any TUN device and routing state a previous run left
 // behind. Exposed for `webfilter tun2socks cleanup`, the documented way back
 // from a wedged capture, and for the unit's ExecStopPost hook.
