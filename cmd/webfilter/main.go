@@ -4,8 +4,11 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/spf13/cobra"
 )
@@ -35,7 +38,20 @@ func main() {
 		newVersionCmd(),
 	)
 
-	if err := root.Execute(); err != nil {
+	// Every long-running command takes cmd.Context(), and until this was wired
+	// up that context was context.Background(): SIGTERM killed the process
+	// outright, so nothing deferred ever ran. `systemctl stop` therefore left
+	// the TUN device and its routing rules installed (only the unit's
+	// ExecStopPost hook cleaned up, and only for people running under the
+	// shipped unit), and the SQLite log store was never closed cleanly either.
+	//
+	// SIGTERM is what systemd and container runtimes send; os.Interrupt covers
+	// Ctrl-C in a terminal. The Windows service path is unaffected - the SCM
+	// stop control is handled separately in runAsWindowsServiceIfApplicable.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if err := root.ExecuteContext(ctx); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
