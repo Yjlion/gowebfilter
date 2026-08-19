@@ -349,12 +349,18 @@ type UrlFilterConfig struct {
 	BlockQuic  bool          `json:"block_quic"`
 }
 
+// NewUrlFilterConfig defaults BlockQuic on: stripping Alt-Svc is a
+// header-only change with no false-positive cost, and leaving it off by
+// default meant a filtering proxy silently let browsers discover HTTP/3 and
+// leave the pipeline. It is independent of Enabled - QuicBlocker is about
+// keeping traffic inspectable, not about URL rules.
 func NewUrlFilterConfig() UrlFilterConfig {
 	return UrlFilterConfig{
 		Allow:      []string{},
 		Block:      []string{},
 		Mode:       UrlFilterModeBlacklist,
 		Categories: []string{},
+		BlockQuic:  true,
 	}
 }
 

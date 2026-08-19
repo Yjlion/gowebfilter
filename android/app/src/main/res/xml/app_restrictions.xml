@@ -130,9 +130,9 @@
         android:restrictionType="string" />
     <restriction
         android:key="url_filter_block_quic"
-        android:title="Block QUIC"
+        android:title="Discourage HTTP/3 (QUIC)"
         android:restrictionType="bool"
-        android:defaultValue="false" />
+        android:defaultValue="true" />
 
     <!-- YouTube -->
     <restriction

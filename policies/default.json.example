@@ -49,7 +49,8 @@
     "allow": [],
     "block": [],
     "mode": "blacklist",
-    "categories": []
+    "categories": [],
+    "block_quic": true
   },
   "block_page": {
     "template": "default",
