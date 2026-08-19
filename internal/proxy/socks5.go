@@ -36,6 +36,7 @@ const (
 
 	repSucceeded            = 0x00
 	repGeneralFailure       = 0x01
+	repNotAllowed           = 0x02 // connection not allowed by ruleset
 	repConnectionRefused    = 0x05
 	repCommandNotSupported  = 0x07
 	repAddrTypeNotSupported = 0x08
@@ -219,9 +220,13 @@ func readUserPassAuth(r io.Reader) (username, password string, err error) {
 	return string(uname), string(passwd), nil
 }
 
-// socksReplyForDialErr maps an upstream dial error to a SOCKS5 reply code,
-// distinguishing a refused connection where possible.
+// socksReplyForDialErr maps a tunnel failure to a SOCKS5 reply code: a policy
+// refusal from the connection gate reports "not allowed by ruleset", and an
+// upstream dial error reports a refused connection where possible.
 func socksReplyForDialErr(err error) byte {
+	if errors.Is(err, ErrBlockedByPolicy) {
+		return repNotAllowed
+	}
 	if errors.Is(err, syscall.ECONNREFUSED) {
 		return repConnectionRefused
 	}

@@ -34,9 +34,10 @@ expected verification commands after changes.
   `internal/proxy/socks4.go`. Both implement CONNECT only and join the same
   tunnel path as HTTP CONNECT. SOCKS5 supports no-auth and username/password
   auth through the existing `ProxyAuthGate` and also serves a UDP ASSOCIATE
-  relay (`socks5_udp.go`): DNS goes through the policy's DoH filter, UDP/443 is
-  dropped so QUIC can't bypass the pipeline, everything else is forwarded
-  verbatim over per-destination sockets. SOCKS4 has no password channel, so an
+  relay (`socks5_udp.go`): DNS goes through the policy's DoH filter (on port 53
+  and on any port whose payload parses as a DNS query), UDP/443 and UDP/853 are
+  dropped so neither QUIC nor DoQ can bypass the pipeline, and everything else
+  is forwarded verbatim over per-destination sockets. SOCKS4 has no password channel, so an
   auth-required proxy refuses SOCKS4 clients. BIND is rejected. HTTPS is
   raw-spliced when MITM is unavailable or bypassed, and MITM-filtered when a
   runtime CA is available.
@@ -267,10 +268,16 @@ on Windows (`wintun.dll`, `netsh` routes, the adapter-appearance race).
   in both `internal/classify/image` and `internal/proxy/addons`, and inline
   data URIs also need the format listed in `inlineImageRe`. JPEG/PNG/GIF/WebP
   are covered; AVIF and animated WebP are not.
-- The SOCKS5 UDP relay drops UDP/443 unconditionally. It is deliberately not
-  gated on `url_filter.block_quic`, which defaults to false and only strips
-  Alt-Svc — gating on it would leave HTTP/3 free to bypass the pipeline for
-  every TUN user by default.
+- The SOCKS5 UDP relay drops UDP/443 and UDP/853 unconditionally. That is
+  deliberately not gated on `url_filter.block_quic`, which only strips Alt-Svc
+  and can be switched off — gating on it would leave HTTP/3 free to bypass the
+  pipeline for those TUN users.
+- Tunnels are gated before the splice/MITM decision (`handleTunnel` ->
+  `HostFilterVerdict`, `internal/proxy/hostgate.go`): blind-spliced hosts get
+  host-only url_filter rules (patterns containing `/` are skipped — a hostname
+  cannot decide them), and DoT (TCP/853) is refused when the policy filters
+  DNS. A refusal answers in the client's protocol (HTTP 403, SOCKS5 0x02,
+  SOCKS4 91) and writes a blocks-log row without a requests-log row.
 - Tests that construct config-backed services directly must use absolute
   temp paths for `cert_dir`, `policies_dir`, and `logs_dir`.
 - Local `main` may lag GitHub because fixes have been landing through PRs.

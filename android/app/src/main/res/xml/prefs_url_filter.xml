@@ -37,5 +37,5 @@
         android:key="url_filter_block_quic"
         android:title="@string/pref_block_quic"
         android:summary="@string/pref_block_quic_summary"
-        android:defaultValue="false" />
+        android:defaultValue="true" />
 </PreferenceScreen>

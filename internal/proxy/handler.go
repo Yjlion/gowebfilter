@@ -3,6 +3,7 @@ package proxy
 import (
 	"bufio"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -10,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/yjlion/gowebfilter/internal/models"
 )
 
 // NewTransport builds the http.Transport used to fetch every upstream
@@ -47,6 +50,21 @@ func hostOnlyOf(addr string) string {
 		return addr
 	}
 	return host
+}
+
+// portOf returns the port of a "host:port" tunnel target, or 0 when it has
+// none (every caller of handleTunnel builds one, so 0 means "unknown port",
+// which matches no port-specific rule).
+func portOf(addr string) int {
+	_, portStr, err := net.SplitHostPort(addr)
+	if err != nil {
+		return 0
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return 0
+	}
+	return port
 }
 
 // serveConn handles one accepted client TCP connection: CONNECT starts a
@@ -95,11 +113,16 @@ func (e *Engine) handleConnect(conn net.Conn, reader *bufio.Reader, req *http.Re
 	}
 
 	// The CONNECT readiness signal is an HTTP status line: "200 Connection
-	// Established" on success, or a 5xx error response if the upstream dial
-	// failed on the blind-splice path.
+	// Established" on success, a 403 when the connection gate refused the
+	// target, or a 5xx error response if the upstream dial failed on the
+	// blind-splice path.
 	ready := func(dialErr error) error {
 		if dialErr != nil {
-			writeErrorResponse(conn, http.StatusServiceUnavailable, "proxy: "+dialErr.Error())
+			status := http.StatusServiceUnavailable
+			if errors.Is(dialErr, ErrBlockedByPolicy) {
+				status = http.StatusForbidden
+			}
+			writeErrorResponse(conn, status, "proxy: "+dialErr.Error())
 			return dialErr
 		}
 		_, err := conn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
@@ -119,15 +142,67 @@ type tunnelReady func(dialErr error) error
 
 // handleTunnel is the shared post-handshake tunnel path for both CONNECT and
 // SOCKS5, entered once the target host is resolved and the client has been
-// authenticated. It either blind-splices (MITM-excluded hosts, or no runtime)
-// or performs interception: after signalling readiness it sniffs the first
-// client byte to distinguish a TLS ClientHello (0x16) - decrypted via a leaf
-// issued by the runtime CA and filtered as https - from plaintext HTTP, which
-// is filtered directly as http. reader must be the buffered reader wrapping
-// conn, so bytes already read during the handshake (or peeked here) aren't
-// lost. ready sends the protocol-specific readiness reply.
+// authenticated. It either blind-splices (MITM-excluded hosts, DoT, or no
+// runtime) or performs interception: after signalling readiness it sniffs the
+// first client byte to distinguish a TLS ClientHello (0x16) - decrypted via a
+// leaf issued by the runtime CA and filtered as https - from plaintext HTTP,
+// which is filtered directly as http. reader must be the buffered reader
+// wrapping conn, so bytes already read during the handshake (or peeked here)
+// aren't lost. ready sends the protocol-specific readiness reply.
+//
+// Everything it splices first goes through the connection-level gate: a
+// spliced connection is invisible to every addon, so the host-only rules in
+// hostgate.go are the only filtering it can ever get, and DNS-over-TLS is
+// refused outright when the policy filters DNS.
 func (e *Engine) handleTunnel(conn net.Conn, reader *bufio.Reader, targetHost, hostOnly string, connID uint64, clientIP, proxySockName string, ready tunnelReady) {
-	if e.Runtime == nil || e.Runtime.ShouldBypassMitm(hostOnly) {
+	port := portOf(targetHost)
+
+	// Resolved lazily and once: only the gate below needs it, and the
+	// interception path re-resolves it per request through PolicyRouter
+	// anyway, so an ordinary MITM'd tunnel pays nothing for this.
+	var policy *models.Policy
+	policyResolved := false
+	clientPolicy := func() *models.Policy {
+		if !policyResolved {
+			policyResolved = true
+			if e.Runtime != nil {
+				policy = e.Runtime.GetPolicy(clientIP)
+			}
+		}
+		return policy
+	}
+
+	refuse := func(v HostVerdict) {
+		e.logConnectionBlock(v, hostOnly, port, clientPolicy(), clientIP)
+		_ = ready(blockedError{reason: v.Reason})
+	}
+
+	// DNS-over-TLS carries no HTTP, so it must never reach the interception
+	// path's http.ReadRequest below - it is spliced instead. When the policy
+	// filters DNS, refuse it outright so the client falls back to a resolver
+	// the pipeline can see (plain DNS through the UDP relay, or DoH through
+	// the doh_filter addon); decrypting it instead is not an option, since DoT
+	// clients validate against the system trust store, not this proxy's CA.
+	isDoT := port == dotPort
+	if isDoT {
+		if p := clientPolicy(); p != nil && p.Doh.Enabled {
+			refuse(HostVerdict{
+				Blocked:   true,
+				Reason:    "DNS-over-TLS blocked so DNS filtering applies (port 853)",
+				Component: "doh",
+			})
+			return
+		}
+	}
+
+	if isDoT || e.Runtime == nil || e.Runtime.ShouldBypassMitm(hostOnly) {
+		// Host-level filtering is the only filtering a spliced connection can
+		// get: no addon runs on it. MITM'd hosts are deliberately left to the
+		// UrlFilter addon, which sees the full URL and can serve the block page.
+		if v := HostFilterVerdict(e.Runtime, clientPolicy(), hostOnly); v.Blocked {
+			refuse(v)
+			return
+		}
 		blindSplice(conn, targetHost, ready)
 		return
 	}

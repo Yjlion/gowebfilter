@@ -12,38 +12,8 @@ items below are one gotcha away from being implemented wrong.
 ## 1. Filtering coverage gaps
 
 Places traffic escapes the pipeline **today**. These outrank everything below:
-each one is a way the filter silently does nothing. All five are verified
-against the code, not speculative.
-
-- [ ] **URL/category filtering for blind-spliced hosts.** `M`
-  `handleTunnel` (`internal/proxy/handler.go:130`) calls `blindSplice` and
-  returns before any addon runs, so for a host in the MITM-exclude set
-  `url_filter`'s block list and category sets never execute. The set is
-  `ShouldBypassMitm` (`internal/proxy/state/state.go:134`), aggregated from
-  `mitm.sites` across *every* loaded policy — so one policy excluding a domain
-  makes it unfilterable for all clients. The same hole covers any client that
-  doesn't trust the CA. Host-level filtering is possible without decrypting:
-  the CONNECT target (or SOCKS5 address) is known before the splice.
-  Touches: `internal/proxy/handler.go`, and a host-only verdict helper factored
-  out of `internal/proxy/addons/url_filter.go`.
-  Note: per-source-IP TLS bypass stays architecturally impossible (see the
-  `ShouldBypassMitm` comment) — this is about filtering the bypassed host, not
-  scoping the bypass.
-
-- [ ] **DNS-over-QUIC and alternate-port DNS bypass the DoH filter.** `S`
-  `udpVerdictFor` (`internal/proxy/socks5_udp.go:220`) drops only UDP/443 and
-  intercepts only UDP/53; everything else forwards verbatim. UDP/853 (DoQ) and
-  any resolver on a nonstandard port therefore sail past the policy's DoH
-  filter in the TUN path. Decide per port: intercept, drop, or forward.
-  Assert on `udpVerdictFor` directly — an end-to-end test can't distinguish a
-  dropped datagram from one sent to a closed port.
-
-- [ ] **DNS-over-TLS (TCP/853) is unhandled.** `M`
-  A DoT client through the TUN path reaches `handleTunnel`, which sniffs the
-  ClientHello, MITMs it, and then tries to parse non-HTTP bytes as HTTP. Needs
-  an explicit verdict — block the port, or decrypt and run the DoH filter's
-  wire-format path over it.
-  Touches: `internal/proxy/handler.go`, `internal/proxy/addons/doh_filter.go`.
+each one is a way the filter silently does nothing. Verified against the code,
+not speculative.
 
 - [ ] **AVIF and animated WebP fail open.** `M`
   An image with no registered decoder makes `Score` return `ok=false`, which
@@ -52,14 +22,6 @@ against the code, not speculative.
   `internal/classify/image`, `internal/proxy/addons/image_classifier.go`, and
   `inlineImageRe` for inline data URIs. Test fixtures come from
   `internal/webptest` (Go has no WebP encoder).
-
-- [ ] **`block_quic` defaults off and only strips Alt-Svc.** `S`
-  `internal/proxy/addons/quic_blocker.go` removes the Alt-Svc header so a
-  browser doesn't *discover* HTTP/3; on the plain HTTP-proxy path (no TUN)
-  nothing stops it reaching UDP/443 by other means. Either default the flag on
-  or document the limitation in the UI so it isn't mistaken for QUIC blocking.
-  The TUN path is already covered unconditionally by `udpVerdictFor` — don't
-  gate that on this flag (see the CLAUDE.md gotcha).
 
 ## 2. Parental-control UX
 
@@ -193,6 +155,22 @@ against the code, not speculative.
 
 ## Done
 
+- [x] Host-level URL/category filtering for blind-spliced tunnels
+  (`proxy.HostFilterVerdict`, `internal/proxy/hostgate.go`) — a MITM-excluded
+  host is now checked against the policy's host-scoped allow/block patterns and
+  category sets before the splice, and a blocked tunnel is refused at the
+  protocol level (HTTP 403 / SOCKS5 0x02 / SOCKS4 91) with a blocks-log row.
+  Path patterns are deliberately not applied: a hostname can't decide them.
+- [x] DNS-over-QUIC and alternate-port DNS in the SOCKS5 UDP relay — UDP/853 is
+  dropped like QUIC, and any datagram that strictly parses as a DNS query is
+  resolved through the policy-aware resolver whatever port it was sent to
+  (`udpVerdictFor`/`looksLikeDNSQuery`).
+- [x] DNS-over-TLS (TCP/853) — refused when the policy enables DoH filtering,
+  blind-spliced otherwise; either way it no longer reaches the MITM path's
+  HTTP parser.
+- [x] `block_quic` defaults on, and is exposed in the web policy editor (it was
+  desktop-GUI/Android-only) with help text that says what it does and does not
+  do.
 - [x] Policy test/simulator API (`POST /api/tools/policy-simulate`) — policy
   selection, schedule status, URL allow/block/category results, addon hints;
   surfaced as the Policy Simulator card on the Tools page.

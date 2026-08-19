@@ -14,7 +14,15 @@ import (
 // directly to that server, bypassing the TCP/TLS proxy entirely -
 // defeating URL filtering, SafeSearch, and YouTube channel blocking.
 // Removing Alt-Svc forces the browser to stay on TCP/TLS where the proxy
-// can intercept it. Enabled per-policy via url_filter.block_quic.
+// can intercept it. Enabled per-policy via url_filter.block_quic, which
+// defaults on.
+//
+// Be honest about what this does and doesn't do: it removes the *discovery*
+// mechanism on the HTTP path, but it cannot stop a client that already knows
+// (or guesses) a server speaks HTTP/3 from reaching UDP/443 - the plain
+// HTTP-proxy deployment never sees that traffic at all. Only TUN capture
+// closes that hole, which it does unconditionally in udpVerdictFor
+// (internal/proxy/socks5_udp.go), deliberately not gated on this flag.
 type QuicBlocker struct{}
 
 func (QuicBlocker) Name() string { return "quic_blocker" }

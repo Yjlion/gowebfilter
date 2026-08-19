@@ -53,8 +53,8 @@
     <string name="pref_allow_list">Allow list (one entry per line)</string>
     <string name="pref_block_list">Block list (one entry per line)</string>
     <string name="pref_categories">Blocked categories (one per line)</string>
-    <string name="pref_block_quic">Block QUIC</string>
-    <string name="pref_block_quic_summary">Forces browsers to fall back from HTTP/3 so traffic stays inspectable.</string>
+    <string name="pref_block_quic">Discourage HTTP/3 (QUIC)</string>
+    <string name="pref_block_quic_summary">Strips Alt-Svc so browsers stay on TCP/TLS where filtering works. VPN mode drops QUIC outright regardless of this switch.</string>
     <string name="pref_block_images_tab">Block Images tab</string>
     <string name="pref_block_videos_tab">Block Videos tab</string>
     <string name="pref_block_ai_tab">Block AI tab</string>
