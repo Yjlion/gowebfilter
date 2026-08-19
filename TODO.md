@@ -182,7 +182,14 @@ not speculative.
 - [x] Policy change audit log (`GET /api/logs?kind=policy_changes`, always on).
 - [x] SOCKS5 UDP ASSOCIATE (RFC 1928 cmd 3) — DNS through the policy's DoH
   filter, UDP/443 dropped so QUIC can't bypass the pipeline, everything else
-  forwarded (`internal/proxy/socks5_udp.go`).
+  forwarded (`internal/proxy/socks5_udp.go`). Exercised end to end through a
+  live TUN, including a real NTP round trip for the generic relay.
+- [x] TUN capture verified on hardware (Debian 13, systemd, unprivileged
+  service user + `CAP_NET_ADMIN`). Capture now uses a private routing table
+  instead of the main one, tears itself down on shutdown, and applies
+  `bypass_cidrs`/`tun_netmask`. See HANDOFF.md's "Verified on hardware" for
+  what was reproduced, what was fixed, and what is still unverified
+  (Windows, macOS).
 
 ## Out of scope
 

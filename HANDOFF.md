@@ -225,12 +225,77 @@ external process it can start, watch, and restart is what made it shippable.
 - Reachable from `POST /api/tun2socks/download` (MDM-lock gated) and
   `webfilter tun2socks download|status`.
 
-**Verified:** download → sha256 verify → install → `--version`, both via the
-CLI and the API, against the real v2.7.0 release; the dedicated listener binds
-on an OS-assigned port, stays out of `GET /api/settings`, and proxies filtered
-traffic; an unprivileged run logs a skip and keeps serving. **Not verified:**
-an actual TUN device coming up and carrying traffic (needs root), and anything
-on Windows (`wintun.dll`, `netsh` routes, the adapter-appearance race).
+### Routing model (Linux)
+
+Capture **never writes to the main routing table**. The default route goes into
+private table `8888`, selected by `ip rule` pref 9100; pref 9000
+(`fwmark 0x5745 lookup main`) exempts the filtering engine's own sockets, and
+`bypass_cidrs` become `throw` routes in 8888. The engine stamps that mark on
+every outbound socket through the single shared dialer in
+`internal/proxy/upstream.go` — including name resolution, which needs a
+`PreferGo` resolver because the stock one opens sockets that never reach
+`Dialer.Control`.
+
+Teardown is layered, because no one mechanism covers every way a process dies:
+`Supervisor.Shutdown()` (blocking, on the normal path), the unit's
+`ExecStopPost` hook (for a crashed or OOM-killed engine), and a pre-clean
+before each configure (for anything that skipped both — and because
+`ip rule add` is additive).
+
+### Verified on hardware
+
+Debian 13 (trixie), amd64, 6.12.94, VirtualBox, out-of-band serial console,
+`webfilter.service` as the unprivileged `webfilter` user with
+`AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW` from the drop-in — installed by
+the `.deb`'s own `postinst`, built by `scripts/build-deb.sh`.
+
+Two defects were reproduced on **stock v1.6** before being fixed:
+
+- **Capture loop.** One `curl http://neverssl.com/` never completed and drove
+  established sockets from 1 to 2131 in twenty seconds — 1182 to the origin
+  paired 1:1 with 1182 to the capture SOCKS listener — and kept climbing after
+  curl was killed. (It also got the host rate-limited by that site for the rest
+  of the session.)
+- **No teardown.** After `systemctl stop`, the device and its `metric 1`
+  default were still in the main table and the host had 100% packet loss until
+  they were removed by hand.
+
+Then found *by* live testing, invisible to unit tests:
+
+- **The in-process teardown had never run.** `main` called `root.Execute()`, so
+  every command's context was `context.Background()`: SIGTERM killed the
+  process outright and no deferred call ever ran. The unit's `ExecStopPost`
+  hook was silently doing all the cleanup, so anyone not running under the
+  shipped unit got none. Also meant `rt.Logs.Close()` had never run on a stop.
+- **`tun2socks cleanup` faked success** when run without privileges — which is
+  exactly what the docs told people to do (`sudo -u webfilter`).
+- **`configureWindows` had no caller at all**, lost when the in-process manager
+  became an external-process supervisor.
+
+Passing on the fixed build: routing model (9/9), supervisor child restart with
+backoff, SIGKILL of the engine (connectivity and the main-table default both
+survive; capture recovers; rules do not stack), teardown with the
+`ExecStopPost` hook removed so only the engine could act (8/8), reboot
+persistence (7/7, twice), `tun2socks cleanup` refusing unprivileged and working
+as root, and `postinst` granting the capabilities when settings enable capture
+and warning rather than silently revoking when they do not.
+
+Captured data path, all through the TUN: HTTP 200, HTTPS MITM'd against the
+proxy CA, `example.org` blocked with a block page (HTTP 200 body, per the
+gotcha) and a `url_filter` row in `?kind=blocks`, both requests logged under
+policy `default`, DNS answered through SOCKS5 UDP ASSOCIATE, UDP/443 dropped,
+and generic UDP relayed (verified with a real NTP round trip — that relay was
+new in v1.6 and had never been exercised).
+
+**Still not verified:** anything on Windows (`wintun.dll`, the `netsh` route
+and DNS commands, the adapter-appearance race) — `configureWindows` is
+restored and unit-tested but has never run on a real Windows host; and macOS,
+which has no route setup at all. IPv6 is out of scope by design: the TUN is
+IPv4-only, so a host with an IPv6 default route reaches dual-stack destinations
+unfiltered, and capture now logs a warning when it finds one. Note also that
+captured traffic reaches the engine from `127.0.0.1`, so per-client policy
+selection cannot distinguish TUN clients — whole-OS capture is inherently
+single-policy.
 
 ## Classifiers
 
