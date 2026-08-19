@@ -192,13 +192,32 @@ Request/block/audit logs go to SQLite at `logs/webfilter.db`.
   whenever `tun2socks.interface_name` is set. Keep `describeRoutePrivilege` a
   pure function — it is what makes the gate testable in an unprivileged
   `go test`.
-- **The SOCKS5 UDP relay forwards everything except UDP/443.** DNS (53) goes
-  through the policy's DoH filter; QUIC is dropped unconditionally so HTTP/3
-  can't tunnel past the pipeline. That drop is **not** gated on
-  `url_filter.block_quic` — that flag defaults to false and only strips
-  Alt-Svc, so gating on it would leave the bypass open by default. The rule
-  lives in `udpVerdictFor`; end-to-end tests can't tell a dropped datagram from
-  one sent to a closed port, so assert on that function.
+- **The SOCKS5 UDP relay drops UDP/443 and UDP/853, and resolves DNS on any
+  port.** QUIC (443) and DoQ (853) are dropped unconditionally so neither
+  HTTP/3 nor an encrypted resolver can tunnel past the pipeline; that drop is
+  **not** gated on `url_filter.block_quic`, which only strips Alt-Svc and can
+  be turned off. Port 53 — *and any datagram that strictly parses as a DNS
+  query, whatever port it went to* — is answered through the policy's DoH
+  filter, because "the resolver lives on 53" is a convention a client can
+  simply ignore. The rules live in `udpVerdictFor`/`looksLikeDNSQuery`; keep
+  the sniff strict (QR/AA/TC/Z/RCODE clear, one question, no answer records)
+  or ordinary UDP protocols start getting rerouted. End-to-end tests can't tell
+  a dropped datagram from one sent to a closed port, so assert on those
+  functions.
+- **A tunnel can be refused before it is spliced, and that path is host-only.**
+  `handleTunnel` runs a connection-level gate before the MITM/blind-splice
+  decision: `HostFilterVerdict` (`internal/proxy/hostgate.go`) applies the
+  policy's host-scoped url_filter rules to blind-spliced hosts — the only
+  filtering they can ever get, since no addon runs on a splice — and TCP/853
+  (DoT) is refused when the policy filters DNS. Three things to keep straight:
+  allow/block patterns containing `/` are **skipped** there (a hostname can't
+  decide a path pattern), MITM'd hosts are deliberately left to the `UrlFilter`
+  addon so they still get the styled block page, and a refusal is signalled in
+  the client's own protocol (HTTP **403**, SOCKS5 `0x02`, SOCKS4 91) via
+  `ErrBlockedByPolicy` — it produces a `?kind=blocks` row but **no**
+  `?kind=requests` row, because no `FlowContext` exists yet. The category half
+  of the verdict is shared with the addon (`proxy.CategoryVerdict`) so the two
+  can't drift.
 - **Image decoders are registered in two places.** `internal/classify/image`
   (the detector) and `internal/proxy/addons/image_classifier.go` (dimension
   checks + replacement rendering) each need the blank import, and inline data
@@ -219,7 +238,8 @@ Request/block/audit logs go to SQLite at `logs/webfilter.db`.
   is what's active.
 - **Blocked responses return HTTP 200** with a block-page body, not 4xx —
   don't use the HTTP status code alone to tell whether a request was
-  filtered. Check `GET /api/logs?kind=requests` (`action`: `ok`/`modified`/
+  filtered. (The one exception is the connection-level gate above, which has
+  no response to rewrite and so refuses the tunnel outright.) Check `GET /api/logs?kind=requests` (`action`: `ok`/`modified`/
   `blocked`, `component`) or `?kind=blocks` (includes `reason`) instead.
   `?kind=policy_changes` is the policy-edit audit log (always on, not
   gated by any settings toggle).

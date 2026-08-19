@@ -107,9 +107,17 @@ for local dev. They persist to disk; the mgmt API's
   caps via `setcap` do **not** work, because the units set
   `NoNewPrivileges=true`. CAP_NET_RAW is also required whenever
   `tun2socks.interface_name` is set (tun2socks then uses `SO_BINDTODEVICE`).
-- The SOCKS5 UDP relay forwards all UDP except port 443 (QUIC), which is
-  dropped unconditionally — *not* gated on `url_filter.block_quic`, which
-  defaults to false. DNS is resolved through the policy's DoH filter.
+- The SOCKS5 UDP relay drops ports 443 (QUIC) and 853 (DoQ) unconditionally —
+  *not* gated on `url_filter.block_quic`. DNS is resolved through the policy's
+  DoH filter, on port 53 and on any other port whose payload strictly parses
+  as a DNS query (`udpVerdictFor`/`looksLikeDNSQuery`).
+- Tunnels are gated before they are spliced: `HostFilterVerdict`
+  (`internal/proxy/hostgate.go`) applies host-scoped url_filter rules to
+  blind-spliced hosts, and DoT (TCP/853) is refused when the policy filters
+  DNS. Patterns containing `/` are skipped (a hostname can't decide them),
+  MITM'd hosts are left to the `UrlFilter` addon, and a refusal answers in the
+  client's protocol (HTTP 403 / SOCKS5 0x02 / SOCKS4 91) with a `?kind=blocks`
+  row but no `?kind=requests` row.
 - Image decoders must be registered in both `internal/classify/image` and
   `internal/proxy/addons/image_classifier.go`, and inline data URIs also need
   the format in `inlineImageRe`. An undecodable image fails open (scores as
@@ -117,8 +125,9 @@ for local dev. They persist to disk; the mgmt API's
 - Policy selection is by source IP/MAC, first match wins, tiered
   MAC -> exact-IP -> CIDR -> catch-all. Check `GET /api/policies` before
   assuming the `default` policy applies.
-- Blocked responses return HTTP 200 with a block-page body, not 4xx. Check
-  `GET /api/logs?kind=requests` or `?kind=blocks` to verify filtering.
+- Blocked responses return HTTP 200 with a block-page body, not 4xx (except a
+  connection-level tunnel refusal, above). Check `GET /api/logs?kind=requests`
+  or `?kind=blocks` to verify filtering.
 - SafeSearch engine matching is host-and-path/param scoped for engines
   whose AI/images/videos tabs share a domain with regular search.
 - Google shards image-CDN thumbnail hosts (`encrypted-tbn0` through at
