@@ -74,6 +74,10 @@ type Manager struct {
 	transparentAddr string
 	run             commandRunner
 	sysctl          *sysctlSaver
+	// nft is resolved once at construction rather than per call, so Shutdown
+	// removes the ruleset with the same binary Start installed it with - and so
+	// tests are not at the mercy of whether the host has nftables.
+	nft string
 
 	mu        sync.Mutex
 	active    bool
@@ -88,6 +92,7 @@ func NewManager(settings models.GlobalSettings, transparentAddr string) *Manager
 		transparentAddr: transparentAddr,
 		run:             execRunner{},
 		sysctl:          newSysctlSaver(procSys),
+		nft:             nftPath(),
 	}
 }
 
@@ -103,6 +108,9 @@ func NewManagerWithRunner(settings models.GlobalSettings, transparentAddr string
 		transparentAddr: transparentAddr,
 		run:             runner,
 		sysctl:          newSysctlSaver(sysctlRoot(root)),
+		// Fixed rather than resolved: a test must not depend on whether the
+		// machine running it happens to have nftables installed.
+		nft: "nft",
 	}
 }
 
@@ -120,7 +128,7 @@ func (m *Manager) Start(ctx context.Context) error {
 		return StartupSkippedError{Reason: "gateway mode disabled for this run because " +
 			"the privileges it needs are unavailable: " + detail}
 	}
-	if _, err := exec.LookPath("nft"); err != nil {
+	if m.nft == "" {
 		return StartupSkippedError{Reason: "gateway mode disabled for this run because the " +
 			"nftables CLI (nft) is not installed; on Debian/Ubuntu: apt install nftables"}
 	}
@@ -139,7 +147,7 @@ func (m *Manager) Start(ctx context.Context) error {
 		return err
 	}
 	ruleset := BuildRuleset(cfg, port)
-	if err := m.run.Run(ctx, ruleset, "nft", "-f", "-"); err != nil {
+	if err := m.run.Run(ctx, ruleset, m.nft, "-f", "-"); err != nil {
 		m.Shutdown()
 		return fmt.Errorf("gateway: install nftables ruleset: %w", err)
 	}
@@ -187,7 +195,9 @@ func (m *Manager) Shutdown() {
 
 	// Best-effort and deliberately unchecked: on the shutdown path a missing
 	// table is the ordinary case, not a failure.
-	_ = m.run.Run(ctx, "", "nft", "delete", "table", "ip", TableName)
+	if m.nft != "" {
+		_ = m.run.Run(ctx, "", m.nft, "delete", "table", "ip", TableName)
+	}
 	if err := m.sysctl.restore(); err != nil {
 		slog.Warn("gateway: could not restore a sysctl", "err", err)
 	}
@@ -221,5 +231,7 @@ func (m *Manager) Status() Status {
 // the process that changed them, and both keys are safe to leave as they are
 // (an operator can reset ip_forward themselves; guessing would be worse).
 func Cleanup(ctx context.Context) {
-	_ = execRunner{}.Run(ctx, "", "nft", "delete", "table", "ip", TableName)
+	if nft := nftPath(); nft != "" {
+		_ = execRunner{}.Run(ctx, "", nft, "delete", "table", "ip", TableName)
+	}
 }

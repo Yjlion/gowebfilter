@@ -3,7 +3,6 @@ package gateway
 import (
 	"fmt"
 	"net"
-	"os/exec"
 	"runtime"
 	"strconv"
 	"sync/atomic"
@@ -64,7 +63,7 @@ func Inspect(settings models.GlobalSettings) Status {
 		Privilege:      priv,
 		PrivilegeOK:    privOK,
 	}
-	if p, err := exec.LookPath("nft"); err == nil {
+	if p := nftPath(); p != "" {
 		st.NftPresent, st.NftPath = true, p
 	}
 

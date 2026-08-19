@@ -11,15 +11,19 @@ import (
 )
 
 type recordingRunner struct {
-	cmds  []string
-	stdin []string
-	fail  map[string]error
+	cmds    []string
+	stdin   []string
+	fail    map[string]error
+	failAll error
 }
 
 func (r *recordingRunner) Run(ctx context.Context, stdin, name string, args ...string) error {
 	line := name + " " + strings.Join(args, " ")
 	r.cmds = append(r.cmds, line)
 	r.stdin = append(r.stdin, stdin)
+	if r.failAll != nil {
+		return r.failAll
+	}
 	return r.fail[line]
 }
 
@@ -133,9 +137,7 @@ func TestShutdownDeletesOnlyOurTable(t *testing.T) {
 // Shutdown runs on the stopping path where a missing table is the ordinary
 // case, so it must push through rather than give up.
 func TestShutdownIgnoresFailures(t *testing.T) {
-	r := &recordingRunner{fail: map[string]error{
-		"nft delete table ip webfilter": context.DeadlineExceeded,
-	}}
+	r := &recordingRunner{failAll: context.DeadlineExceeded}
 	m := NewManagerWithRunner(enabledSettings(), "0.0.0.0:40001", r, t.TempDir())
 	m.Shutdown() // must not panic or block
 	if st := m.Status(); st.Active {
