@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -205,9 +206,12 @@ func TestConnectBlindSplice(t *testing.T) {
 	}
 }
 
+// "dns" stands in for the modes models.ParseListenSpec recognizes but the
+// engine does not serve. It used to be "transparent", which is served on Linux
+// now that gateway mode implements it.
 func TestListenSkipsUnsupportedModes(t *testing.T) {
 	eng := &proxy.Engine{Settings: models.GlobalSettings{
-		ProxyListen: []string{"transparent@127.0.0.1:0", "regular@127.0.0.1:0"},
+		ProxyListen: []string{"dns@127.0.0.1:0", "regular@127.0.0.1:0"},
 	}}
 	listeners, err := eng.Listen()
 	if err != nil {
@@ -219,7 +223,7 @@ func TestListenSkipsUnsupportedModes(t *testing.T) {
 		}
 	}()
 	if len(listeners) != 1 {
-		t.Fatalf("len(listeners) = %d, want 1 (transparent entry should be skipped)", len(listeners))
+		t.Fatalf("len(listeners) = %d, want 1 (the dns entry should be skipped)", len(listeners))
 	}
 }
 
@@ -252,7 +256,7 @@ func TestListenBindsSocks5(t *testing.T) {
 
 func TestListenErrorsWhenNoSupportedEntries(t *testing.T) {
 	eng := &proxy.Engine{Settings: models.GlobalSettings{
-		ProxyListen: []string{"transparent@127.0.0.1:0", "tun"},
+		ProxyListen: []string{"dns@127.0.0.1:0", "tun"},
 	}}
 	if _, err := eng.Listen(); err == nil {
 		t.Fatal("Listen: expected error when no supported entries are configured, got nil")
@@ -418,5 +422,38 @@ func TestMitmBypassStillBlindSplices(t *testing.T) {
 	}
 	if string(body) != "hello from bypassed origin" {
 		t.Errorf("body = %q, want %q", body, "hello from bypassed origin")
+	}
+}
+
+// Gateway mode's front-end is a transparent listener, so the engine has to
+// actually bind one now - it was parsed and skipped for the whole life of the
+// port before this. Linux only: SO_ORIGINAL_DST is a netfilter facility, and
+// binding elsewhere would accept connections that could never be routed.
+func TestListenBindsTransparentOnLinuxOnly(t *testing.T) {
+	eng := &proxy.Engine{Settings: models.GlobalSettings{
+		ProxyListen: []string{"transparent@127.0.0.1:0", "regular@127.0.0.1:0"},
+	}}
+	listeners, err := eng.Listen()
+	if err != nil {
+		t.Fatalf("Listen: %v", err)
+	}
+	defer func() {
+		for _, l := range listeners {
+			l.Close()
+		}
+	}()
+
+	var transparent int
+	for _, l := range listeners {
+		if l.Mode == "transparent" {
+			transparent++
+		}
+	}
+	want := 0
+	if runtime.GOOS == "linux" {
+		want = 1
+	}
+	if transparent != want {
+		t.Errorf("bound %d transparent listeners on %s, want %d", transparent, runtime.GOOS, want)
 	}
 }

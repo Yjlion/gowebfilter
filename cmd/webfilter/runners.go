@@ -6,6 +6,7 @@ import (
 	"log/slog"
 
 	"github.com/yjlion/gowebfilter/internal/app"
+	"github.com/yjlion/gowebfilter/internal/gateway"
 	"github.com/yjlion/gowebfilter/internal/mgmtapi"
 	"github.com/yjlion/gowebfilter/internal/proxy"
 	"github.com/yjlion/gowebfilter/internal/proxy/state"
@@ -27,7 +28,7 @@ func runProxy(ctx context.Context, settingsPath string) error {
 	}
 	defer rt.Logs.Close()
 	// No management server in this process, so nothing consumes TUN status.
-	return runEngineWithTun(ctx, eng, rt, nil)
+	return runEngineWithTun(ctx, eng, rt, nil, nil)
 }
 
 // runMgmt starts only the management HTTP server (API + embedded UI).
@@ -81,9 +82,11 @@ func runProxyAndMgmtWith(ctx context.Context, settingsPath string, mgmtSrv *mgmt
 	// supervisor into this ref once its listeners are bound.
 	var tunRef tun.Ref
 	mgmtSrv.Tun2Socks = &tunRef
+	var gwRef gateway.Ref
+	mgmtSrv.Gateway = &gwRef
 
 	errCh := make(chan error, 2)
-	go func() { errCh <- runEngineWithTun(ctx, eng, rt, &tunRef) }()
+	go func() { errCh <- runEngineWithTun(ctx, eng, rt, &tunRef, &gwRef) }()
 	go func() { errCh <- app.ServeMgmt(ctx, mgmtSrv) }()
 
 	var firstErr error
@@ -105,14 +108,39 @@ func runProxyAndMgmtWith(ctx context.Context, settingsPath string, mgmtSrv *mgmt
 // Order matters: the dedicated SOCKS5 listener must be bound before tun2socks
 // starts, both because the supervisor needs its actual (OS-assigned) address
 // and because tun2socks would otherwise have nowhere to send captured traffic.
-func runEngineWithTun(ctx context.Context, eng *proxy.Engine, rt *state.Runtime, tunRef *tun.Ref) error {
+func runEngineWithTun(ctx context.Context, eng *proxy.Engine, rt *state.Runtime, tunRef *tun.Ref, gwRef *gateway.Ref) error {
 	app.EnsureTunSocksListener(eng)
+	app.EnsureGatewayListener(eng)
 	listeners, err := eng.Listen()
 	if err != nil {
 		return err
 	}
 	if rt != nil {
 		rt.Start(ctx)
+	}
+
+	// Gateway mode is independent of TUN capture: one filters other machines'
+	// traffic, the other this machine's, and a box can do both. Start it first
+	// so a gateway that cannot come up is reported before capture muddies the
+	// logs.
+	gw := gateway.NewManager(eng.Settings, proxy.FindPurpose(listeners, app.GatewayListenerPurpose))
+	if gwRef != nil {
+		gwRef.Set(gw)
+	}
+	if err := gw.Start(ctx); err != nil {
+		if gateway.IsStartupSkipped(err) {
+			slog.Warn("gateway mode not started", "err", err)
+		} else {
+			gw.Shutdown()
+			for _, ln := range listeners {
+				_ = ln.Close()
+			}
+			return err
+		}
+	} else {
+		// Same reasoning as the TUN teardown: this must block, or the process
+		// exits with the host's firewall and sysctls still rewritten.
+		defer gw.Shutdown()
 	}
 
 	sup := tun.NewSupervisor(eng.Settings, proxy.FindPurpose(listeners, app.TunSocksListenerPurpose))

@@ -96,6 +96,37 @@ func EnsureTunSocksListener(eng *proxy.Engine) {
 	})
 }
 
+// GatewayListenerPurpose tags the engine-owned transparent listener that
+// gateway mode redirects other machines' traffic into.
+const GatewayListenerPurpose = "gateway"
+
+// EnsureGatewayListener registers the transparent listener gateway mode needs.
+//
+// It binds 0.0.0.0 because netfilter REDIRECT rewrites the destination to an
+// address of the *incoming* interface, not to loopback - a listener bound to
+// 127.0.0.1 would never be reached. Port 0 lets the OS choose, so the listener
+// can never collide with a user-configured one; the caller reads the real
+// address back with proxy.FindPurpose and writes the nftables rules from that,
+// which is what stops the rules ever naming a port nothing is serving.
+//
+// Like the TUN capture listener this is deliberately not a proxy_listen entry:
+// it never appears in settings.json or the UI's listener editor, and there is
+// nothing useful a user could change about it.
+func EnsureGatewayListener(eng *proxy.Engine) {
+	if eng == nil || !eng.Settings.Gateway.Enabled {
+		return
+	}
+	for _, internal := range eng.InternalListen {
+		if internal.Purpose == GatewayListenerPurpose {
+			return
+		}
+	}
+	eng.InternalListen = append(eng.InternalListen, proxy.InternalListener{
+		Purpose: GatewayListenerPurpose,
+		Spec:    "transparent@0.0.0.0:0",
+	})
+}
+
 // EnsureLocalHTTPProxyListener appends a loopback HTTP ("regular") proxy
 // listener when none is configured, so a PAC file has an HTTP proxy to
 // point at. The 8080 fallback deliberately matches

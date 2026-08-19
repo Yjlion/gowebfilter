@@ -34,5 +34,24 @@
       "172.16.0.0/12",
       "192.168.0.0/16"
     ]
+  },
+  "gateway": {
+    "enabled": false,
+    "interface": "",
+    "intercept_ports": [
+      80,
+      443
+    ],
+    "client_cidrs": [],
+    "bypass_cidrs": [
+      "127.0.0.0/8",
+      "224.0.0.0/4",
+      "255.255.255.255/32"
+    ],
+    "exempt_clients": [],
+    "drop_quic": true,
+    "ip_forward": true,
+    "masquerade": false,
+    "wan_interface": ""
   }
 }

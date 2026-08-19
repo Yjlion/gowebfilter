@@ -297,6 +297,85 @@ captured traffic reaches the engine from `127.0.0.1`, so per-client policy
 selection cannot distinguish TUN clients — whole-OS capture is inherently
 single-policy.
 
+## Gateway mode (network routing)
+
+`internal/gateway` makes the host a filtering router: other machines route
+through it, an nftables prerouting REDIRECT sends their TCP 80/443 into an
+engine-owned transparent listener, and `proxy.OriginalDestination` recovers the
+pre-NAT destination from conntrack with `SO_ORIGINAL_DST`. From there the
+connection goes to `handleTunnel`, the same seam CONNECT and SOCKS5 use, so
+interception, the connection-level host gate and the whole addon pipeline are
+reached unchanged.
+
+This closes Deliverable 3 of `docs/plans/android-firefox-transparent-mode.md`
+for the Linux gateway case. `transparent@host:port` had been a recognized
+`proxy_listen` mode that the engine parsed and skipped since the port began.
+
+**Why it matters:** REDIRECT rewrites the destination but not the source, so
+the client's real address survives and the MAC/IP/CIDR policy tiers resolve per
+machine. It is the only capture mode where the existing per-client policy model
+is fully expressed - one box, many clients, different rules each, nothing
+configured on the clients.
+
+Design notes worth keeping:
+
+- One nftables table (`webfilter`), deleted before it is created, so re-apply
+  replaces rather than stacks and teardown is a single delete. Other tables on
+  the host are untouched.
+- The transparent listener binds an OS-assigned port and the rules are written
+  from what it actually got, so they can never name a port nothing serves.
+- The front-end peeks SNI (or the Host header) without consuming it: capture
+  recovers an address, and every host-scoped rule keys on a name.
+- `drop_quic` defaults on - transparent capture is TCP-only, so UDP/443 left
+  alone lets a browser skip the filter entirely.
+- `bypass_cidrs` is destinations, `exempt_clients` is sources, deliberately
+  split so copying tun2socks' RFC1918 defaults cannot silently unfilter every
+  client.
+- `ip_forward` and `send_redirects` are read before they are written and
+  restored on shutdown.
+
+### Verified on hardware
+
+Debian 13 / amd64 / systemd, unprivileged `webfilter` user with
+`CAP_NET_ADMIN`/`CAP_NET_RAW` from the drop-in the deb's `postinst` installs,
+nftables 1.1.3, alongside a running Docker whose tables were left untouched
+throughout. Two real clients, neither configured to use a proxy:
+
+- **A Windows PC on the LAN (192.168.12.126)**, reaching the box by name
+  resolution. HTTP 200 and HTTPS 200, the latter validated against the filter's
+  own CA - so it was genuinely intercepted, not passed through.
+- **A routed client in a network namespace (10.77.0.2)** with its default route
+  through the box, dialling a real remote IP (104.20.23.154:80). This is the
+  case that exercises `SO_ORIGINAL_DST` properly: the destination is somewhere
+  else entirely, and only conntrack knows where.
+
+Per-client policy, three clients at once, each on its own policy and each
+blocked on a different host:
+
+| client | policy | result |
+|---|---|---|
+| 192.168.12.126 (LAN PC) | `lan-pc` (source_ips) | `example.com` blocked, `httpforever.com` and wikipedia allowed |
+| 10.77.0.2 (routed netns) | `lab-net` (CIDR 10.77.0.0/24) | `*.wikipedia.org` blocked, `example.com` allowed |
+| 127.0.0.1 (the box) | `default` | everything allowed |
+
+Also passing: ruleset and sysctl state (5/5), restart idempotency (one table
+and one redirect rule after repeated restarts), UDP/443 dropped on the forward
+path, a direct connection to the transparent port refused rather than looped,
+teardown on stop (table gone, sysctls restored, Docker's tables intact, host
+networking fine), `gateway cleanup` refusing unprivileged and removing a
+planted leftover table as root, and reboot persistence (6/6).
+
+`ip_forward` restoring to `1` rather than `0` is correct on that host, not a
+leak: Docker had already set it before WebFilter started, and the saver
+restores what it found.
+
+**Not verified:** anything but Linux (the mode is Linux-only by construction),
+IPv6 clients (the redirect is IPv4), and `masquerade`, which the test network
+did not need. CA trust remains the ceiling on body inspection - routing bytes
+through the filter does not make a client trust its CA, so classifiers and
+rewriting need the CA installed per client while URL/SNI/category/DoH filtering
+does not.
+
 ## Classifiers
 
 - Text classification is opt-in per policy through `text_classifier.enabled`.

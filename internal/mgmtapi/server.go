@@ -13,6 +13,7 @@ import (
 	"github.com/yjlion/gowebfilter/internal/categories"
 	"github.com/yjlion/gowebfilter/internal/certs"
 	"github.com/yjlion/gowebfilter/internal/config"
+	"github.com/yjlion/gowebfilter/internal/gateway"
 	"github.com/yjlion/gowebfilter/internal/logstore"
 	"github.com/yjlion/gowebfilter/internal/models"
 	"github.com/yjlion/gowebfilter/internal/tun2socks"
@@ -44,6 +45,11 @@ type Server struct {
 	// which case status falls back to the settings/filesystem view - the nil
 	// Ref handles that itself.
 	Tun2Socks *tun2socks.Ref
+
+	// Gateway is the live gateway-mode manager, on the same terms as
+	// Tun2Socks: set when the proxy engine runs in this process, nil under
+	// standalone `mgmt`, where the nil Ref falls back to the settings view.
+	Gateway *gateway.Ref
 
 	settingsMu sync.RWMutex
 	settings   models.GlobalSettings
@@ -111,6 +117,7 @@ func (s *Server) Router() *chi.Mux {
 
 	r.Get("/api/status", s.handleStatus)
 	r.Get("/api/tun2socks/status", s.handleTun2SocksStatus)
+	r.Get("/api/gateway/status", s.handleGatewayStatus)
 
 	// Configuration mutations are additionally gated by the MDM settings
 	// lock (managed.json, written by the Android managed-configuration

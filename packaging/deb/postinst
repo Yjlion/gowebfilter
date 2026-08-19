@@ -31,11 +31,19 @@ case "$1" in
     # staged drop-in only when this install's settings actually enable it, and
     # let the app parse its own config rather than grepping JSON here.
     DROPIN=/etc/systemd/system/webfilter.service.d/10-tun2socks.conf
-    if "$PREFIX/webfilter" tun2socks status --settings "$PREFIX/config/settings.json" 2>/dev/null \
-        | grep -qE '^enabled: *true'; then
+    needs_netadmin() {
+      # TUN capture and gateway mode need the same two capabilities, so
+      # either one being enabled is reason enough to install the drop-in.
+      "$PREFIX/webfilter" tun2socks status --settings "$PREFIX/config/settings.json" 2>/dev/null \
+        | grep -qE '^enabled: *true' && return 0
+      "$PREFIX/webfilter" gateway status --settings "$PREFIX/config/settings.json" 2>/dev/null \
+        | grep -qE '^enabled: *true' && return 0
+      return 1
+    }
+    if needs_netadmin; then
       if [ -f "$PREFIX/systemd/tun2socks.conf" ]; then
         install -D -m 0644 "$PREFIX/systemd/tun2socks.conf" "$DROPIN"
-        echo "webfilter: tun2socks enabled - granted webfilter.service CAP_NET_ADMIN/CAP_NET_RAW"
+        echo "webfilter: capture enabled - granted webfilter.service CAP_NET_ADMIN/CAP_NET_RAW"
         # The drop-in also carries the ExecStopPost teardown hook, so the unit
         # has to be reloaded for it to take effect; daemon-reload below covers
         # a fresh install, but an upgrade that only now enables capture needs
@@ -44,7 +52,7 @@ case "$1" in
     elif [ -f "$DROPIN" ]; then
       # Add-only: an operator may have customized it, so report rather than
       # silently removing a privilege grant on upgrade.
-      echo "webfilter: tun2socks is disabled but $DROPIN still exists; remove it with: rm $DROPIN"
+      echo "webfilter: no capture mode is enabled but $DROPIN still exists; remove it with: rm $DROPIN"
     fi
 
     if [ -d /run/systemd/system ]; then

@@ -306,6 +306,101 @@ sudo systemd-run --pty --uid=webfilter --gid=webfilter \
 It should print `privilege:  CAP_NET_ADMIN (ok: true)`; drop the
 `AmbientCapabilities` property and it reports `ok: false` with the remedy.
 
+## Gateway mode (filtering other machines)
+
+Every other capture mode filters the machine WebFilter runs on. Gateway mode
+filters machines that route **through** it: nftables redirects their web
+traffic into the filter, and nothing is configured on the clients. Linux only —
+netfilter is what makes it possible.
+
+```bash
+sudo apt install nftables          # the deb Recommends it
+webfilter gateway status           # config, privileges, prerequisites
+```
+
+Enable it in Settings, or in `settings.json`:
+
+```json
+"gateway": {
+  "enabled": true,
+  "interface": "eth0",
+  "intercept_ports": [80, 443],
+  "client_cidrs": [],
+  "bypass_cidrs": ["127.0.0.0/8", "224.0.0.0/4", "255.255.255.255/32"],
+  "exempt_clients": [],
+  "drop_quic": true,
+  "ip_forward": true,
+  "masquerade": false,
+  "wan_interface": ""
+}
+```
+
+Clients reach it however your network already does that: a static route, a
+DHCP-advertised gateway, or making this box the default gateway. WebFilter
+does not advertise itself and does not touch anything outside its own host.
+
+**Per-client policies work here, and this is the reason to use it.** REDIRECT
+rewrites only the destination, so the client's real source address survives and
+`GetPolicy` resolves the MAC/IP/CIDR tiers exactly as it does for a configured
+proxy client. One box can apply a different policy to every machine on the
+network, with no client-side setup at all.
+
+### What it installs
+
+Everything lives in one nftables table called `webfilter`, so teardown is a
+single delete and other firewall rules on the host — Docker's, for instance —
+are never touched:
+
+```
+table ip webfilter
+  prerouting (nat, dstnat)   tcp dport {80,443} redirect to :<transparent port>
+  forward    (filter)        udp dport {443,853} drop
+```
+
+- The redirect points at an **engine-owned transparent listener** bound on an
+  OS-assigned port. It is not a `proxy_listen` entry, never appears in
+  settings.json, and the rules are written from the port it actually got — so
+  they can never name a port nothing is serving.
+- **`drop_quic` is on by default.** Transparent capture is TCP-only; without
+  the drop a browser negotiates HTTP/3 over UDP/443 and skips the filter
+  entirely. Dropping it makes clients fall back to TCP/TLS, which the engine
+  inspects. `853` goes with it, for DNS-over-QUIC.
+- **`bypass_cidrs` are destinations; `exempt_clients` are sources.** They are
+  separate on purpose: the equivalent tun2socks setting defaults to the RFC1918
+  ranges, and one list matching both would mean an operator copying those
+  across exempts every client they own and silently filters nothing.
+- Two sysctls are read before they are written and **restored on shutdown**:
+  `ip_forward`, and `send_redirects`. The second matters more than it looks —
+  without it the kernel tells each client "you can reach that directly", the
+  client believes it, and the gateway quietly stops seeing traffic.
+
+### Privileges and teardown
+
+Gateway mode needs the same `CAP_NET_ADMIN`/`CAP_NET_RAW` grant as TUN capture,
+from the same `packaging/tun2socks.conf` drop-in — `install.sh` and the deb's
+`postinst` install it when **either** mode is enabled. Teardown is layered the
+same way too: a blocking shutdown, the unit's `ExecStopPost`, and a delete
+before every apply. By hand:
+
+```bash
+sudo /opt/webfilter/webfilter gateway cleanup --settings /opt/webfilter/config/settings.json
+```
+
+Run it as root; the service user only holds the capabilities through the unit.
+
+### Limits worth knowing before you deploy it
+
+- **CA trust is still required for body inspection.** Routing bytes through the
+  filter does not make clients trust its CA. URL/SNI/category/DoH filtering
+  works without it; the classifiers, SafeSearch rewriting and YouTube filtering
+  need the CA installed on each client. Untrusted flows are blind-spliced
+  rather than broken.
+- **IPv4 only.** A client with working IPv6 reaches dual-stack sites over v6,
+  unfiltered.
+- **Intercepted ports are terminated locally; everything else is forwarded**,
+  and that forwarding is subject to whatever else is on the host's `forward`
+  hook. On a box running Docker, its `FORWARD` chain has `policy drop`.
+
 ## Building a release archive locally
 
 `scripts/package-release.sh` cross-compiles all three targets and produces

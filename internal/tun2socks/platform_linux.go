@@ -3,10 +3,11 @@
 package tun2socks
 
 import (
-	"fmt"
 	"os"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/yjlion/gowebfilter/internal/netpriv"
 )
 
 // hasRoutePrivileges reports whether this process can create the TUN device
@@ -35,24 +36,15 @@ type capState struct {
 	err      error
 }
 
+// describeRoutePrivilege delegates to internal/netpriv so TUN capture and
+// gateway mode - which need the same privileges, from the same systemd unit,
+// for the same reason - can never report them differently.
 func describeRoutePrivilege(euid int, caps capState) (bool, string) {
-	if euid == 0 {
-		return true, "root"
-	}
-	switch {
-	case caps.netAdmin && caps.netRaw:
-		return true, "CAP_NET_ADMIN"
-	case caps.netAdmin:
-		// Capture still works; only tun2socks' --interface flag (which binds
-		// its upstream sockets with SO_BINDTODEVICE) needs CAP_NET_RAW, and
-		// that flag is only passed when tun2socks.interface_name is set.
-		return true, "CAP_NET_ADMIN (no CAP_NET_RAW: interface_name binding will fail)"
-	}
-	detail := "not running as root and CAP_NET_ADMIN is not held; under systemd, grant it with AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW (see packaging/README.md)"
-	if caps.err != nil {
-		detail += fmt.Sprintf(" (capability probe failed: %v)", caps.err)
-	}
-	return false, detail
+	return netpriv.Describe(euid, netpriv.State{
+		NetAdmin: caps.netAdmin,
+		NetRaw:   caps.netRaw,
+		Err:      caps.err,
+	})
 }
 
 // effectiveCaps reads the calling thread's effective capability set with

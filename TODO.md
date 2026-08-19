@@ -184,6 +184,10 @@ not speculative.
   filter, UDP/443 dropped so QUIC can't bypass the pipeline, everything else
   forwarded (`internal/proxy/socks5_udp.go`). Exercised end to end through a
   live TUN, including a real NTP round trip for the generic relay.
+- [x] Transparent/gateway mode (plan Deliverable 3, Linux gateway case) -
+  `transparent@` listener with SO_ORIGINAL_DST plus an nftables REDIRECT
+  manager, verified on hardware with two real clients and three per-client
+  policies. See HANDOFF.md's "Gateway mode".
 - [x] TUN capture verified on hardware (Debian 13, systemd, unprivileged
   service user + `CAP_NET_ADMIN`). Capture now uses a private routing table
   instead of the main one, tears itself down on shutdown, and applies

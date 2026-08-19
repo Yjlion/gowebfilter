@@ -18,6 +18,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"runtime"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -101,10 +102,19 @@ func FindPurpose(listeners []Listener, purpose string) string {
 }
 
 // servedModes are the base proxy_listen modes this engine actually binds and
-// serves. Other modes (transparent, dns, tun, local, upstream, reverse,
-// wireguard) are recognized by models.ParseListenSpec but not yet implemented
-// here; Listen logs a warning and skips them.
-var servedModes = map[string]bool{"regular": true, "socks4": true, "socks5": true}
+// serves. Other modes (dns, tun, local, upstream, reverse, wireguard) are
+// recognized by models.ParseListenSpec but not yet implemented here; Listen
+// logs a warning and skips them.
+//
+// "transparent" is served on Linux only: it depends on SO_ORIGINAL_DST, which
+// is a netfilter facility with no equivalent elsewhere. Binding it on another
+// OS would accept connections it could never route.
+var servedModes = map[string]bool{
+	"regular":     true,
+	"socks4":      true,
+	"socks5":      true,
+	"transparent": runtime.GOOS == "linux",
+}
 
 // Listen binds a listener for every served-mode proxy_listen entry in
 // e.Settings (optionally TLS-wrapped). It logs a warning and skips
@@ -261,6 +271,8 @@ func (e *Engine) dispatchConn(conn net.Conn, connID uint64, mode string, tlsCfg 
 		e.serveSocksConn(conn, connID)
 	case "socks4":
 		e.serveSocks4Conn(conn, connID)
+	case "transparent":
+		e.serveTransparentConn(conn, connID)
 	default:
 		e.serveConn(conn, connID)
 	}
