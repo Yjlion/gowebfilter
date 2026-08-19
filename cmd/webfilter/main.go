@@ -33,6 +33,7 @@ func main() {
 		newGuiCmd(),
 		newCategoriesCmd(),
 		newTun2SocksCmd(),
+		newGatewayCmd(),
 		newOuiCmd(),
 		newServiceCmd(),
 		newVersionCmd(),

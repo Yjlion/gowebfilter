@@ -4,6 +4,7 @@ Section: net
 Priority: optional
 Architecture: @ARCH@
 Depends: systemd
+Recommends: nftables
 Maintainer: Yjlion <noreply@users.noreply.github.com>
 Homepage: https://github.com/Yjlion/mitmproxy-web-filter
 Description: MITM-intercepting forward proxy with per-client filtering policies

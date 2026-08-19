@@ -47,6 +47,7 @@ type GlobalSettings struct {
 	ProxyAuthPasswordHash string `json:"proxy_auth_password_hash"`
 
 	Tun2Socks Tun2SocksConfig `json:"tun2socks"`
+	Gateway   GatewayConfig   `json:"gateway"`
 
 	// OuiPath is a Go-port-only optional field (documented deviation): path
 	// to an optional IEEE OUI vendor lookup table override. When empty, the
@@ -140,6 +141,82 @@ func (c *Tun2SocksConfig) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// GatewayConfig turns this host into a filtering router for other machines.
+// Where tun2socks captures *this* machine's traffic, gateway mode captures
+// traffic that other clients route *through* this machine: netfilter redirects
+// their TCP connections into a transparent listener, which recovers the
+// original destination with SO_ORIGINAL_DST and feeds the normal MITM path.
+//
+// The client's source address survives the redirect, which is the point:
+// per-client policy tiers (MAC/IP/CIDR) work here exactly as they do for a
+// configured proxy client, so one box can apply different rules to different
+// machines on the LAN. Linux only - it is netfilter that makes it possible.
+type GatewayConfig struct {
+	Enabled bool `json:"enabled"`
+
+	// Interface scopes interception to traffic arriving on one NIC. Empty
+	// means any, which is safe because only traffic a client deliberately
+	// routes here ever reaches the prerouting hook.
+	Interface string `json:"interface"`
+
+	// InterceptPorts are the destination TCP ports redirected into the filter.
+	InterceptPorts []int `json:"intercept_ports"`
+
+	// ClientCIDRs limits interception to these source ranges. Empty means any
+	// source.
+	ClientCIDRs []string `json:"client_cidrs"`
+
+	// BypassCIDRs are never intercepted, matched on either source or
+	// destination, so infrastructure traffic keeps flowing untouched.
+	BypassCIDRs []string `json:"bypass_cidrs"`
+
+	// DropQUIC drops forwarded UDP/443 and UDP/853. Transparent capture is
+	// TCP-only, so without this a browser simply speaks HTTP/3 and skips the
+	// filter entirely; dropping it makes clients fall back to TCP/TLS, which
+	// the engine can inspect. On by default for that reason.
+	DropQUIC bool `json:"drop_quic"`
+
+	// IPForward enables net.ipv4.ip_forward so traffic this box does not
+	// intercept still reaches its destination. The previous value is restored
+	// on shutdown.
+	IPForward bool `json:"ip_forward"`
+
+	// Masquerade NATs forwarded traffic out of WANInterface. Only needed when
+	// clients are on a network the upstream router has no route back to.
+	Masquerade   bool   `json:"masquerade"`
+	WANInterface string `json:"wan_interface"`
+}
+
+func NewGatewayConfig() GatewayConfig {
+	return GatewayConfig{
+		InterceptPorts: []int{80, 443},
+		// Empty rather than nil, like Tun2SocksConfig.DNSServers: marshalling a
+		// nil slice emits null, which round-trips back as an empty slice and
+		// makes settings.json non-idempotent (TestSettingsRoundTrip catches it).
+		ClientCIDRs: []string{},
+		BypassCIDRs: []string{"127.0.0.0/8", "224.0.0.0/4", "255.255.255.255/32"},
+		DropQUIC:    true,
+		IPForward:   true,
+	}
+}
+
+type gatewayConfigAlias GatewayConfig
+
+func (c *GatewayConfig) UnmarshalJSON(data []byte) error {
+	*c = NewGatewayConfig()
+	if err := json.Unmarshal(data, (*gatewayConfigAlias)(c)); err != nil {
+		return err
+	}
+	c.Interface = trimSpace(c.Interface)
+	c.WANInterface = trimSpace(c.WANInterface)
+	c.ClientCIDRs = cleanStringSlice(c.ClientCIDRs)
+	c.BypassCIDRs = cleanStringSlice(c.BypassCIDRs)
+	if len(c.InterceptPorts) == 0 {
+		c.InterceptPorts = []int{80, 443}
+	}
+	return nil
+}
+
 // NewGlobalSettings returns GlobalSettings with every field at its
 // documented Python default.
 func NewGlobalSettings() GlobalSettings {
@@ -159,6 +236,7 @@ func NewGlobalSettings() GlobalSettings {
 		PacDirectIPs:     []string{},
 		MgmtHostname:     "web.filter",
 		Tun2Socks:        NewTun2SocksConfig(),
+		Gateway:          NewGatewayConfig(),
 	}
 }
 

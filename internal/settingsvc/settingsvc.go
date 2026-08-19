@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 
+	"github.com/yjlion/gowebfilter/internal/gateway"
 	"github.com/yjlion/gowebfilter/internal/models"
 	"github.com/yjlion/gowebfilter/internal/pwhash"
 	tun "github.com/yjlion/gowebfilter/internal/tun2socks"
@@ -96,6 +97,9 @@ func MergeSettings(cur models.GlobalSettings, body []byte) (models.GlobalSetting
 		return models.GlobalSettings{}, &ValidationError{Msg: "Set a proxy auth password before enabling proxy authentication."}
 	}
 	if err := tun.ValidateConfig(merged.Tun2Socks); err != nil {
+		return models.GlobalSettings{}, &ValidationError{Msg: err.Error()}
+	}
+	if err := gateway.ValidateConfig(merged.Gateway, merged.MgmtPort); err != nil {
 		return models.GlobalSettings{}, &ValidationError{Msg: err.Error()}
 	}
 	return merged, nil

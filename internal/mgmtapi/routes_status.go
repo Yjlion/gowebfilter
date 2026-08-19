@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/yjlion/gowebfilter/internal/gateway"
 	tun "github.com/yjlion/gowebfilter/internal/tun2socks"
 )
 
@@ -17,6 +18,7 @@ type statusResponse struct {
 	RecentBlocks   []map[string]any `json:"recent_blocks"`
 	RecentRequests []map[string]any `json:"recent_requests"`
 	Tun2Socks      tun.Status       `json:"tun2socks"`
+	Gateway        gateway.Status   `json:"gateway"`
 }
 
 const recentActivityLimit = 50
@@ -33,11 +35,23 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		RecentBlocks:   s.Logs.Tail("blocks", recentActivityLimit),
 		RecentRequests: s.Logs.Tail("requests", recentActivityLimit),
 		Tun2Socks:      s.tunStatus(),
+		Gateway:        s.gatewayStatus(),
 	})
 }
 
 func (s *Server) handleTun2SocksStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.tunStatus())
+}
+
+func (s *Server) handleGatewayStatus(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.gatewayStatus())
+}
+
+// gatewayStatus reports the live manager when the proxy engine shares this
+// process, and the settings view otherwise - a nil Ref handles the
+// standalone-`mgmt` case itself.
+func (s *Server) gatewayStatus() gateway.Status {
+	return s.Gateway.Status(s.Settings())
 }
 
 // tunStatus reports live TUN-capture state when the proxy engine shares this

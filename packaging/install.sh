@@ -135,8 +135,11 @@ if [[ "$TUN2SOCKS" == "auto" ]]; then
   # Ask the app to parse its own settings rather than grepping JSON here. A
   # binary that can't exec (e.g. cross-built for another arch) just falls
   # through to "not enabled", which is the safe default.
+  # Either capture mode needs the same two capabilities.
   if "$PREFIX/webfilter" tun2socks status --settings "$PREFIX/config/settings.json" 2>/dev/null \
-      | grep -qE '^enabled: *true'; then
+        | grep -qE '^enabled: *true' \
+     || "$PREFIX/webfilter" gateway status --settings "$PREFIX/config/settings.json" 2>/dev/null \
+        | grep -qE '^enabled: *true'; then
     TUN2SOCKS="yes"
   else
     TUN2SOCKS="no"
