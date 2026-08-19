@@ -166,9 +166,19 @@ type GatewayConfig struct {
 	// source.
 	ClientCIDRs []string `json:"client_cidrs"`
 
-	// BypassCIDRs are never intercepted, matched on either source or
-	// destination, so infrastructure traffic keeps flowing untouched.
+	// BypassCIDRs are *destinations* that are never intercepted, so
+	// LAN-internal and infrastructure traffic keeps flowing untouched.
+	//
+	// Destinations only, deliberately. Matching sources here too would read
+	// naturally and be a trap: the equivalent tun2socks setting defaults to the
+	// RFC1918 ranges, and an operator copying those over would exempt every one
+	// of their own clients and silently filter nothing. Exempting a machine is
+	// what ExemptClients is for.
 	BypassCIDRs []string `json:"bypass_cidrs"`
+
+	// ExemptClients are *source* ranges whose traffic is never intercepted -
+	// the machines on the network that should not be filtered at all.
+	ExemptClients []string `json:"exempt_clients"`
 
 	// DropQUIC drops forwarded UDP/443 and UDP/853. Transparent capture is
 	// TCP-only, so without this a browser simply speaks HTTP/3 and skips the
@@ -193,10 +203,11 @@ func NewGatewayConfig() GatewayConfig {
 		// Empty rather than nil, like Tun2SocksConfig.DNSServers: marshalling a
 		// nil slice emits null, which round-trips back as an empty slice and
 		// makes settings.json non-idempotent (TestSettingsRoundTrip catches it).
-		ClientCIDRs: []string{},
-		BypassCIDRs: []string{"127.0.0.0/8", "224.0.0.0/4", "255.255.255.255/32"},
-		DropQUIC:    true,
-		IPForward:   true,
+		ClientCIDRs:   []string{},
+		ExemptClients: []string{},
+		BypassCIDRs:   []string{"127.0.0.0/8", "224.0.0.0/4", "255.255.255.255/32"},
+		DropQUIC:      true,
+		IPForward:     true,
 	}
 }
 
@@ -211,6 +222,7 @@ func (c *GatewayConfig) UnmarshalJSON(data []byte) error {
 	c.WANInterface = trimSpace(c.WANInterface)
 	c.ClientCIDRs = cleanStringSlice(c.ClientCIDRs)
 	c.BypassCIDRs = cleanStringSlice(c.BypassCIDRs)
+	c.ExemptClients = cleanStringSlice(c.ExemptClients)
 	if len(c.InterceptPorts) == 0 {
 		c.InterceptPorts = []int{80, 443}
 	}

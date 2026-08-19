@@ -44,6 +44,13 @@ func BuildRuleset(cfg models.GatewayConfig, transparentPort int) string {
 		w("    elements = { %s }", strings.Join(cfg.BypassCIDRs, ", "))
 		w("  }")
 	}
+	if len(cfg.ExemptClients) > 0 {
+		w("  set exempt {")
+		w("    type ipv4_addr")
+		w("    flags interval")
+		w("    elements = { %s }", strings.Join(cfg.ExemptClients, ", "))
+		w("  }")
+	}
 	if len(cfg.ClientCIDRs) > 0 {
 		w("  set clients {")
 		w("    type ipv4_addr")
@@ -65,8 +72,10 @@ func BuildRuleset(cfg models.GatewayConfig, transparentPort int) string {
 		w(`    iifname != "%s" return`, cfg.Interface)
 	}
 	if len(cfg.BypassCIDRs) > 0 {
-		w("    ip saddr @bypass return")
 		w("    ip daddr @bypass return")
+	}
+	if len(cfg.ExemptClients) > 0 {
+		w("    ip saddr @exempt return")
 	}
 	if len(cfg.ClientCIDRs) > 0 {
 		w("    ip saddr != @clients return")
@@ -82,8 +91,10 @@ func BuildRuleset(cfg models.GatewayConfig, transparentPort int) string {
 		w("  chain forward {")
 		w("    type filter hook forward priority filter; policy accept;")
 		if len(cfg.BypassCIDRs) > 0 {
-			w("    ip saddr @bypass return")
 			w("    ip daddr @bypass return")
+		}
+		if len(cfg.ExemptClients) > 0 {
+			w("    ip saddr @exempt return")
 		}
 		w("    udp dport { 443, 853 } drop")
 		w("  }")
@@ -142,6 +153,9 @@ func ValidateConfig(cfg models.GatewayConfig, mgmtPort int) error {
 		return err
 	}
 	if err := validateCIDRs("bypass_cidrs", cfg.BypassCIDRs); err != nil {
+		return err
+	}
+	if err := validateCIDRs("exempt_clients", cfg.ExemptClients); err != nil {
 		return err
 	}
 	if cfg.Masquerade && cfg.WANInterface == "" {

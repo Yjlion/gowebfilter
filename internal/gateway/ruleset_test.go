@@ -36,9 +36,14 @@ func TestBuildRulesetDefaults(t *testing.T) {
 		// QUIC is dropped or transparent TCP capture is decorative: a browser
 		// just speaks HTTP/3 instead.
 		"udp dport { 443, 853 } drop",
-		"ip saddr @bypass return",
 		"ip daddr @bypass return",
 	)
+	// bypass_cidrs is destinations only. Matching sources too would mean an
+	// operator copying tun2socks' RFC1918 defaults exempts every client they
+	// own and filters nothing, silently.
+	if strings.Contains(rs, "ip saddr @bypass") {
+		t.Error("bypass_cidrs was applied to source addresses; that silently unfilters clients")
+	}
 	if strings.Contains(rs, "masquerade") {
 		t.Error("masquerade appeared without being configured")
 	}
@@ -142,5 +147,31 @@ func TestValidateConfigAcceptsBareAddresses(t *testing.T) {
 	cfg.BypassCIDRs = []string{"10.0.0.5", "10.0.0.0/8"}
 	if err := ValidateConfig(cfg, 8000); err != nil {
 		t.Fatalf("ValidateConfig() = %v, want nil", err)
+	}
+}
+
+// Exempting a machine is a separate, explicit setting from bypassing a
+// destination, so the two cannot be confused.
+func TestBuildRulesetExemptClientsIsSourceScoped(t *testing.T) {
+	cfg := enabledCfg()
+	cfg.ExemptClients = []string{"192.168.12.5"}
+	rs := BuildRuleset(cfg, 40001)
+
+	mustContain(t, rs,
+		"set exempt {",
+		"elements = { 192.168.12.5 }",
+		"ip saddr @exempt return",
+	)
+	if strings.Contains(rs, "ip daddr @exempt") {
+		t.Error("exempt_clients was applied to destinations; it is a source list")
+	}
+}
+
+func TestValidateConfigChecksExemptClients(t *testing.T) {
+	cfg := enabledCfg()
+	cfg.ExemptClients = []string{"192.168.1.0/33"}
+	err := ValidateConfig(cfg, 8000)
+	if err == nil || !strings.Contains(err.Error(), "exempt_clients") {
+		t.Fatalf("ValidateConfig() = %v, want an exempt_clients error", err)
 	}
 }
