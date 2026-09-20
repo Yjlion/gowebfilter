@@ -13,14 +13,16 @@ import (
 // Python original doesn't error out - the caller decides whether to skip
 // starting a listener for it.
 //
-// On top of these base modes, a listener can be wrapped in TLS. Three tokens
+// On top of these base modes, a listener can be wrapped in TLS. Four tokens
 // express that: the general composite prefix "tls+<base>" (e.g.
-// "tls+regular", "tls+socks5", "tls+socks4"), plus two friendly aliases -
+// "tls+regular", "tls+socks5", "tls+socks4"), plus three friendly aliases -
 // "https" for "tls+regular" (an HTTP forward proxy served over TLS, i.e. the
-// browser's "Secure Web Proxy" / PAC HTTPS directive) and "tls" for
-// "tls+socks5" (a SOCKS5 proxy served over TLS). See ParseListenSpec.
+// browser's "Secure Web Proxy" / PAC HTTPS directive), "tls" for
+// "tls+socks5" (a SOCKS5 proxy served over TLS), and "icaps" for "tls+icap"
+// (the ICAP adaptation service over TLS, which is the scheme name ICAP
+// clients use for it). See ParseListenSpec.
 var KnownProxyModes = []string{
-	"regular", "transparent", "socks4", "socks5", "upstream", "reverse", "dns", "tun", "local",
+	"regular", "transparent", "socks4", "socks5", "icap", "upstream", "reverse", "dns", "tun", "local",
 }
 
 // unsupportedProxyModes are recognized but not started by this port.
@@ -45,6 +47,8 @@ func resolveModeToken(token string) (base string, tls, ok bool) {
 		return "regular", true, true
 	case "tls":
 		return "socks5", true, true
+	case "icaps":
+		return "icap", true, true
 	}
 	if rest, found := strings.CutPrefix(token, "tls+"); found {
 		if isKnownMode(rest) {

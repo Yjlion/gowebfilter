@@ -31,6 +31,13 @@ type ManagementAccess struct{}
 func (ManagementAccess) Name() string { return "management_access" }
 
 func (ManagementAccess) HandleRequest(fc *proxy.FlowContext) {
+	// The redirect below points at the address the client reached *this*
+	// proxy on. When another proxy owns the client connection (ICAP) that
+	// address is not one the browser can reach, so the redirect would be a
+	// dead end - leave management access to the front-end in that case.
+	if fc.SkipsFrontendAddons() {
+		return
+	}
 	settings := fc.Runtime.Settings
 	destHost := strings.ToLower(fc.Request.URL.Hostname())
 	mgmtHostname := strings.ToLower(settings.MgmtHostname)

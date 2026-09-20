@@ -149,6 +149,12 @@ func (g *ProxyAuthGate) HandleRequest(fc *proxy.FlowContext) {
 	if fc.URLAllowed {
 		return
 	}
+	// Front-ends that do not own the client connection do their own proxy
+	// auth - see proxy.FrontendICAP. Challenging there would 407 every
+	// request without any way for the user to answer.
+	if fc.SkipsFrontendAddons() {
+		return
+	}
 	if !g.enabled(fc) {
 		return
 	}

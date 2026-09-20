@@ -376,6 +376,71 @@ through the filter does not make a client trust its CA, so classifiers and
 rewriting need the CA installed per client while URL/SNI/category/DoH filtering
 does not.
 
+## ICAP adaptation service
+
+`internal/icap` implements the server half of RFC 3507 and
+`internal/proxy/icap.go` bridges it to the addon pipeline, so a site that
+already runs Squid can adopt the filtering without replacing its proxy.
+`icap@host:port` (and `icaps@`/`tls+icap@`) is a served `proxy_listen` mode
+like any other, which is what gives it TLS termination, the accept loop and
+the UI listener editor for free.
+
+**Why it matters:** every other mode requires WebFilter to *be* the proxy.
+This is the first one that does not, and it reaches an install base — schools,
+libraries, ISPs — that was previously unreachable without ripping out working
+infrastructure.
+
+Design notes worth keeping:
+
+- It is another source of `FlowContext`s, funnelling into the same seam
+  `handleOneRequest` uses. There is no second pipeline and no second order.
+- Exactly two addons are excused, via `fc.Frontend == FrontendICAP`:
+  `proxy_auth` (Squid owns proxy auth, and one ICAP connection multiplexes
+  many end users, so per-connection auth state is meaningless) and
+  `management_access` (its redirect names an address the browser cannot
+  reach). Everything else is a policy decision and runs unchanged.
+- Client identity rides on `X-Client-IP`. That single header is what keeps the
+  MAC/IP/CIDR policy tiers working across the hop through Squid.
+- REQMOD normalises `Accept-Encoding` to gzip, mirroring what the native MITM
+  path does at `handler.go`, so content-inspecting addons never receive br or
+  zstd they would silently fail to scan.
+- The ISTag is derived from `state.Runtime.Generation()`, bumped on every
+  policy reload, so a policy edit invalidates whatever the upstream proxy has
+  cached.
+
+### Verified against a real Squid
+
+Squid 7.7 (Arch, `--enable-icap-client --with-openssl --enable-ssl-crtd
+--enable-linux-netfilter`), one WebFilter process listening only on
+`icap@127.0.0.1:1344`, against live internet origins. All four Squid modes:
+
+| Squid mode | Verified |
+|---|---|
+| Forward proxy `http_port 3128` | GET/POST/PUT/DELETE/PATCH/HEAD adapted; block page served without the origin being contacted; SafeSearch rewrite visible in Squid's own access log as `search?q=cats&safe=active`; POST bodies survive REQMOD intact; gzip response bodies decoded and re-served correctly |
+| `ssl_bump bump all` | HTTPS decrypted by Squid and filtered here; host-level block refuses CONNECT with 403 + the styled block page; path-level block (`httpbin.org/deny`) passes the host gate and is blocked on the decrypted GET while `/get` on the same host is untouched |
+| Peek and splice | A spliced host kept its real certificate (squid's CA failed to validate it — proof it was never decrypted) and produced **zero** request rows; a splice-listed *and* policy-blocked host was still refused at CONNECT, confirming the gate is the only lever for spliced traffic and that it works |
+| Transparent intercept | `http_port 3129 intercept` + `https_port 3130 intercept ssl-bump`, client in a network namespace behind veth + nat REDIRECT, no proxy configured on the client. HTTP and bumped HTTPS both filtered, `client_ip=10.77.0.2` in the logs |
+
+Per-client policy through the ICAP hop was verified by running the same URL
+from two source addresses: `127.0.0.2` matched the `kiosk` policy and was
+blocked, `127.0.0.1` matched `default` and was allowed — same Squid, same
+service, two verdicts.
+
+**Found by this testing, not by the unit tests:** a previewed transaction
+reaches the handler twice, and the first pass parks the upstream response in
+`fc.Response`. Reading that as "the request phase blocked it" made every
+previewed response come back as a 200 with an empty body — every binary
+download through Squid arrived as 0 bytes. The verdict is now recorded
+explicitly in `icapTxn.blocked`, and
+`TestICAPRespmodPreviewThenContinueReturnsFullBody` covers the two-pass path
+the earlier tests never exercised.
+
+**Not verified:** performance under load, ICAPS (`icaps@`) against a real
+ICAP client (the TLS path is the shared listener code, exercised by
+`tlslistener_test.go`, but no client was pointed at it), ICAP clients other
+than Squid, and the classifiers over ICAP (they are opt-in and off by default;
+the transport that feeds them — decoded bodies — was verified).
+
 ## Classifiers
 
 - Text classification is opt-in per policy through `text_classifier.enabled`.

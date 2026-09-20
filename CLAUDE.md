@@ -129,15 +129,24 @@ Request/block/audit logs go to SQLite at `logs/webfilter.db`.
   the shared `ProxyAuthGate`, joins the same tunnel/MITM path as HTTP
   CONNECT), plus a SOCKS4/4a listener (`socks4.go` — CONNECT only, no auth
   channel). `proxy_listen` entries take `host:port`, `regular@host:port`,
-  `socks4@host:port`, or `socks5@host:port` forms, each optionally
-  TLS-wrapped: `https@` (HTTP proxy over TLS), `tls@` (SOCKS5 over TLS), or
-  the general `tls+<base>@` prefix. `models.ParseListenSpec` returns the base
-  mode + TLS flag; `Engine.dispatchConn` terminates TLS with a CA-minted
-  endpoint leaf, then dispatches by base mode.
+  `socks4@host:port`, `socks5@host:port`, or `icap@host:port` forms, each
+  optionally TLS-wrapped: `https@` (HTTP proxy over TLS), `tls@` (SOCKS5 over
+  TLS), `icaps@` (ICAP over TLS), or the general `tls+<base>@` prefix.
+  `models.ParseListenSpec` returns the base mode + TLS flag;
+  `Engine.dispatchConn` terminates TLS with a CA-minted endpoint leaf, then
+  dispatches by base mode.
+  - `internal/proxy/icap.go` — the ICAP front-end (`serveICAPConn`), which
+    bridges RFC 3507 transactions from an upstream proxy (Squid) into the
+    same addon pipeline. Protocol lives in `internal/icap/`; this file is
+    only the bridge. See [docs/icap.md](docs/icap.md).
   - `internal/proxy/state/` — `Runtime`: hot-reloaded settings/policies,
     `GetPolicy(clientIP)` tiered MAC→IP→CIDR→catch-all matching (see
     `policy_match.go` for the full decision logic incl. schedules)
   - `internal/proxy/addons/` — all filtering addons, one file each
+- `internal/icap/` — RFC 3507 protocol only (message framing, the
+  `Encapsulated` offset header, chunked bodies, preview/`100 Continue`/`ieof`,
+  `Allow: 204`, OPTIONS). Knows nothing about filtering; `internal/proxy`
+  imports it and never the reverse.
 - `internal/mgmtapi/` — chi router, REST API, embedded UI static serving
 - `internal/classify/textbayes/` — embedded pure-Go Bayesian adult-text
   scorer (implements `addons.MLScorer`). The feature table
@@ -436,6 +445,28 @@ Request/block/audit logs go to SQLite at `logs/webfilter.db`.
   `policies_dir`/`logs_dir` — the documented relative defaults (`./certs`
   etc.) resolve against the test process's working directory, not the
   settings file's location.
+- **ICAP mode is a second source of `FlowContext`s, not a second pipeline.**
+  `icap@host:port` feeds the *same* ordered addon chain `handleOneRequest`
+  feeds; do not fork it. Four things are specific to it and all of them are
+  load-bearing:
+  - **`fc.Frontend == FrontendICAP` excuses exactly two addons**
+    (`proxy_auth`, `management_access`), via `fc.SkipsFrontendAddons()`. Squid
+    owns proxy auth, one ICAP connection carries many end users (so
+    `ClientConnID` bookkeeping is meaningless), and the management redirect
+    would point at an address the browser can't reach. Every other addon runs
+    unchanged.
+  - **The client IP comes from `X-Client-IP`**, not the peer address — the
+    peer is Squid. Without `icap_send_client_ip on` every client collapses
+    into one and the MAC→IP→CIDR policy tiers stop distinguishing anyone.
+  - **Never infer "blocked" from `fc.Response != nil` on this path.** RESPMOD
+    parks the upstream response there, and a previewed transaction reaches the
+    handler *twice* — that mistake turned every previewed response into a 200
+    with an empty body (zero-byte downloads through a real Squid).
+    `icapTxn.blocked` records the request-phase verdict explicitly.
+  - **Who logs:** REQMOD stays silent unless it terminates the transaction;
+    RESPMOD runs the request phase then the response phase, so `RequestLogger`
+    writes one row with the real status. Both services must be configured or
+    allowed requests never reach the requests log.
 - WireGuard listen mode is explicitly out of scope: `/api/wireguard` is a
   deliberate 501 stub (`internal/mgmtapi/routes_wireguard.go`) that the
   unmodified UI degrades around gracefully — don't "implement" it or turn
