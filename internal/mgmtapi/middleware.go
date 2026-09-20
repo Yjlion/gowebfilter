@@ -1,6 +1,7 @@
 package mgmtapi
 
 import (
+	"crypto/hmac"
 	"net/http"
 	"strings"
 )
@@ -16,6 +17,12 @@ var publicPaths = map[string]bool{
 	"/proxy.pac":       true,
 	"/wpad.dat":        true,
 	"/wpad.da":         true,
+	// Liveness probes come from load balancers, orchestrators and container
+	// healthchecks, none of which can log in. The response carries only a
+	// status string, the version and an uptime, so there is nothing here
+	// worth gating. /metrics is deliberately NOT in this list - see
+	// metricsTokenValid.
+	"/health": true,
 	// The CA cert is the public half of the intercepting proxy's trust
 	// anchor (no private key), and every client device needs it installed
 	// before it can be trusted at all - gating it behind login would make
@@ -38,6 +45,29 @@ func isStaticAsset(path string) bool {
 	return strings.HasSuffix(path, ".css") || strings.HasSuffix(path, ".js")
 }
 
+// metricsTokenValid reports whether r carries the configured metrics bearer
+// token. A Prometheus scraper cannot complete a login form and carry a
+// session cookie, but it can send a static Authorization header, so this is
+// the one alternative credential the server accepts - and only for
+// /metrics, which is read-only and aggregate.
+//
+// An empty configured token disables the mechanism entirely rather than
+// matching an empty header: otherwise leaving the field blank (the default)
+// would publish counters to anyone.
+func metricsTokenValid(configured string, r *http.Request) bool {
+	if configured == "" {
+		return false
+	}
+	const prefix = "Bearer "
+	got := r.Header.Get("Authorization")
+	if !strings.HasPrefix(got, prefix) {
+		return false
+	}
+	// Constant-time, like the session cookie check, so the token cannot be
+	// recovered a byte at a time from response timing.
+	return hmac.Equal([]byte(strings.TrimPrefix(got, prefix)), []byte(configured))
+}
+
 // authMiddleware gates every request except the public allowlist. Auth is
 // only enforced when both auth_enabled and password_hash are set - matches
 // the Python original's "only active if both" guard. Unauthenticated API
@@ -53,11 +83,19 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+		if r.URL.Path == "/metrics" && metricsTokenValid(cfg.MetricsToken, r) {
+			next.ServeHTTP(w, r)
+			return
+		}
 		if s.authTokenValid(r) {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if strings.HasPrefix(r.URL.Path, "/api/") {
+		// Machine endpoints get a 401 they can act on. /metrics is not under
+		// /api/, but redirecting a scraper to an HTML login page would hand
+		// it a 200 full of markup, which it would happily ingest as a failed
+		// parse rather than an auth error.
+		if strings.HasPrefix(r.URL.Path, "/api/") || r.URL.Path == "/metrics" {
 			writeJSONError(w, http.StatusUnauthorized, "Not authenticated")
 			return
 		}

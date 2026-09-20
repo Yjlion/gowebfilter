@@ -147,6 +147,7 @@ func (s *Server) Router() *chi.Mux {
 	r.Get("/api/wireguard", s.handleWireguardStub)
 	r.Post("/api/wireguard", s.handleWireguardStub)
 
+	s.registerOpsRoutes(r)
 	s.registerCertsRoutes(r)
 	s.registerCategoriesRoutes(r)
 	s.registerBackupRoutes(r)

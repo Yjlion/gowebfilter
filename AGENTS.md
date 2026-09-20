@@ -62,6 +62,10 @@ for local dev. They persist to disk; the mgmt API's
   bodies, preview/`100 Continue`/`ieof`, OPTIONS). `internal/proxy` imports it,
   never the reverse
 - `internal/mgmtapi/` - chi router, REST API, embedded UI static serving
+- `internal/metrics/` - dependency-free Prometheus text-exposition
+  registry (counters/gauges/histograms) behind a process-wide
+  `metrics.Default`; served at `/metrics` by `mgmtapi`'s
+  `routes_ops.go`, which also serves `/health`. See docs/metrics.md.
 - `internal/settingsvc/` - settings/policy merge + validation shared by
   `PUT /api/settings` and the `mobile/` native-settings path, plus the MDM
   managed-config apply (`ApplyManagedConfig`)
@@ -193,6 +197,13 @@ for local dev. They persist to disk; the mgmt API's
 - NSFW images are also embedded as `data:image/...` URIs inside HTML/CSS/JS
   and JSON; image classifier inline scanning handles those.
 - Settings changes need a restart; policy changes hot-reload.
+- `/metrics` counters are in-process: standalone `webfilter mgmt` reports
+  zeroes for every engine family, so scrape a process that serves traffic.
+  Do not "fix" that with scrape-time SQL against `logstore` (single-writer
+  store, retention window instead of monotonic counters). Keep `/health`
+  cheap - no DB query, no `isPortOpen` dial. Metric labels stay
+  config-bounded; never a hostname, path, client IP or user agent.
+  `/metrics` answers 401 rather than redirecting to `/login.html`.
 - Never unmarshal a partial policy body over an existing policy: sub-config
   `UnmarshalJSON` resets to defaults first and wipes sibling fields. Use
   `settingsvc.MergePolicyPatch` or full-document writes.

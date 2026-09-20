@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/disintegration/imaging"
 	// Registers the WebP decoder for image.Decode/DecodeConfig below, matching
@@ -20,6 +21,7 @@ import (
 	// JPEG/PNG/GIF and Content-Type is rewritten to match.
 	_ "golang.org/x/image/webp"
 
+	"github.com/yjlion/gowebfilter/internal/metrics"
 	"github.com/yjlion/gowebfilter/internal/models"
 	"github.com/yjlion/gowebfilter/internal/proxy"
 )
@@ -54,7 +56,21 @@ func isNSFW(detector ImageDetector, imageBytes []byte, threshold float64) bool {
 	if detector == nil {
 		return false
 	}
+	started := time.Now()
 	score, ok := detector.Score(imageBytes)
+	result := metrics.ResultClean
+	switch {
+	case !ok:
+		// An image that cannot be decoded scores ok=false, which reads as
+		// "not NSFW" and passes through unfiltered - the documented
+		// fail-open behaviour for formats no registered decoder handles
+		// (AVIF, animated WebP). Counting it as an error is what makes that
+		// visible instead of silent.
+		result = metrics.ResultError
+	case score >= threshold:
+		result = metrics.ResultNSFW
+	}
+	metrics.ObserveClassifier("image", started, result)
 	return ok && score >= threshold
 }
 

@@ -39,6 +39,8 @@ type settingsScreen struct {
 	pacHosts     state.Signal[string]
 	pacIPs       state.Signal[string]
 	disableTray  state.Signal[bool]
+	metricsOn    state.Signal[bool]
+	metricsToken state.Signal[string]
 	tunEnabled   state.Signal[bool]
 	tunDNS       state.Signal[string]
 	tunRoutes    state.Signal[bool]
@@ -67,6 +69,8 @@ func newSettingsScreen(u *ui) *settingsScreen {
 		pacHosts:     state.NewSignal(""),
 		pacIPs:       state.NewSignal(""),
 		disableTray:  state.NewSignal(false),
+		metricsOn:    state.NewSignal(false),
+		metricsToken: state.NewSignal(""),
 		tunEnabled:   state.NewSignal(false),
 		tunDNS:       state.NewSignal(""),
 		tunRoutes:    state.NewSignal(false),
@@ -107,6 +111,8 @@ func (s *settingsScreen) reload() {
 	s.pacHosts.Set(f.PacDirectHosts)
 	s.pacIPs.Set(f.PacDirectIPs)
 	s.disableTray.Set(f.DisableTray)
+	s.metricsOn.Set(f.MetricsEnabled)
+	s.metricsToken.Set(f.MetricsToken)
 	s.tunEnabled.Set(f.Tun2SocksEnabled)
 	s.tunDNS.Set(f.Tun2SocksDNSServers)
 	s.tunRoutes.Set(f.Tun2SocksAutoRoutes)
@@ -132,6 +138,8 @@ func (s *settingsScreen) form() uimodel.SettingsForm {
 		PacDirectHosts:       s.pacHosts.Get(),
 		PacDirectIPs:         s.pacIPs.Get(),
 		DisableTray:          s.disableTray.Get(),
+		MetricsEnabled:       s.metricsOn.Get(),
+		MetricsToken:         s.metricsToken.Get(),
 		Tun2SocksEnabled:     s.tunEnabled.Get(),
 		Tun2SocksDNSServers:  s.tunDNS.Get(),
 		Tun2SocksAutoRoutes:  s.tunRoutes.Get(),
@@ -244,6 +252,11 @@ func (s *settingsScreen) build() widget.Widget {
 		sectionTitle("Upstream proxy"),
 		fieldLabel("Upstream proxy (host:port, empty = direct)"), tf(s.upstream, ""),
 		fieldLabel("Upstream auth (user:pass)"), tf(s.upstreamAuth, ""),
+
+		sectionTitle("Monitoring"),
+		cb("Expose Prometheus metrics at /metrics", s.metricsOn),
+		fieldLabel("Scrape token (only needed when management auth is on; read-only, counters only)"),
+		tf(s.metricsToken, ""),
 
 		sectionTitle("PAC / WPAD"),
 		fieldLabel("Proxy host advertised in proxy.pac"), tf(s.pacProxyHost, ""),

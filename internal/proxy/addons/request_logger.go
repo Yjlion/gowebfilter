@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/yjlion/gowebfilter/internal/logstore"
+	"github.com/yjlion/gowebfilter/internal/metrics"
 	"github.com/yjlion/gowebfilter/internal/proxy"
 )
 
@@ -43,6 +44,12 @@ func record(fc *proxy.FlowContext, status int) {
 	if len(path) > 200 {
 		path = path[:200]
 	}
+	// This addon runs last in the pipeline, so it observes the final action
+	// exactly once per request - the one place a request counter can live
+	// without double-counting or missing modified/blocked outcomes. Only
+	// config-bounded values are used as labels; host, path, client IP and
+	// user agent are deliberately left out of the metric.
+	metrics.Requests.Inc(action, fc.WFComponent, policyName)
 	_ = fc.Runtime.Logs.LogRequest(logstore.RequestEntry{
 		TS:        time.Now().Unix(),
 		Method:    fc.Request.Method,
