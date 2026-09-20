@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -16,6 +18,7 @@ import (
 
 	"github.com/yjlion/gowebfilter/cmd/webfilter/internal/gui"
 	"github.com/yjlion/gowebfilter/cmd/webfilter/internal/gui/mgmtclient"
+	"github.com/yjlion/gowebfilter/internal/app"
 	"github.com/yjlion/gowebfilter/internal/config"
 	"github.com/yjlion/gowebfilter/internal/mgmtapi"
 )
@@ -49,9 +52,21 @@ func runGui(settingsPath string) error {
 		return err
 	}
 	mgmtAddr := net.JoinHostPort(loopbackHost(settings.MgmtHost), fmt.Sprint(settings.MgmtPort))
-	mgmtURL := "http://" + mgmtAddr
+	mgmtURL := app.MgmtURL(settings, loopbackHost(settings.MgmtHost), false)
 
-	client, err := mgmtclient.New(mgmtURL)
+	// Under mgmt_tls with a CA-minted leaf, the management server presents a
+	// certificate signed by the runtime CA, which no system trust store
+	// knows about - so the GUI's own loopback client has to be told about
+	// it. A missing/unreadable CA is not fatal here: the GUI surfaces the
+	// resulting connection error on its dashboard, which is more useful than
+	// refusing to open at all.
+	var clientOpts []mgmtclient.Option
+	if settings.MgmtTLS && settings.MgmtCertFile == "" {
+		if caPEM, caErr := os.ReadFile(filepath.Join(settings.CertDir, "ca.crt")); caErr == nil {
+			clientOpts = append(clientOpts, mgmtclient.WithRootCAs(caPEM))
+		}
+	}
+	client, err := mgmtclient.New(mgmtURL, clientOpts...)
 	if err != nil {
 		return err
 	}

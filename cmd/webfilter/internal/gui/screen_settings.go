@@ -39,6 +39,9 @@ type settingsScreen struct {
 	pacHosts     state.Signal[string]
 	pacIPs       state.Signal[string]
 	disableTray  state.Signal[bool]
+	mgmtTLS      state.Signal[bool]
+	mgmtCertFile state.Signal[string]
+	mgmtKeyFile  state.Signal[string]
 	tunEnabled   state.Signal[bool]
 	tunDNS       state.Signal[string]
 	tunRoutes    state.Signal[bool]
@@ -67,6 +70,9 @@ func newSettingsScreen(u *ui) *settingsScreen {
 		pacHosts:     state.NewSignal(""),
 		pacIPs:       state.NewSignal(""),
 		disableTray:  state.NewSignal(false),
+		mgmtTLS:      state.NewSignal(false),
+		mgmtCertFile: state.NewSignal(""),
+		mgmtKeyFile:  state.NewSignal(""),
 		tunEnabled:   state.NewSignal(false),
 		tunDNS:       state.NewSignal(""),
 		tunRoutes:    state.NewSignal(false),
@@ -107,6 +113,9 @@ func (s *settingsScreen) reload() {
 	s.pacHosts.Set(f.PacDirectHosts)
 	s.pacIPs.Set(f.PacDirectIPs)
 	s.disableTray.Set(f.DisableTray)
+	s.mgmtTLS.Set(f.MgmtTLS)
+	s.mgmtCertFile.Set(f.MgmtCertFile)
+	s.mgmtKeyFile.Set(f.MgmtKeyFile)
 	s.tunEnabled.Set(f.Tun2SocksEnabled)
 	s.tunDNS.Set(f.Tun2SocksDNSServers)
 	s.tunRoutes.Set(f.Tun2SocksAutoRoutes)
@@ -132,6 +141,9 @@ func (s *settingsScreen) form() uimodel.SettingsForm {
 		PacDirectHosts:       s.pacHosts.Get(),
 		PacDirectIPs:         s.pacIPs.Get(),
 		DisableTray:          s.disableTray.Get(),
+		MgmtTLS:              s.mgmtTLS.Get(),
+		MgmtCertFile:         s.mgmtCertFile.Get(),
+		MgmtKeyFile:          s.mgmtKeyFile.Get(),
 		Tun2SocksEnabled:     s.tunEnabled.Get(),
 		Tun2SocksDNSServers:  s.tunDNS.Get(),
 		Tun2SocksAutoRoutes:  s.tunRoutes.Get(),
@@ -231,6 +243,11 @@ func (s *settingsScreen) build() widget.Widget {
 		fieldLabel("Port"), tf(s.mgmtPort, "8000"),
 		fieldLabel("UI language (e.g. en, de)"), tf(s.uiLanguage, "en"),
 		cb("Disable system tray on Windows `run`", s.disableTray),
+		cb("Serve the management interface over HTTPS", s.mgmtTLS),
+		fieldLabel("TLS certificate file (blank = mint from the built-in CA; browsers warn until that CA is installed)"),
+		tf(s.mgmtCertFile, ""),
+		fieldLabel("TLS private key file (set both or neither)"),
+		tf(s.mgmtKeyFile, ""),
 
 		sectionTitle("Logging"),
 		cb("Log blocked requests", s.logBlocks),

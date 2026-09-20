@@ -13,6 +13,7 @@ import (
 	"github.com/gogpu/systray"
 	"github.com/spf13/cobra"
 
+	"github.com/yjlion/gowebfilter/internal/app"
 	"github.com/yjlion/gowebfilter/internal/config"
 )
 
@@ -39,7 +40,9 @@ func runTray(settingsPath string) error {
 		return err
 	}
 	mgmtAddr := net.JoinHostPort(loopbackHost(settings.MgmtHost), fmt.Sprint(settings.MgmtPort))
-	mgmtURL := "http://" + mgmtAddr
+	// The scheme follows mgmt_tls: this URL is handed to a browser, and
+	// http:// against a TLS listener produces an unreadable error page.
+	mgmtURL := app.MgmtURL(settings, loopbackHost(settings.MgmtHost), false)
 
 	tray := systray.New()
 	menu := systray.NewMenu()

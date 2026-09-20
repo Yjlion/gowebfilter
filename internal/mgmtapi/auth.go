@@ -94,6 +94,10 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		Value:    sessionToken(cfg.SecretKey, cfg.PasswordHash),
 		Path:     "/",
 		HttpOnly: true,
+		// Conditional, not unconditional: a Secure cookie is never sent back
+		// over plain HTTP, so setting it always would make login succeed and
+		// then immediately appear to fail on every non-TLS deployment.
+		Secure:   cfg.MgmtTLS,
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   sessionMaxAge,
 	})

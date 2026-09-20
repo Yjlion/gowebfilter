@@ -16,6 +16,21 @@ type GlobalSettings struct {
 	MgmtHost    string   `json:"mgmt_host"`
 	MgmtPort    int      `json:"mgmt_port"`
 
+	// MgmtTLS serves the management UI and API over HTTPS instead of plain
+	// HTTP. Defaults off. The certificate comes from MgmtCertFile/MgmtKeyFile
+	// when both are set, and is otherwise minted on demand by the runtime CA
+	// - the same issuer the proxy uses for TLS-wrapped listeners.
+	//
+	// The CA-minted case has a bootstrapping consequence worth knowing:
+	// /api/ca-cert is then served over HTTPS signed by the very CA the client
+	// has not installed yet, so the first fetch shows a certificate warning,
+	// and WPAD clients will not fetch /proxy.pac from an untrusted endpoint.
+	// Install the CA out of band (certs/ca.crt) or point Mgmt{Cert,Key}File
+	// at a publicly trusted certificate.
+	MgmtTLS      bool   `json:"mgmt_tls"`
+	MgmtCertFile string `json:"mgmt_cert_file"`
+	MgmtKeyFile  string `json:"mgmt_key_file"`
+
 	CertDir       string `json:"cert_dir"`
 	PoliciesDir   string `json:"policies_dir"`
 	CategoriesDir string `json:"categories_dir"`
