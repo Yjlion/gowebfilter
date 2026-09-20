@@ -85,11 +85,14 @@ not speculative.
   `internal/settingsvc` validation, so a bundle can be checked before import
   and a hand-edited `policies/*.json` before a restart.
 
-- [ ] **Container image.** `S`
-  No Dockerfile in the repo. The binary is static (`CGO_ENABLED=0`, pure-Go
-  SQLite and classifiers), so this is close to free and is the obvious server
-  deployment path. Needs a volume for `config/`, `policies/`, `certs/`,
-  `categories/`, `logs/`.
+- [x] **Container image.** `S`
+  `Dockerfile` + `docker-compose.yml` at the repo root, documented in
+  [docs/docker.md](docs/docker.md). Static binary on Alpine, non-root, one
+  `/data` volume holding `config/`, `policies/`, `certs/`, `categories/` and
+  `logs/`. No settings file is baked in: `config.BootstrapRuntimeFiles`
+  generates one with `0.0.0.0` binds and absolute `/data` paths on first
+  start, which `settings.example.json` (loopback binds, CWD-relative dirs)
+  would not. Built (not published) by the `docker` job in `ci.yml`.
 
 - [ ] **`/metrics` endpoint.** `S`
   No Prometheus or metrics surface anywhere in the tree. Requests by action,

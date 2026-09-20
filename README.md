@@ -79,6 +79,17 @@ changes nothing. Headless servers are unaffected — the GUI toolkit is
 compiled in but only touches a display when you actually run `gui` (on
 Linux that command needs X11/Wayland at runtime; building does not).
 
+### In a container
+
+```bash
+docker compose up -d
+```
+
+The image is a static binary on Alpine, and the container bootstraps its own
+`config/`, `policies/`, `certs/` and `logs/` into a single `/data` volume on
+first start — there is nothing to copy first. See
+[docs/docker.md](docs/docker.md) for the CA-install and blocklist steps.
+
 ## Building and testing
 
 ```bash

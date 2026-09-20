@@ -22,6 +22,24 @@ jobs:
       - run: go vet ./...
       - run: go test ./...
 
+  # Build-only check that the example container image still builds. No push,
+  # no registry: publishing an image is a release-policy decision, this job
+  # just keeps the Dockerfile from rotting when the build or layout changes.
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: webfilter:ci
+      # Smoke-test the built image: `version` needs no config, no network and
+      # no volume, so it proves the binary in the image actually runs.
+      - run: docker run --rm webfilter:ci version
+
   # Cross-compile matrix: the three release targets plus the Android gomobile
   # package (compile-only — the full AAR/APK is built by the manual
   # android.yml workflow).
