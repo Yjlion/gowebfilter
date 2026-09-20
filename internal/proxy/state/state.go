@@ -39,6 +39,7 @@ type Runtime struct {
 	policyStore *config.PolicyStore
 	policies    atomic.Pointer[[]models.Policy]
 	mitmBypass  atomic.Pointer[[]string] // aggregated exclude-mode mitm domains, lowercased
+	generation  atomic.Uint64            // bumped on every policy reload
 }
 
 // New loads settings.json once and wires up the CA, log store, category
@@ -91,7 +92,18 @@ func (rt *Runtime) ReloadPolicies() {
 	}
 	rt.policies.Store(&policies)
 	rt.rebuildMitmBypass(policies)
+	rt.generation.Add(1)
 	slog.Info("policy_router: loaded policies", "count", len(policies), "dir", rt.policyStore.Dir)
+}
+
+// Generation counts how many times the policy set has been loaded. It exists
+// so a caller can tell "the configuration changed" without diffing it.
+//
+// The ICAP service publishes it as the ISTag an ICAP client caches adapted
+// objects against: without a tag that moves, a policy edit would never reach
+// anything the upstream proxy already holds in its cache.
+func (rt *Runtime) Generation() uint64 {
+	return rt.generation.Load()
 }
 
 // Policies returns the current policy snapshot, in file-sort order

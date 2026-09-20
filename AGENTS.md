@@ -56,6 +56,11 @@ for local dev. They persist to disk; the mgmt API's
 - `internal/proxy/` - MITM engine, pipeline, block-page rendering
 - `internal/proxy/state/` - hot-reloaded settings/policies and policy routing
 - `internal/proxy/addons/` - filtering addons, wired in fixed order in `internal/app/engine.go`
+- `internal/proxy/icap.go` - ICAP front-end bridging an upstream proxy (Squid)
+  into the same addon pipeline; see [docs/icap.md](docs/icap.md)
+- `internal/icap/` - RFC 3507 protocol only (framing, `Encapsulated`, chunked
+  bodies, preview/`100 Continue`/`ieof`, OPTIONS). `internal/proxy` imports it,
+  never the reverse
 - `internal/mgmtapi/` - chi router, REST API, embedded UI static serving
 - `internal/settingsvc/` - settings/policy merge + validation shared by
   `PUT /api/settings` and the `mobile/` native-settings path, plus the MDM
@@ -157,6 +162,16 @@ for local dev. They persist to disk; the mgmt API's
   MITM'd hosts are left to the `UrlFilter` addon, and a refusal answers in the
   client's protocol (HTTP 403 / SOCKS5 0x02 / SOCKS4 91) with a `?kind=blocks`
   row but no `?kind=requests` row.
+- ICAP mode (`icap@host:port`, `icaps@` for TLS) is a second source of
+  `FlowContext`s, not a second pipeline. `fc.Frontend == FrontendICAP` excuses
+  exactly two addons - `proxy_auth` and `management_access` - because Squid
+  owns both and one ICAP connection carries many end users. The client IP
+  comes from `X-Client-IP` (Squid's `icap_send_client_ip on`), never the peer
+  address. Never infer "blocked" from `fc.Response != nil` there: RESPMOD
+  parks the upstream response in it and a previewed transaction reaches the
+  handler twice - `icapTxn.blocked` is the explicit verdict. REQMOD logs only
+  when it terminates the transaction; RESPMOD runs both phases and writes the
+  row.
 - Image decoders must be registered in both `internal/classify/image` and
   `internal/proxy/addons/image_classifier.go`, and inline data URIs also need
   the format in `inlineImageRe`. An undecodable image fails open (scores as

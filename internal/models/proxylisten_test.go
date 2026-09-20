@@ -73,6 +73,11 @@ func TestParseListenSpec(t *testing.T) {
 		{"tls+regular@0.0.0.0:8443", "regular", true, "0.0.0.0", 8443},
 		{"tls+socks5@0.0.0.0:1443", "socks5", true, "0.0.0.0", 1443},
 		{"tls+socks4@0.0.0.0:1440", "socks4", true, "0.0.0.0", 1440},
+		{"icap@0.0.0.0:1344", "icap", false, "0.0.0.0", 1344},
+		// "icaps" is the scheme name ICAP clients use for the TLS variant,
+		// so it is spelled that way here rather than as tls+icap.
+		{"icaps@0.0.0.0:11344", "icap", true, "0.0.0.0", 11344},
+		{"tls+icap@0.0.0.0:11344", "icap", true, "0.0.0.0", 11344},
 		// Unknown TLS base falls through to a bare host:port parse.
 		{"tls+bogus@0.0.0.0:9", "regular", false, "tls+bogus@0.0.0.0", 9},
 	}

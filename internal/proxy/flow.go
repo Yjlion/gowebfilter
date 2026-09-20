@@ -32,6 +32,12 @@ type FlowContext struct {
 	// pseudo-domain redirect Location and to recognize management-port
 	// traffic addressed to the proxy's own IP.
 	ProxySockName string
+	// Frontend names where this flow entered the filter. Empty (or
+	// FrontendProxy) means the engine terminated the connection itself and
+	// every addon applies. FrontendICAP means another proxy - Squid - owns
+	// the client connection and handed us only the HTTP message; see the
+	// constants for which addons that excuses.
+	Frontend string
 
 	Request      *http.Request
 	Response     *http.Response
@@ -54,6 +60,36 @@ type FlowContext struct {
 	WFLogged bool
 
 	Policy *models.Policy
+}
+
+// Frontend values for FlowContext.Frontend.
+//
+// Two addons are front-end concerns rather than policy concerns, and both are
+// wrong over ICAP:
+//
+//   - proxy_auth challenges the client for proxy credentials. Over ICAP the
+//     client is Squid, which does its own proxy authentication, and one ICAP
+//     connection carries transactions for many different end users - so the
+//     per-connection "already authenticated" bookkeeping keyed on
+//     ClientConnID cannot mean anything. Left enabled it would 407 every
+//     request the moment proxy auth is switched on.
+//   - management_access redirects the management pseudo-domain to the
+//     address the client reached this proxy on. Over ICAP that address is
+//     the ICAP listener's, which is not an address the end user's browser
+//     can reach.
+//
+// Everything else - policy routing, MITM control, URL filtering, DoH,
+// SafeSearch, YouTube, both classifiers, request logging - is a policy
+// decision and runs identically whichever front-end delivered the flow.
+const (
+	FrontendProxy = "proxy"
+	FrontendICAP  = "icap"
+)
+
+// SkipsFrontendAddons reports whether fc arrived through a front-end that
+// owns proxy authentication and management-UI access itself.
+func (fc *FlowContext) SkipsFrontendAddons() bool {
+	return fc.Frontend == FrontendICAP
 }
 
 // Addon is the common interface every pipeline stage implements; concrete

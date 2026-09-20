@@ -48,6 +48,7 @@ type GlobalSettings struct {
 
 	Tun2Socks Tun2SocksConfig `json:"tun2socks"`
 	Gateway   GatewayConfig   `json:"gateway"`
+	Icap      IcapConfig      `json:"icap"`
 
 	// OuiPath is a Go-port-only optional field (documented deviation): path
 	// to an optional IEEE OUI vendor lookup table override. When empty, the
@@ -229,6 +230,70 @@ func (c *GatewayConfig) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// IcapConfig tunes the ICAP adaptation service (RFC 3507), which lets an
+// existing proxy - Squid, typically - hand its requests and responses to this
+// filter instead of being replaced by it. The same policies, category lists,
+// SafeSearch rewriting and classifiers apply either way.
+//
+// There is deliberately no "enabled" field and no listen address here: an
+// "icap@host:port" (or "icaps@host:port") entry in proxy_listen is what turns
+// the service on, exactly like every other listener mode. These are only the
+// knobs that have no sensible per-listener meaning.
+type IcapConfig struct {
+	// PreviewSize is how many leading body bytes the service asks for before
+	// deciding whether it wants the rest. A preview is what makes it cheap to
+	// wave through a video or an installer without streaming it through the
+	// filter first.
+	PreviewSize int `json:"preview_size"`
+
+	// MaxBodyBytes caps how much of one body is buffered for inspection.
+	// Anything larger passes unfiltered rather than being held in memory -
+	// the classifiers cannot say anything useful about a partial file, and an
+	// ICAP server that buffers whole downloads is a memory bomb.
+	MaxBodyBytes int `json:"max_body_bytes"`
+
+	// NormalizeAcceptEncoding rewrites the client's Accept-Encoding to gzip
+	// on the way out, so response bodies come back in a coding this filter
+	// can actually decode. Without it a browser advertising br/zstd gets
+	// bodies no content-inspecting addon can read, and they pass unfiltered.
+	// The engine's own MITM path does the same thing for the same reason.
+	NormalizeAcceptEncoding bool `json:"normalize_accept_encoding"`
+
+	// TrustClientIPHeader makes the service believe the ICAP client's
+	// X-Client-IP header. That header is the *only* way the end user's
+	// address survives the hop through Squid, and without it every client
+	// collapses into one and per-client policy tiers stop working. Turn it
+	// off only when the ICAP port is reachable by something you do not trust
+	// to tell the truth about its users.
+	TrustClientIPHeader bool `json:"trust_client_ip_header"`
+}
+
+// NewIcapConfig returns the documented ICAP defaults.
+func NewIcapConfig() IcapConfig {
+	return IcapConfig{
+		PreviewSize:             4096,
+		MaxBodyBytes:            8 << 20,
+		NormalizeAcceptEncoding: true,
+		TrustClientIPHeader:     true,
+	}
+}
+
+type icapConfigAlias IcapConfig
+
+func (c *IcapConfig) UnmarshalJSON(data []byte) error {
+	*c = NewIcapConfig()
+	if err := json.Unmarshal(data, (*icapConfigAlias)(c)); err != nil {
+		return err
+	}
+	if c.PreviewSize < 0 {
+		c.PreviewSize = 0
+	}
+	if c.MaxBodyBytes <= 0 {
+		c.MaxBodyBytes = 8 << 20
+	}
+	return nil
+}
+
 // NewGlobalSettings returns GlobalSettings with every field at its
 // documented Python default.
 func NewGlobalSettings() GlobalSettings {
@@ -249,6 +314,7 @@ func NewGlobalSettings() GlobalSettings {
 		MgmtHostname:     "web.filter",
 		Tun2Socks:        NewTun2SocksConfig(),
 		Gateway:          NewGatewayConfig(),
+		Icap:             NewIcapConfig(),
 	}
 }
 

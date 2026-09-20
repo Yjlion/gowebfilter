@@ -114,6 +114,7 @@ var servedModes = map[string]bool{
 	"socks4":      true,
 	"socks5":      true,
 	"transparent": runtime.GOOS == "linux",
+	"icap":        true,
 }
 
 // Listen binds a listener for every served-mode proxy_listen entry in
@@ -273,6 +274,8 @@ func (e *Engine) dispatchConn(conn net.Conn, connID uint64, mode string, tlsCfg 
 		e.serveSocks4Conn(conn, connID)
 	case "transparent":
 		e.serveTransparentConn(conn, connID)
+	case "icap":
+		e.serveICAPConn(conn)
 	default:
 		e.serveConn(conn, connID)
 	}

@@ -99,6 +99,8 @@
                   <option value="socks4">SOCKS4</option>
                   <option value="socks5">SOCKS5</option>
                   <option value="tls">SOCKS5 over TLS</option>
+                  <option value="icap">ICAP service</option>
+                  <option value="icaps">ICAP service over TLS</option>
                 </select>
                 <input type="text" :value="listenAddr(addr)" @input="setListenAddr(i, $event.target.value)"
                        placeholder="0.0.0.0:8080"
@@ -522,13 +524,13 @@
 
         listenMode(entry) {
           const head = String(entry || '').split('@')[0].split(':')[0].toLowerCase();
-          const known = ['regular','https','socks4','socks5','tls'];
+          const known = ['regular','https','socks4','socks5','tls','icap','icaps'];
           return known.includes(head) ? head : 'regular';
         },
         listenAddr(entry) {
           const e = String(entry || '');
           const head = e.split('@')[0].split(':')[0].toLowerCase();
-          const known = ['regular','https','socks4','socks5','tls'];
+          const known = ['regular','https','socks4','socks5','tls','icap','icaps'];
           if (!known.includes(head)) return e;
           const at = e.indexOf('@');
           return at >= 0 ? e.slice(at + 1) : '';
@@ -539,7 +541,7 @@
           return `${mode}@${addr}`;
         },
         defaultPortFor(mode) {
-          return ({ regular: 8080, https: 8443, socks4: 1080, socks5: 1080, tls: 1443 })[mode];
+          return ({ regular: 8080, https: 8443, socks4: 1080, socks5: 1080, tls: 1443, icap: 1344, icaps: 11344 })[mode];
         },
         usedPorts(exceptIndex) {
           const ports = new Set();

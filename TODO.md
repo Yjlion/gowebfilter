@@ -155,6 +155,13 @@ not speculative.
 
 ## Done
 
+- [x] **ICAP adaptation service** (`internal/icap` + `internal/proxy/icap.go`)
+  — `icap@host:port`/`icaps@` is a served `proxy_listen` mode, so a site that
+  already runs Squid can adopt this filtering without replacing its proxy. The
+  same pipeline, policies and logs apply; `X-Client-IP` carries the real client
+  so per-client tiers survive the hop. Verified against Squid 7.7 in forward,
+  `ssl_bump`, peek-and-splice and transparent-intercept modes — see
+  [docs/icap.md](docs/icap.md) and HANDOFF.md for what was and was not tested.
 - [x] Host-level URL/category filtering for blind-spliced tunnels
   (`proxy.HostFilterVerdict`, `internal/proxy/hostgate.go`) — a MITM-excluded
   host is now checked against the policy's host-scoped allow/block patterns and

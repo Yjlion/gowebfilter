@@ -53,5 +53,11 @@
     "ip_forward": true,
     "masquerade": false,
     "wan_interface": ""
+  },
+  "icap": {
+    "preview_size": 4096,
+    "max_body_bytes": 8388608,
+    "normalize_accept_encoding": true,
+    "trust_client_ip_header": true
   }
 }

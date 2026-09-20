@@ -34,6 +34,12 @@ sample data. Regenerate with `bash scripts/capture_screenshots.sh`.
   SafeSearch enforcement, YouTube channel filtering, DNS-over-HTTPS
   blocking, QUIC blocking, an embedded pure-Go Bayesian adult-text
   classifier, and a pure-Go embedded NSFW image classifier.
+- **ICAP service**: an `icap@host:port` listener turns the same filtering
+  into an adaptation service for a proxy you already run — Squid keeps its
+  caching, ACLs, auth and TLS interception and hands each request and
+  response over for a verdict. Verified against Squid in forward, ssl_bump,
+  peek-and-splice and transparent-intercept modes; see
+  [docs/icap.md](docs/icap.md).
 - **Management UI**: policy editor, live logs/analytics, PAC file
   generation, neighbor/ARP scanning, and category list management.
 - **Native desktop UI**: `webfilter gui` opens a native window
