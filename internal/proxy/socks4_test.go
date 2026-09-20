@@ -63,7 +63,7 @@ func startModeEngine(t *testing.T, listen string, trustedOrigin *httptest.Server
 		transport.TLSClientConfig = &tls.Config{RootCAs: pool}
 	}
 
-	eng := &proxy.Engine{Settings: rt.Settings, Runtime: rt, Transport: transport}
+	eng := &proxy.Engine{Settings: *rt.Settings(), Runtime: rt, Transport: transport}
 	if buildPipeline != nil {
 		eng.Pipeline = buildPipeline(rt)
 	}

@@ -8,6 +8,7 @@ import (
 	"github.com/yjlion/gowebfilter/internal/app"
 	"github.com/yjlion/gowebfilter/internal/gateway"
 	"github.com/yjlion/gowebfilter/internal/mgmtapi"
+	"github.com/yjlion/gowebfilter/internal/models"
 	"github.com/yjlion/gowebfilter/internal/proxy"
 	"github.com/yjlion/gowebfilter/internal/proxy/state"
 	tun "github.com/yjlion/gowebfilter/internal/tun2socks"
@@ -77,6 +78,11 @@ func runProxyAndMgmtWith(ctx context.Context, settingsPath string, mgmtSrv *mgmt
 
 	defer mgmtSrv.Logs.Close()
 	mgmtSrv.OnCARotated = rt.LeafIssuer.Clear
+	// Both components share this process, so a settings save can reach the
+	// engine directly rather than waiting on the file watcher. The watcher
+	// still runs - it is what covers the split-process deployment - but this
+	// makes `run` deterministic and instant.
+	mgmtSrv.OnSettingsSaved = func(s models.GlobalSettings) { rt.ApplySettings(s) }
 	// Both components run here, so /api/tun2socks/status can report the live
 	// process rather than just what settings say. The engine publishes the
 	// supervisor into this ref once its listeners are bound.

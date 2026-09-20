@@ -72,7 +72,7 @@ func startICAPEngine(t *testing.T, policies ...models.Policy) (icapAddr string, 
 	rt.ReloadPolicies()
 
 	eng := &proxy.Engine{
-		Settings:  rt.Settings,
+		Settings:  *rt.Settings(),
 		Runtime:   rt,
 		Transport: proxy.NewTransport(),
 		Pipeline: proxy.NewPipeline([]proxy.Addon{
@@ -383,9 +383,11 @@ func TestICAPRespmodOversizeBodyPassesButLogs(t *testing.T) {
 // answered.
 func TestICAPIgnoresProxyAuthSetting(t *testing.T) {
 	addr, rt := startICAPEngine(t)
-	rt.Settings.ProxyAuthEnabled = true
-	rt.Settings.ProxyAuthUsername = "u"
-	rt.Settings.ProxyAuthPasswordHash = "pbkdf2_sha256$1$abc$def"
+	cfg := *rt.Settings()
+	cfg.ProxyAuthEnabled = true
+	cfg.ProxyAuthUsername = "u"
+	cfg.ProxyAuthPasswordHash = "pbkdf2_sha256$1$abc$def"
+	rt.SetSettings(cfg)
 
 	got := icapExchange(t, addr, reqmod("192.168.1.50",
 		"GET http://example.com/ HTTP/1.1\r\nHost: example.com\r\n\r\n"))
@@ -403,7 +405,7 @@ func TestICAPIgnoresProxyAuthSetting(t *testing.T) {
 // engine's single-writer database.
 func assertBlockLogged(t *testing.T, rt *state.Runtime, domain string) {
 	t.Helper()
-	rows := logstore.NewReader(rt.Settings.DBPath()).Tail("blocks", 50)
+	rows := logstore.NewReader(rt.Settings().DBPath()).Tail("blocks", 50)
 	for _, r := range rows {
 		if fmt.Sprint(r["domain"]) == domain {
 			return
@@ -415,7 +417,7 @@ func assertBlockLogged(t *testing.T, rt *state.Runtime, domain string) {
 func countRequestRows(t *testing.T, rt *state.Runtime, host string) int {
 	t.Helper()
 	n := 0
-	for _, r := range logstore.NewReader(rt.Settings.DBPath()).Tail("requests", 50) {
+	for _, r := range logstore.NewReader(rt.Settings().DBPath()).Tail("requests", 50) {
 		if fmt.Sprint(r["host"]) == host {
 			n++
 		}

@@ -33,7 +33,13 @@ import (
 // connection is processed through.
 type Engine struct {
 	SettingsPath string
-	Settings     models.GlobalSettings
+
+	// Settings is the *startup* snapshot, used for the decisions that are
+	// made once and cannot be revisited without a restart: which listeners
+	// to bind, and what the tun2socks/gateway supervisors were configured
+	// with. Anything read per request must go through LiveSettings() instead,
+	// or a settings hot-reload will not reach it.
+	Settings models.GlobalSettings
 
 	// Runtime and Pipeline are nil-safe for Listen()-only use (as in
 	// engine_test.go's mode-skipping tests); Serve()/handleConn require
@@ -115,6 +121,18 @@ var servedModes = map[string]bool{
 	"socks5":      true,
 	"transparent": runtime.GOOS == "linux",
 	"icap":        true,
+}
+
+// LiveSettings returns the hot-reloaded settings snapshot when a runtime is
+// attached, falling back to the startup snapshot otherwise (Listen()-only
+// use in tests, where Runtime is deliberately nil).
+func (e *Engine) LiveSettings() *models.GlobalSettings {
+	if e.Runtime != nil {
+		if s := e.Runtime.Settings(); s != nil {
+			return s
+		}
+	}
+	return &e.Settings
 }
 
 // Listen binds a listener for every served-mode proxy_listen entry in

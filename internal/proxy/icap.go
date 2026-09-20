@@ -28,7 +28,9 @@ import (
 // other end is the proxy, not the user, which is why the whole design turns
 // on the X-Client-IP header (see icapService.clientIP).
 func (e *Engine) serveICAPConn(conn net.Conn) {
-	cfg := e.Settings.Icap
+	// Read live: icap.* is classified hot, so an operator changing the
+	// preview size or body cap does not have to restart.
+	cfg := e.LiveSettings().Icap
 	srv := &icap.Server{
 		Handler:      &icapService{eng: e, cfg: cfg},
 		ISTag:        e.icapISTag,

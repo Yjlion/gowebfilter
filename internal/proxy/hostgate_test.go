@@ -183,7 +183,7 @@ func TestHostFilterVerdict(t *testing.T) {
 // synchronously (the fsnotify watcher isn't started in these tests).
 func writeGatePolicy(t *testing.T, rt *state.Runtime, p models.Policy) {
 	t.Helper()
-	dir := rt.Settings.PoliciesDir
+	dir := rt.Settings().PoliciesDir
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir policies dir: %v", err)
 	}

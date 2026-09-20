@@ -23,6 +23,7 @@ import (
 	"github.com/yjlion/gowebfilter/internal/certs"
 	"github.com/yjlion/gowebfilter/internal/config"
 	"github.com/yjlion/gowebfilter/internal/mgmtapi"
+	"github.com/yjlion/gowebfilter/internal/models"
 	"github.com/yjlion/gowebfilter/internal/proxy"
 	"github.com/yjlion/gowebfilter/internal/proxy/state"
 )
@@ -115,6 +116,12 @@ func startEngine(dataDir string, tunFd int, proxyOnly bool) error {
 		return fmt.Errorf("build mgmt server: %w", err)
 	}
 	mgmtSrv.OnCARotated = rt.LeafIssuer.Clear
+	// Everything that writes settings on this platform - the WebView's PUT,
+	// the native settings screens, and the MDM apply - routes through
+	// mgmtSrv.SaveSettings (see saveSettingsLocked), so one hook covers them
+	// all. Android's inotify is unreliable enough that the file watcher
+	// cannot be the only path here.
+	mgmtSrv.OnSettingsSaved = func(s models.GlobalSettings) { rt.ApplySettings(s) }
 
 	ctx, cancel := context.WithCancel(context.Background())
 	rt.Start(ctx)
@@ -154,7 +161,7 @@ func startEngine(dataDir string, tunFd int, proxyOnly bool) error {
 	ctl.rt = rt
 	ctl.eng = eng
 	ctl.mgmtSrv = mgmtSrv
-	ctl.mgmtURL = fmt.Sprintf("http://127.0.0.1:%d/", rt.Settings.MgmtPort)
+	ctl.mgmtURL = fmt.Sprintf("http://127.0.0.1:%d/", rt.Settings().MgmtPort)
 	logMobile("webfilter started (%s mode), mgmt at %s", ctl.mode, ctl.mgmtURL)
 	return nil
 }

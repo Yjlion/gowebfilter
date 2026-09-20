@@ -23,7 +23,9 @@ func newTestFlow(t *testing.T, uiLanguage string) *proxy.FlowContext {
 	t.Cleanup(func() { logs.Close() })
 
 	rt := &state.Runtime{Logs: logs}
-	rt.Settings.UILanguage = uiLanguage
+	cfg := *rt.Settings()
+	cfg.UILanguage = uiLanguage
+	rt.SetSettings(cfg)
 
 	u, _ := url.Parse("https://blocked.example.com/some/path")
 	req := &http.Request{URL: u, Host: "blocked.example.com"}

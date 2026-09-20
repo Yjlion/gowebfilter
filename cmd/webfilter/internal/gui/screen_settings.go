@@ -1,6 +1,8 @@
 package gui
 
 import (
+	"strings"
+
 	"sync"
 
 	"github.com/gogpu/ui/core/checkbox"
@@ -154,7 +156,7 @@ func (s *settingsScreen) save() {
 	newPassword := s.newPassword.Get()
 
 	go func() {
-		saved, err := s.u.opts.Client.UpdateSettings(merged, newPassword)
+		saved, pending, err := s.u.opts.Client.UpdateSettingsWithPending(merged, newPassword)
 		if err != nil {
 			if !s.u.handleAuthErr(err) {
 				if isManagedLocked(err) {
@@ -173,8 +175,15 @@ func (s *settingsScreen) save() {
 		s.mu.Unlock()
 		s.newPassword.Set("")
 		s.saveErr.Set("")
-		s.saveMsg.Set("Saved.")
-		s.u.restartNeeded.Set(true) // settings need an engine restart, always
+		// Most settings now apply immediately; only the fields the server
+		// names still need a restart. Flagging one unconditionally trained
+		// people to ignore the banner.
+		if len(pending) > 0 {
+			s.saveMsg.Set("Saved. Restart needed for: " + strings.Join(pending, ", "))
+			s.u.restartNeeded.Set(true)
+		} else {
+			s.saveMsg.Set("Saved and applied.")
+		}
 		s.u.redraw()
 	}()
 }

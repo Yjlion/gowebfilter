@@ -25,7 +25,7 @@ func newTestRuntime(t *testing.T) *state.Runtime {
 	}
 	t.Cleanup(func() { logs.Close() })
 	rt := &state.Runtime{Logs: logs}
-	rt.Settings = models.NewGlobalSettings()
+	rt.SetSettings(models.NewGlobalSettings())
 	return rt
 }
 

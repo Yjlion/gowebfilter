@@ -38,7 +38,7 @@ func (ManagementAccess) HandleRequest(fc *proxy.FlowContext) {
 	if fc.SkipsFrontendAddons() {
 		return
 	}
-	settings := fc.Runtime.Settings
+	settings := fc.Runtime.Settings()
 	destHost := strings.ToLower(fc.Request.URL.Hostname())
 	mgmtHostname := strings.ToLower(settings.MgmtHostname)
 	if mgmtHostname == "" {

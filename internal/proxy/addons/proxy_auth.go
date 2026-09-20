@@ -46,7 +46,7 @@ func NewProxyAuthGate(rt *state.Runtime) *ProxyAuthGate {
 func (*ProxyAuthGate) Name() string { return "proxy_auth" }
 
 func (g *ProxyAuthGate) enabled(fc *proxy.FlowContext) bool {
-	s := fc.Runtime.Settings
+	s := fc.Runtime.Settings()
 	return s.ProxyAuthEnabled && s.ProxyAuthPasswordHash != ""
 }
 
@@ -55,7 +55,7 @@ func (g *ProxyAuthGate) validRequest(fc *proxy.FlowContext) bool {
 	if !ok {
 		return false
 	}
-	s := fc.Runtime.Settings
+	s := fc.Runtime.Settings()
 	return username == s.ProxyAuthUsername && pwhash.Verify(password, s.ProxyAuthPasswordHash)
 }
 
@@ -83,7 +83,7 @@ func (g *ProxyAuthGate) AuthorizeConnect(req *http.Request, connID uint64) bool 
 		g.markAuthed(connID)
 		return true
 	}
-	s := g.runtime.Settings
+	s := g.runtime.Settings()
 	if !(s.ProxyAuthEnabled && s.ProxyAuthPasswordHash != "") {
 		g.markAuthed(connID)
 		return true
@@ -102,7 +102,7 @@ func (g *ProxyAuthGate) SocksAuthRequired() bool {
 	if g.runtime == nil {
 		return false
 	}
-	s := g.runtime.Settings
+	s := g.runtime.Settings()
 	return s.ProxyAuthEnabled && s.ProxyAuthPasswordHash != ""
 }
 
@@ -116,7 +116,7 @@ func (g *ProxyAuthGate) AuthorizeSocks(username, password string, connID uint64)
 		g.markAuthed(connID)
 		return true
 	}
-	s := g.runtime.Settings
+	s := g.runtime.Settings()
 	if !(s.ProxyAuthEnabled && s.ProxyAuthPasswordHash != "") {
 		g.markAuthed(connID)
 		return true

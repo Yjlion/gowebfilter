@@ -35,7 +35,7 @@ func writeExcludePolicy(t *testing.T, rt *state.Runtime, host string) {
 	// startEngineWithRuntime seeds settings.json with an absolute
 	// policies_dir, so this is directly usable without resolving relative
 	// to the settings file's location.
-	dir := rt.Settings.PoliciesDir
+	dir := rt.Settings().PoliciesDir
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir policies dir: %v", err)
 	}
@@ -301,7 +301,7 @@ func startEngineWithRuntime(t *testing.T, trustedOrigin *httptest.Server) (proxy
 	pool.AddCert(trustedOrigin.Certificate())
 	transport.TLSClientConfig = &tls.Config{RootCAs: pool}
 
-	eng := &proxy.Engine{Settings: rt.Settings, Runtime: rt, Transport: transport}
+	eng := &proxy.Engine{Settings: *rt.Settings(), Runtime: rt, Transport: transport}
 	listeners, err := eng.Listen()
 	if err != nil {
 		t.Fatalf("Listen: %v", err)

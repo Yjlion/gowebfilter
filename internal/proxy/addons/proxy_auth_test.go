@@ -31,9 +31,11 @@ func TestProxyAuthRequestRejectsMissingCredentials(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pwhash.Hash: %v", err)
 	}
-	rt.Settings.ProxyAuthEnabled = true
-	rt.Settings.ProxyAuthUsername = "alice"
-	rt.Settings.ProxyAuthPasswordHash = hash
+	cfg := *rt.Settings()
+	cfg.ProxyAuthEnabled = true
+	cfg.ProxyAuthUsername = "alice"
+	cfg.ProxyAuthPasswordHash = hash
+	rt.SetSettings(cfg)
 
 	fc := newFlow(t, rt, "http://example.com/")
 	gate := addons.NewProxyAuthGate(rt)
@@ -51,9 +53,11 @@ func TestProxyAuthRequestAcceptsValidCredentials(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pwhash.Hash: %v", err)
 	}
-	rt.Settings.ProxyAuthEnabled = true
-	rt.Settings.ProxyAuthUsername = "alice"
-	rt.Settings.ProxyAuthPasswordHash = hash
+	cfg := *rt.Settings()
+	cfg.ProxyAuthEnabled = true
+	cfg.ProxyAuthUsername = "alice"
+	cfg.ProxyAuthPasswordHash = hash
+	rt.SetSettings(cfg)
 
 	fc := newFlow(t, rt, "http://example.com/")
 	fc.Request.Header.Set("Proxy-Authorization", basicAuthHeader("alice", "secret"))
@@ -69,9 +73,11 @@ func TestProxyAuthRequestAcceptsValidCredentials(t *testing.T) {
 func TestProxyAuthConnectRemembersAuthedConnection(t *testing.T) {
 	rt := newTestRuntime(t)
 	hash, _ := pwhash.Hash("secret")
-	rt.Settings.ProxyAuthEnabled = true
-	rt.Settings.ProxyAuthUsername = "alice"
-	rt.Settings.ProxyAuthPasswordHash = hash
+	cfg := *rt.Settings()
+	cfg.ProxyAuthEnabled = true
+	cfg.ProxyAuthUsername = "alice"
+	cfg.ProxyAuthPasswordHash = hash
+	rt.SetSettings(cfg)
 	gate := addons.NewProxyAuthGate(rt)
 
 	connectReq := &http.Request{Header: http.Header{"Proxy-Authorization": []string{basicAuthHeader("alice", "secret")}}}
@@ -100,9 +106,11 @@ func TestProxyAuthConnectRemembersAuthedConnection(t *testing.T) {
 func TestProxyAuthConnectRejectsBadCredentials(t *testing.T) {
 	rt := newTestRuntime(t)
 	hash, _ := pwhash.Hash("secret")
-	rt.Settings.ProxyAuthEnabled = true
-	rt.Settings.ProxyAuthUsername = "alice"
-	rt.Settings.ProxyAuthPasswordHash = hash
+	cfg := *rt.Settings()
+	cfg.ProxyAuthEnabled = true
+	cfg.ProxyAuthUsername = "alice"
+	cfg.ProxyAuthPasswordHash = hash
+	rt.SetSettings(cfg)
 	gate := addons.NewProxyAuthGate(rt)
 
 	connectReq := &http.Request{Header: http.Header{"Proxy-Authorization": []string{basicAuthHeader("alice", "wrong")}}}
@@ -114,9 +122,11 @@ func TestProxyAuthConnectRejectsBadCredentials(t *testing.T) {
 func TestProxyAuthUrlAllowedBypassesGate(t *testing.T) {
 	rt := newTestRuntime(t)
 	hash, _ := pwhash.Hash("secret")
-	rt.Settings.ProxyAuthEnabled = true
-	rt.Settings.ProxyAuthUsername = "alice"
-	rt.Settings.ProxyAuthPasswordHash = hash
+	cfg := *rt.Settings()
+	cfg.ProxyAuthEnabled = true
+	cfg.ProxyAuthUsername = "alice"
+	cfg.ProxyAuthPasswordHash = hash
+	rt.SetSettings(cfg)
 	gate := addons.NewProxyAuthGate(rt)
 
 	fc := newFlow(t, rt, "http://web.filter/")

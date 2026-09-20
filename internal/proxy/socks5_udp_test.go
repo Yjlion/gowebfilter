@@ -340,7 +340,7 @@ func startUDPEcho(t *testing.T) *net.UDPAddr {
 // policies dir and reloads, so GetPolicy(127.0.0.1) returns it.
 func seedDohPolicy(t *testing.T, rt *state.Runtime, dohServer string) {
 	t.Helper()
-	dir := rt.Settings.PoliciesDir
+	dir := rt.Settings().PoliciesDir
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir policies: %v", err)
 	}

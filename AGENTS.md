@@ -192,7 +192,20 @@ for local dev. They persist to disk; the mgmt API's
   inspectors do not scan compressed bytes.
 - NSFW images are also embedded as `data:image/...` URIs inside HTML/CSS/JS
   and JSON; image classifier inline scanning handles those.
-- Settings changes need a restart; policy changes hot-reload.
+- Settings hot-reload only the fields on `settingsvc`'s `hotFields`
+  allowlist (everything else defaults to restart-required, enforced by
+  `TestEverySettingsFieldIsClassified`). `Runtime.ApplySettings` uses
+  `settingsvc.MergeHot`, which keeps restart-required fields at the value
+  actually in effect - never swap the whole snapshot, or `management_access`
+  starts redirecting to a `mgmt_port` nothing is bound to. Delivered by
+  `mgmtapi.Server.OnSettingsSaved` (in-process) *and* an fsnotify watch on
+  the settings file's **directory** (renames; and it is the only thing
+  covering split-process `proxy` + `mgmt`). `PUT /api/settings` returns
+  `restart_required: [...]`.
+- `Runtime.Settings` is a method returning a pointer that must not be written
+  through. `Engine.Settings` is the startup snapshot (bind-time decisions
+  only); per-request reads go through `Runtime.Settings()` /
+  `Engine.LiveSettings()`.
 - Never unmarshal a partial policy body over an existing policy: sub-config
   `UnmarshalJSON` resets to defaults first and wipes sibling fields. Use
   `settingsvc.MergePolicyPatch` or full-document writes.
