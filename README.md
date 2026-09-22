@@ -135,3 +135,18 @@ Config lives entirely on disk, matching the Python original's layout:
 
 Runtime state is generated or copied from the shipped `.example` templates
 and is not committed to the repo.
+
+## Monitoring
+
+The management server exposes two endpoints for operations:
+
+- `GET /health` - liveness for load balancers and container healthchecks.
+  Unauthenticated (a load balancer cannot log in) and deliberately cheap: no
+  database queries, no port probes.
+- `GET /metrics` - Prometheus text exposition: requests by action, blocks by
+  component, classifier latency and outcomes, upstream errors, connection
+  counts. No external exporter and no new dependencies.
+
+See [docs/metrics.md](docs/metrics.md) for the full metric list, how to
+scrape it when management auth is on, and the one real caveat (counters are
+per-process, so scrape the process that serves traffic).

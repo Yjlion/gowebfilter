@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yjlion/gowebfilter/internal/metrics"
 	"github.com/yjlion/gowebfilter/internal/models"
 )
 
@@ -376,6 +377,11 @@ func (e *Engine) handleOneRequest(w net.Conn, reader *bufio.Reader, req *http.Re
 		req.Header.Del("Accept-Encoding")
 		resp, err := e.Transport.RoundTrip(req)
 		if err != nil {
+			// A failure to reach the origin, not a filtering decision: DNS,
+			// refused connection, TLS or timeout. Kept as its own counter so
+			// "the proxy cannot reach the internet" is distinguishable from
+			// "the proxy is blocking things".
+			metrics.UpstreamErrors.Inc()
 			if e.Pipeline != nil {
 				e.Pipeline.RunError(fc)
 			}
