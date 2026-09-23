@@ -16,6 +16,7 @@ import (
 	"github.com/miekg/dns"
 
 	"github.com/yjlion/gowebfilter/internal/logstore"
+	"github.com/yjlion/gowebfilter/internal/metrics"
 	"github.com/yjlion/gowebfilter/internal/models"
 )
 
@@ -514,6 +515,7 @@ func dnsShouldFilter(host string, cfg models.DohConfig) bool {
 }
 
 func (e *Engine) logDNSBlock(name string, policy *models.Policy, clientIP string) {
+	metrics.Blocks.Inc("doh")
 	if e.Runtime == nil || e.Runtime.Logs == nil {
 		return
 	}

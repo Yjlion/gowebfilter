@@ -10,6 +10,7 @@ import (
 
 	"github.com/yjlion/gowebfilter/internal/categories"
 	"github.com/yjlion/gowebfilter/internal/logstore"
+	"github.com/yjlion/gowebfilter/internal/metrics"
 	"github.com/yjlion/gowebfilter/internal/models"
 	"github.com/yjlion/gowebfilter/internal/proxy/state"
 )
@@ -119,6 +120,10 @@ func isHostPattern(pattern string) bool {
 // ?kind=blocks only.
 func (e *Engine) logConnectionBlock(v HostVerdict, host string, port int, policy *models.Policy, clientIP string) {
 	slog.Info("proxy: refused tunnel", "component", v.Component, "host", host, "port", port, "reason", v.Reason)
+	// Counted before the store check: a refusal happened whether or not
+	// block logging is enabled, and webfilter_blocks_total should not
+	// silently go flat when someone turns log_blocks off.
+	metrics.Blocks.Inc(v.Component)
 	if e.Runtime == nil || e.Runtime.Logs == nil {
 		return
 	}

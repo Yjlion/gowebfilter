@@ -32,6 +32,8 @@ import (
 //     password_hash,        Server.Settings() on every request, so they are
 //     secret_key            already hot today
 //   - pac_*                 mgmtapi routes_pac.go (per request)
+//   - metrics_enabled,      mgmtapi routes_ops.go / middleware.go, read
+//     metrics_token         through Server.Settings() per scrape
 //   - default_policy        no runtime consumer at all
 //
 // Nested objects are classified as a whole: "icap" covers every icap.*
@@ -55,6 +57,8 @@ var hotFields = map[string]bool{
 	"pac_proxy_host":           true,
 	"pac_direct_hosts":         true,
 	"pac_direct_ips":           true,
+	"metrics_enabled":          true,
+	"metrics_token":            true,
 	"default_policy":           true,
 
 	// Deprecated and ignored by every consumer; listed so changing it never

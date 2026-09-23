@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/yjlion/gowebfilter/internal/logstore"
+	"github.com/yjlion/gowebfilter/internal/metrics"
 )
 
 //go:embed block_template.html
@@ -50,6 +51,7 @@ func labelsFor(lang string) blockLabels {
 func (fc *FlowContext) LogBlock(reason, component string) {
 	fc.WFAction = "blocked"
 	fc.WFComponent = component
+	metrics.Blocks.Inc(component)
 
 	policyName := "unknown"
 	if fc.Policy != nil {

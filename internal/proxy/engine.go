@@ -24,6 +24,7 @@ import (
 	"sync/atomic"
 
 	"github.com/yjlion/gowebfilter/internal/config"
+	"github.com/yjlion/gowebfilter/internal/metrics"
 	"github.com/yjlion/gowebfilter/internal/models"
 	"github.com/yjlion/gowebfilter/internal/proxy/state"
 )
@@ -277,6 +278,13 @@ func (e *Engine) acceptLoop(ctx context.Context, ln Listener) error {
 // in the per-connection goroutine, so a slow or failed handshake never blocks
 // the accept loop.
 func (e *Engine) dispatchConn(conn net.Conn, connID uint64, mode string, tlsCfg *tls.Config) {
+	// Counted here rather than in acceptLoop so a connection is only
+	// recorded once it is actually being served, and so the active gauge's
+	// decrement can be deferred against the same return path that closes it.
+	metrics.Connections.Inc(mode)
+	metrics.ConnectionsActive.Inc()
+	defer metrics.ConnectionsActive.Dec()
+
 	if tlsCfg != nil {
 		tc := tls.Server(conn, tlsCfg)
 		if err := tc.Handshake(); err != nil {

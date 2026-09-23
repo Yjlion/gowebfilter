@@ -79,6 +79,17 @@ changes nothing. Headless servers are unaffected — the GUI toolkit is
 compiled in but only touches a display when you actually run `gui` (on
 Linux that command needs X11/Wayland at runtime; building does not).
 
+### In a container
+
+```bash
+docker compose up -d
+```
+
+The image is a static binary on Alpine, and the container bootstraps its own
+`config/`, `policies/`, `certs/` and `logs/` into a single `/data` volume on
+first start — there is nothing to copy first. See
+[docs/docker.md](docs/docker.md) for the CA-install and blocklist steps.
+
 ## Building and testing
 
 ```bash
@@ -144,3 +155,18 @@ modes. The settings page names them after a save.
 This works whether the proxy and management server share a process
 (`webfilter run`) or not: a standalone `webfilter proxy` picks up changes
 written by a standalone `webfilter mgmt` through a filesystem watch.
+
+## Monitoring
+
+The management server exposes two endpoints for operations:
+
+- `GET /health` - liveness for load balancers and container healthchecks.
+  Unauthenticated (a load balancer cannot log in) and deliberately cheap: no
+  database queries, no port probes.
+- `GET /metrics` - Prometheus text exposition: requests by action, blocks by
+  component, classifier latency and outcomes, upstream errors, connection
+  counts. No external exporter and no new dependencies.
+
+See [docs/metrics.md](docs/metrics.md) for the full metric list, how to
+scrape it when management auth is on, and the one real caveat (counters are
+per-process, so scrape the process that serves traffic).

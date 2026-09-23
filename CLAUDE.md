@@ -148,6 +148,10 @@ Request/block/audit logs go to SQLite at `logs/webfilter.db`.
   `Allow: 204`, OPTIONS). Knows nothing about filtering; `internal/proxy`
   imports it and never the reverse.
 - `internal/mgmtapi/` — chi router, REST API, embedded UI static serving
+- `internal/metrics/` — dependency-free Prometheus text-exposition
+  registry (counters/gauges/histograms) behind a process-wide
+  `metrics.Default`; served at `/metrics` by `mgmtapi`'s
+  `routes_ops.go`, which also serves `/health`. See [docs/metrics.md](docs/metrics.md).
 - `internal/classify/textbayes/` — embedded pure-Go Bayesian adult-text
   scorer (implements `addons.MLScorer`). The feature table
   (`model_data.json`, `//go:embed`) is regenerated offline by
@@ -396,6 +400,20 @@ Request/block/audit logs go to SQLite at `logs/webfilter.db`.
   open, what the tun2socks/gateway supervisors were handed); anything
   per-request must go through `Runtime.Settings()` or `Engine.LiveSettings()`
   or it silently stops seeing reloads.
+- **`/metrics` counters are in-process, and `/health` must stay cheap.**
+  Under standalone `webfilter mgmt` the engine is a different process, so
+  every engine-side family reports zero — scrape a process that serves
+  traffic. Deliberately not fixed by running SQL against `logstore` at scrape
+  time: that would make each scrape a set of aggregate queries against a
+  single-writer store and report a retention window instead of monotonic
+  counters. `/health` must not acquire that habit either — it does no DB
+  query and no `isPortOpen` dial (`routes_status.go`'s 300 ms TCP probe is
+  fine for a dashboard, wrong for a load balancer). Metric labels are
+  config-bounded only (action/component/policy/mode/classifier); a hostname,
+  path, client IP or user agent in a label turns a counter into an unbounded
+  log. `/metrics` is also the one non-`/api/` path that answers 401 rather
+  than redirecting to `/login.html` — a scraper handed a login page ingests
+  200s of HTML instead of seeing an auth error.
 - **Never unmarshal a *partial* policy body over an existing policy.** Every
   sub-config's `UnmarshalJSON` resets the whole sub-config to defaults
   before overlaying the input, so `{"text_classifier":{"enabled":true}}`
