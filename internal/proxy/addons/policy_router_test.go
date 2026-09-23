@@ -44,7 +44,7 @@ func newFullRuntime(t *testing.T) *state.Runtime {
 
 func writePolicy(t *testing.T, rt *state.Runtime, p models.Policy) {
 	t.Helper()
-	dir := rt.Settings.PoliciesDir
+	dir := rt.Settings().PoliciesDir
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir policies dir: %v", err)
 	}

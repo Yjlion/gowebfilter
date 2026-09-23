@@ -134,13 +134,16 @@ not speculative.
   itself would resolve, so install the CA out of band or use a real
   certificate.
 
-- [ ] **Settings hot-reload.** `L`
-  Policies hot-reload; `PUT /api/settings` still needs a restart of
-  `webfilter run`. Scope it honestly — listener changes require a rebind, and
-  cert/logs directory changes reopen handles, so the deliverable is probably
-  "reload what safely can, and tell the UI which fields still need a restart"
-  rather than all-or-nothing.
-  Touches: `internal/proxy/state/state.go`, `internal/app/engine.go`.
+- [x] **Settings hot-reload.** `L`
+  `settingsvc`'s `hotFields` allowlist classifies every field (unknown =
+  restart-required, enforced by a test); `Runtime.ApplySettings` swaps the
+  hot ones via `MergeHot`, which keeps restart-required fields at the value
+  actually in effect so the live snapshot never contradicts what is bound.
+  Delivered both in-process (`mgmtapi.Server.OnSettingsSaved`) and by an
+  fsnotify watch on the settings directory, which is what covers standalone
+  `proxy` + `mgmt`. `PUT /api/settings` returns `restart_required: [...]`
+  and both UIs render it. Listener rebind, logstore reopen and
+  tun2socks/gateway reconfigure stay out of scope by design.
 
 - [ ] **macOS support.** `L (unverifiable here)`
   Absent from the target list in `scripts/package-release.sh:31-33` and from

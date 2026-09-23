@@ -244,6 +244,44 @@ func (c *Client) UpdateSettings(s models.GlobalSettings, newPassword string) (mo
 	return out, err
 }
 
+// UpdateSettingsWithPending is UpdateSettings, additionally returning the
+// fields the server says still need a restart. Most settings now apply
+// immediately, so the GUI can stop claiming a restart is needed after every
+// save and name the ones that actually are.
+func (c *Client) UpdateSettingsWithPending(s models.GlobalSettings, newPassword string) (models.GlobalSettings, []string, error) {
+	data, err := json.Marshal(s)
+	if err != nil {
+		return models.GlobalSettings{}, nil, err
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return models.GlobalSettings{}, nil, err
+	}
+	delete(doc, "password_hash")
+	delete(doc, "secret_key")
+	delete(doc, "proxy_auth_password_hash")
+	if newPassword != "" {
+		doc["new_password"] = newPassword
+	}
+
+	// Decoded twice from one response: once into the typed settings the
+	// caller wants, once for the restart_required metadata, which is not a
+	// settings field and deliberately has no home on GlobalSettings.
+	var raw json.RawMessage
+	if err := c.do(http.MethodPut, "/api/settings", doc, &raw); err != nil {
+		return models.GlobalSettings{}, nil, err
+	}
+	var out models.GlobalSettings
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return models.GlobalSettings{}, nil, err
+	}
+	var meta struct {
+		RestartRequired []string `json:"restart_required"`
+	}
+	_ = json.Unmarshal(raw, &meta)
+	return out, meta.RestartRequired, nil
+}
+
 // Policies lists all policies (full documents, matching GET /api/policies).
 func (c *Client) Policies() ([]models.Policy, error) {
 	var list []models.Policy

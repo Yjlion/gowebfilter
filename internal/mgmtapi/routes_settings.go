@@ -22,7 +22,8 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	merged, err := settingsvc.MergeSettings(s.Settings(), body)
+	before := s.Settings()
+	merged, err := settingsvc.MergeSettings(before, body)
 	if err != nil {
 		if settingsvc.IsValidationError(err) {
 			writeJSONError(w, http.StatusBadRequest, err.Error())
@@ -36,5 +37,13 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, settingsvc.SettingsDTO(merged))
+
+	// Most fields now take effect immediately; the rest are bound at startup
+	// (listeners, ports, directories, capture supervisors). Naming exactly
+	// which ones still need a restart beats the old blanket "restart after
+	// changing settings" note, which was wrong for most saves and therefore
+	// ignored. Additive field, so an older UI just does not render it.
+	dto := settingsvc.SettingsDTO(merged)
+	dto["restart_required"] = settingsvc.RestartRequired(before, merged)
+	writeJSON(w, http.StatusOK, dto)
 }

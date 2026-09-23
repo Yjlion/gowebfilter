@@ -124,8 +124,9 @@ positives have real cost and should be an explicit opt-in.
 
 Config lives entirely on disk, matching the Python original's layout:
 
-- `config/settings.json` - global settings. Requires a restart to pick up
-  changes. Set `mgmt_tls` to serve the management UI over HTTPS (below).
+- `config/settings.json` - global settings. Most changes apply immediately;
+  `PUT /api/settings` reports which ones still need a restart (see below).
+  Set `mgmt_tls` to serve the management UI over HTTPS (below).
 - `policies/*.json` - per-client policies. Hot-reloaded; edit via the UI or
   the file directly.
 - `certs/` - generated CA + leaf certificate cache.
@@ -135,6 +136,26 @@ Config lives entirely on disk, matching the Python original's layout:
 
 Runtime state is generated or copied from the shipped `.example` templates
 and is not committed to the repo.
+
+### What reloads without a restart
+
+Policies hot-reload wholesale. Settings reload the fields whose consumers
+read them per request - interface language, proxy authentication, the
+management pseudo-hostname, ICAP tuning, PAC settings, management auth - and
+the API tells you about the rest rather than making you guess:
+
+```json
+PUT /api/settings  ->  { ..., "restart_required": ["proxy_listen"] }
+```
+
+Still restart-only, because they are bound or opened once at startup:
+`proxy_listen`, `mgmt_host`/`mgmt_port`, `cert_dir`, `logs_dir` and the
+`log_*` options, `policies_dir`, and the `tun2socks`/`gateway` capture
+modes. The settings page names them after a save.
+
+This works whether the proxy and management server share a process
+(`webfilter run`) or not: a standalone `webfilter proxy` picks up changes
+written by a standalone `webfilter mgmt` through a filesystem watch.
 
 ### Management HTTPS
 

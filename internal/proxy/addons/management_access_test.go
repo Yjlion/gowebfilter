@@ -9,8 +9,10 @@ import (
 
 func TestManagementAccessPseudoDomainRedirect(t *testing.T) {
 	rt := newTestRuntime(t)
-	rt.Settings.MgmtHostname = "web.filter"
-	rt.Settings.MgmtPort = 8000
+	cfg := *rt.Settings()
+	cfg.MgmtHostname = "web.filter"
+	cfg.MgmtPort = 8000
+	rt.SetSettings(cfg)
 	fc := newFlow(t, rt, "http://web.filter/")
 	fc.ProxySockName = "192.168.1.1"
 
@@ -32,8 +34,10 @@ func TestManagementAccessPseudoDomainRedirect(t *testing.T) {
 
 func TestManagementAccessPassthroughForLocalMgmtPort(t *testing.T) {
 	rt := newTestRuntime(t)
-	rt.Settings.MgmtHostname = "web.filter"
-	rt.Settings.MgmtPort = 8000
+	cfg := *rt.Settings()
+	cfg.MgmtHostname = "web.filter"
+	cfg.MgmtPort = 8000
+	rt.SetSettings(cfg)
 	fc := newFlow(t, rt, "http://127.0.0.1:8000/api/status")
 
 	addons.ManagementAccess{}.HandleRequest(fc)
@@ -48,8 +52,10 @@ func TestManagementAccessPassthroughForLocalMgmtPort(t *testing.T) {
 
 func TestManagementAccessIgnoresUnrelatedTraffic(t *testing.T) {
 	rt := newTestRuntime(t)
-	rt.Settings.MgmtHostname = "web.filter"
-	rt.Settings.MgmtPort = 8000
+	cfg := *rt.Settings()
+	cfg.MgmtHostname = "web.filter"
+	cfg.MgmtPort = 8000
+	rt.SetSettings(cfg)
 	fc := newFlow(t, rt, "http://example.com/")
 
 	addons.ManagementAccess{}.HandleRequest(fc)
@@ -61,8 +67,10 @@ func TestManagementAccessIgnoresUnrelatedTraffic(t *testing.T) {
 
 func TestManagementAccessNonLocalMgmtPortNotPassedThrough(t *testing.T) {
 	rt := newTestRuntime(t)
-	rt.Settings.MgmtHostname = "web.filter"
-	rt.Settings.MgmtPort = 8000
+	cfg := *rt.Settings()
+	cfg.MgmtHostname = "web.filter"
+	cfg.MgmtPort = 8000
+	rt.SetSettings(cfg)
 	// Same port as management, but not a local/loopback destination and not
 	// the proxy's own sockname - must NOT be granted passthrough.
 	fc := newFlow(t, rt, "http://8.8.8.8:8000/")

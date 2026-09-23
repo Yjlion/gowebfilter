@@ -23,6 +23,7 @@ import (
 	"github.com/yjlion/gowebfilter/internal/certs"
 	"github.com/yjlion/gowebfilter/internal/config"
 	"github.com/yjlion/gowebfilter/internal/mgmtapi"
+	"github.com/yjlion/gowebfilter/internal/models"
 	"github.com/yjlion/gowebfilter/internal/proxy"
 	"github.com/yjlion/gowebfilter/internal/proxy/state"
 )
@@ -37,6 +38,7 @@ type controller struct {
 	running  bool
 	mode     string // "vpn" (TUN capture) or "proxy" (listeners only)
 	cancel   context.CancelFunc
+	serving  sync.WaitGroup // engine + mgmt Serve goroutines
 	dataDir  string
 	mgmtURL  string
 	settings string // absolute settings.json path
@@ -115,6 +117,12 @@ func startEngine(dataDir string, tunFd int, proxyOnly bool) error {
 		return fmt.Errorf("build mgmt server: %w", err)
 	}
 	mgmtSrv.OnCARotated = rt.LeafIssuer.Clear
+	// Everything that writes settings on this platform - the WebView's PUT,
+	// the native settings screens, and the MDM apply - routes through
+	// mgmtSrv.SaveSettings (see saveSettingsLocked), so one hook covers them
+	// all. Android's inotify is unreliable enough that the file watcher
+	// cannot be the only path here.
+	mgmtSrv.OnSettingsSaved = func(s models.GlobalSettings) { rt.ApplySettings(s) }
 	// Android always serves the management UI over plain loopback HTTP,
 	// whatever settings.json says. The WebView that renders it has no trust
 	// path to a CA-minted management leaf, and neither does the PAC URL the
@@ -125,12 +133,15 @@ func startEngine(dataDir string, tunFd int, proxyOnly bool) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	rt.Start(ctx)
 
+	ctl.serving.Add(2)
 	go func() {
+		defer ctl.serving.Done()
 		if err := eng.Serve(ctx, listeners); err != nil {
 			logMobile("proxy engine stopped: %v", err)
 		}
 	}()
 	go func() {
+		defer ctl.serving.Done()
 		if err := app.ServeMgmt(ctx, mgmtSrv); err != nil {
 			logMobile("mgmt server stopped: %v", err)
 		}
@@ -143,6 +154,7 @@ func startEngine(dataDir string, tunFd int, proxyOnly bool) error {
 			for _, ln := range listeners {
 				_ = ln.Close()
 			}
+			ctl.serving.Wait()
 			rt.Logs.Close()
 			mgmtSrv.Logs.Close()
 			return fmt.Errorf("start tun2socks: %w", err)
@@ -160,7 +172,7 @@ func startEngine(dataDir string, tunFd int, proxyOnly bool) error {
 	ctl.rt = rt
 	ctl.eng = eng
 	ctl.mgmtSrv = mgmtSrv
-	ctl.mgmtURL = fmt.Sprintf("http://127.0.0.1:%d/", rt.Settings.MgmtPort)
+	ctl.mgmtURL = fmt.Sprintf("http://127.0.0.1:%d/", rt.Settings().MgmtPort)
 	logMobile("webfilter started (%s mode), mgmt at %s", ctl.mode, ctl.mgmtURL)
 	return nil
 }
@@ -177,6 +189,10 @@ func Stop() {
 	if ctl.cancel != nil {
 		ctl.cancel()
 	}
+	// Cancelling only asks the listeners to close; wait until they have, or
+	// an immediate re-Start (VpnService revoke/reconnect) can race the close
+	// and fail with "address already in use".
+	ctl.serving.Wait()
 	// Both the runtime and the mgmt server hold their own sqlite write
 	// connection on the same DB file (logstore.Configure opens a fresh one
 	// per caller), so both must be closed or a VpnService revoke/reconnect

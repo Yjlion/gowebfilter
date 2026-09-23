@@ -63,7 +63,7 @@ func BuildProxyEngine(settingsPath string) (*proxy.Engine, *state.Runtime, error
 
 	eng := &proxy.Engine{
 		SettingsPath: settingsPath,
-		Settings:     rt.Settings,
+		Settings:     *rt.Settings(),
 		Runtime:      rt,
 		Pipeline:     pipeline,
 		Transport:    proxy.NewTransport(),

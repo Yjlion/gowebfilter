@@ -93,7 +93,11 @@ func UpdateSettingsJson(dataDir string, body string) (string, error) {
 	if err := saveSettingsLocked(settingsPath, merged); err != nil {
 		return "", err
 	}
-	data, err := json.Marshal(settingsvc.SettingsDTO(merged))
+	// Same response shape as PUT /api/settings, including which fields still
+	// need a restart - the two paths are required to behave identically.
+	dto := settingsvc.SettingsDTO(merged)
+	dto["restart_required"] = settingsvc.RestartRequired(cur, merged)
+	data, err := json.Marshal(dto)
 	if err != nil {
 		return "", err
 	}

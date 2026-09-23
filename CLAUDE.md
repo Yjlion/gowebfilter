@@ -376,6 +376,30 @@ Request/block/audit logs go to SQLite at `logs/webfilter.db`.
   HTML/CSS/JS/JSON bodies and rewrites matching data URIs in place — see
   `filterInlineImages` in `internal/proxy/addons/image_classifier.go` and
   its tests before touching the Content-Type gating.
+- **Settings hot-reload only what is safe; the API names the rest.**
+  `settingsvc`'s `hotFields` allowlist is the source of truth, and anything
+  not on it defaults to restart-required — `TestEverySettingsFieldIsClassified`
+  fails when a field is added without a decision. A field belongs on it only
+  if *every* consumer reads it per request. `Runtime.ApplySettings` swaps in
+  the hot fields via `settingsvc.MergeHot`, which deliberately keeps
+  restart-required fields at the value actually in effect: swapping the whole
+  snapshot would let `management_access` redirect clients to a `mgmt_port`
+  nothing is bound to. Two delivery paths, both needed —
+  `mgmtapi.Server.OnSettingsSaved` (instant, in-process, `run`/`tray`/`gui`
+  and every Android writer) and an fsnotify watch in `Runtime.Start`, which
+  is the only thing covering split-process (`webfilter proxy` +
+  `webfilter mgmt`). That watch is on the settings file's **directory**:
+  `config.atomicWriteFile` renames into place, so a watch on the file goes
+  deaf after the first save. `PUT /api/settings` returns
+  `restart_required: [...]`; still restart-only are `proxy_listen`,
+  `mgmt_host`/`mgmt_port`, `cert_dir`, `logs_dir`/`log_*`, `policies_dir`,
+  `tun2socks.*`, `gateway.*`. Policies still hot-reload wholesale, as before.
+- **`Runtime.Settings` is a method now, not a field, and returns a pointer
+  you must not write through.** `Engine.Settings` remains the *startup*
+  snapshot and is correct only for bind-time decisions (which listeners to
+  open, what the tun2socks/gateway supervisors were handed); anything
+  per-request must go through `Runtime.Settings()` or `Engine.LiveSettings()`
+  or it silently stops seeing reloads.
 - **`mgmt_tls` has a bootstrapping consequence, and Android must never
   honour it.** With a CA-minted management leaf, `/api/ca-cert` is served
   over HTTPS signed by the CA the client has not installed yet, and WPAD
@@ -387,9 +411,11 @@ Request/block/audit logs go to SQLite at `logs/webfilter.db`.
   UI the device has. The SNI-less fallback (IP-literal clients send no SNI,
   so the leaf is issued for the address the connection landed on) lives once
   in `certs.ServerTLSConfig` and is shared with `Engine.proxyTLSConfig` —
-  don't reimplement it. The session cookie's `Secure` flag is conditional on
-  `mgmt_tls`; making it unconditional breaks login on every plaintext
-  deployment, since the browser then never sends the cookie back.
+  don't reimplement it. The session cookie's `Secure` flag follows the
+  connection (`r.TLS != nil`), not `mgmt_tls`: making it unconditional breaks
+  login on every plaintext deployment (the browser never sends the cookie
+  back), and keying it on the setting does the same whenever the two disagree
+  — `mgmt_tls` is restart-required, and `ForcePlaintext` overrides it.
 - **`/metrics` counters are in-process, and `/health` must stay cheap.**
   Under standalone `webfilter mgmt` the engine is a different process, so
   every engine-side family reports zero — scrape a process that serves
@@ -404,9 +430,6 @@ Request/block/audit logs go to SQLite at `logs/webfilter.db`.
   log. `/metrics` is also the one non-`/api/` path that answers 401 rather
   than redirecting to `/login.html` — a scraper handed a login page ingests
   200s of HTML instead of seeing an auth error.
-- **Settings changes need a restart; policy changes hot-reload.** Matches
-  the Python original — don't expect a `PUT /api/settings` to take effect
-  without restarting `webfilter run`.
 - **Never unmarshal a *partial* policy body over an existing policy.** Every
   sub-config's `UnmarshalJSON` resets the whole sub-config to defaults
   before overlaying the input, so `{"text_classifier":{"enabled":true}}`

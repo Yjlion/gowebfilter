@@ -5,15 +5,23 @@
 // each proxy/addons/*.py file keeps in the Python original with one
 // consistently-updated object.
 //
-// Only policies/*.json hot-reloads (via an fsnotify watcher, mirroring
-// policy_router.py's watchfiles-based loop): settings.json is loaded once
-// at startup, matching the Python original, where a settings.json change
-// only ever takes effect on the next proxy restart.
+// Both policies/*.json and settings.json hot-reload, via fsnotify watchers
+// (the policy one mirrors policy_router.py's watchfiles-based loop).
+//
+// The two reloads are not equivalent. A policy reload swaps the whole set,
+// because nothing in the engine is built from a policy at startup. A
+// settings reload only applies the fields whose consumers read them per
+// request - settingsvc.MergeHot decides which - and leaves everything that
+// was baked in at construction (bound listeners, the CA, the log store, the
+// tun2socks/gateway supervisors) at the value that is actually in effect.
+// PUT /api/settings reports the fields that still need a restart so the UI
+// can say so rather than implying the change took hold.
 package state
 
 import (
 	"context"
 	"log/slog"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -24,12 +32,18 @@ import (
 	"github.com/yjlion/gowebfilter/internal/logstore"
 	"github.com/yjlion/gowebfilter/internal/models"
 	"github.com/yjlion/gowebfilter/internal/neighbors"
+	"github.com/yjlion/gowebfilter/internal/settingsvc"
 )
 
 // Runtime is the shared state passed to every addon.
 type Runtime struct {
 	SettingsPath string
-	Settings     models.GlobalSettings
+
+	// settings is swapped wholesale by ApplySettings; readers take the
+	// pointer, never the struct. It was a plain value field until settings
+	// hot-reload landed, which was safe only because nothing ever wrote it -
+	// every per-connection goroutine reads it.
+	settings atomic.Pointer[models.GlobalSettings]
 
 	CA         *certs.CA
 	LeafIssuer *certs.LeafIssuer
@@ -65,21 +79,107 @@ func New(settingsPath string) (*Runtime, error) {
 
 	rt := &Runtime{
 		SettingsPath: settingsPath,
-		Settings:     s,
 		CA:           ca,
 		LeafIssuer:   leafIssuer,
 		Logs:         logs,
 		Categories:   categories.NewStore(s.CategoriesDir),
 		policyStore:  config.NewPolicyStore(s.PoliciesDir),
 	}
+	rt.settings.Store(&s)
 	rt.ReloadPolicies()
 	return rt, nil
 }
 
-// Start begins watching policies_dir for changes, hot-reloading until ctx
-// is cancelled.
+// Settings returns the live settings snapshot.
+//
+// The pointed-to value is immutable: readers must never write through it,
+// and ApplySettings swaps in a whole new one rather than mutating in place.
+// A pointer rather than a value because GlobalSettings is a large struct
+// with four nested configs and six slices, and this is on the per-request
+// path.
+func (rt *Runtime) Settings() *models.GlobalSettings {
+	if s := rt.settings.Load(); s != nil {
+		return s
+	}
+	// A zero-value Runtime built as a struct literal (tests do this) has no
+	// snapshot. Returning documented defaults beats a nil dereference on a
+	// per-request path; New always stores one before anything can read it.
+	return &defaultSettings
+}
+
+// defaultSettings backs Settings() for a Runtime that never had one stored.
+// Shared, so it must never be written through - the same rule that applies
+// to every pointer Settings() returns.
+var defaultSettings = models.NewGlobalSettings()
+
+// SetSettings replaces the entire snapshot, restart-required fields
+// included. This is the constructor's path and the one tests use to stand up
+// a runtime with specific settings; hot-reload goes through ApplySettings
+// instead, which deliberately leaves restart-required fields alone.
+func (rt *Runtime) SetSettings(s models.GlobalSettings) {
+	rt.settings.Store(&s)
+}
+
+// ApplySettings swaps in the hot fields of next, keeping every
+// restart-required field at the value currently in effect
+// (settingsvc.MergeHot). It returns the field names that changed but need a
+// restart, so a caller can report them.
+//
+// Side effects are limited to stores that support being re-pointed at
+// runtime; anything requiring a rebind or a reopened handle is
+// restart-required by classification and is not touched here.
+func (rt *Runtime) ApplySettings(next models.GlobalSettings) []string {
+	live := rt.Settings()
+	if live == nil {
+		rt.settings.Store(&next)
+		return nil
+	}
+
+	pending := settingsvc.RestartRequired(*live, next)
+	merged := settingsvc.MergeHot(*live, next)
+	rt.settings.Store(&merged)
+
+	// categories_dir is classified hot precisely because the store can be
+	// re-pointed; mgmtapi already does this per request.
+	if rt.Categories != nil && merged.CategoriesDir != live.CategoriesDir {
+		rt.Categories.Configure(merged.CategoriesDir)
+	}
+	return pending
+}
+
+// ReloadSettings re-reads settings.json from disk and applies it. Called by
+// the settings watcher, and directly by front-ends whose platform makes
+// fsnotify unreliable (Android) or whose writer is another process.
+func (rt *Runtime) ReloadSettings() {
+	next, err := config.LoadSettings(rt.SettingsPath)
+	if err != nil {
+		slog.Warn("settings: reload failed, keeping current settings", "err", err)
+		return
+	}
+	pending := rt.ApplySettings(next)
+	if len(pending) > 0 {
+		slog.Info("settings: reloaded; some changes need a restart",
+			"restart_required", strings.Join(pending, ","))
+		return
+	}
+	slog.Info("settings: reloaded")
+}
+
+// Start begins watching policies_dir and settings.json for changes,
+// hot-reloading until ctx is cancelled.
+//
+// The settings watcher watches the file's *directory*, not the file:
+// config.atomicWriteFile writes a temp file and renames it into place, so a
+// watch on the file itself would follow the replaced inode and go deaf after
+// the first save. Watching the directory is also what makes the split-process
+// deployment work, where `webfilter mgmt` writes the file and `webfilter
+// proxy` has to notice.
 func (rt *Runtime) Start(ctx context.Context) {
-	go config.WatchDir(ctx, rt.policyStore.Dir, 300*time.Millisecond, rt.ReloadPolicies)
+	config.WatchDir(ctx, rt.policyStore.Dir, 300*time.Millisecond, rt.ReloadPolicies)
+
+	if dir := filepath.Dir(rt.SettingsPath); dir != "" {
+		config.WatchDir(ctx, dir, 300*time.Millisecond, rt.ReloadSettings)
+	}
 }
 
 // ReloadPolicies re-reads every policies/*.json file immediately (also

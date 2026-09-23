@@ -81,7 +81,7 @@ func (fc *FlowContext) Block(reason, component string) {
 		customMessage = fc.Policy.BlockPage.Message
 	}
 
-	lang := fc.Runtime.Settings.UILanguage
+	lang := fc.Runtime.Settings().UILanguage
 	if _, ok := blockI18N[lang]; !ok {
 		lang = "en"
 	}

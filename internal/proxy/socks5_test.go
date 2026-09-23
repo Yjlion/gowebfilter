@@ -67,7 +67,7 @@ func startSocksEngine(t *testing.T, trustedOrigin *httptest.Server, extra map[st
 		transport.TLSClientConfig = &tls.Config{RootCAs: pool}
 	}
 
-	eng := &proxy.Engine{Settings: rt.Settings, Runtime: rt, Transport: transport}
+	eng := &proxy.Engine{Settings: *rt.Settings(), Runtime: rt, Transport: transport}
 	if buildPipeline != nil {
 		eng.Pipeline = buildPipeline(rt)
 	}
