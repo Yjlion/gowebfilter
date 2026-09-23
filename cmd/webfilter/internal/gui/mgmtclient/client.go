@@ -9,6 +9,8 @@ package mgmtclient
 
 import (
 	"bytes"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -93,8 +95,30 @@ func (c *Client) SetSessionCookie(name, value string) error {
 	return nil
 }
 
+// WithRootCAs makes the client trust caPEM in addition to nothing else,
+// which is what a management server running mgmt_tls with a CA-minted leaf
+// needs: the certificate is signed by the runtime CA, which no system trust
+// store knows about.
+//
+// Deliberately a CA pool rather than InsecureSkipVerify even though this
+// only ever talks to loopback - skipping verification would also silently
+// accept a real certificate mismatch if the GUI were ever pointed at a
+// remote instance.
+func WithRootCAs(caPEM []byte) Option {
+	return func(c *Client) error {
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(caPEM) {
+			return errors.New("mgmtclient: no certificates found in CA PEM")
+		}
+		c.httpc.Transport = &http.Transport{
+			TLSClientConfig: &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12},
+		}
+		return nil
+	}
+}
+
 // New builds a client for the management API at baseURL
-// (e.g. "http://127.0.0.1:8000").
+// (e.g. "http://127.0.0.1:8000", or "https://..." with WithRootCAs).
 func New(baseURL string, opts ...Option) (*Client, error) {
 	jar, err := cookiejar.New(nil)
 	if err != nil {

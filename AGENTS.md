@@ -197,6 +197,14 @@ for local dev. They persist to disk; the mgmt API's
 - NSFW images are also embedded as `data:image/...` URIs inside HTML/CSS/JS
   and JSON; image classifier inline scanning handles those.
 - Settings changes need a restart; policy changes hot-reload.
+- `mgmt_tls` serves the management UI over TLS. With a CA-minted leaf,
+  `/api/ca-cert` and `/proxy.pac` sit behind a warning the CA itself would
+  resolve - install it out of band or use `mgmt_cert_file`/`mgmt_key_file`.
+  Android sets `mgmtapi.Server.ForcePlaintext` (the WebView cannot trust a
+  CA-minted leaf, and MDM could otherwise lock an admin out). The SNI-less
+  fallback lives once in `certs.ServerTLSConfig`, shared with
+  `Engine.proxyTLSConfig`. The session cookie's `Secure` flag is conditional
+  on `mgmt_tls` - unconditional would break plaintext logins.
 - `/metrics` counters are in-process: standalone `webfilter mgmt` reports
   zeroes for every engine family, so scrape a process that serves traffic.
   Do not "fix" that with scrape-time SQL against `logstore` (single-writer

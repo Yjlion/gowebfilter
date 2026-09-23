@@ -376,6 +376,20 @@ Request/block/audit logs go to SQLite at `logs/webfilter.db`.
   HTML/CSS/JS/JSON bodies and rewrites matching data URIs in place — see
   `filterInlineImages` in `internal/proxy/addons/image_classifier.go` and
   its tests before touching the Content-Type gating.
+- **`mgmt_tls` has a bootstrapping consequence, and Android must never
+  honour it.** With a CA-minted management leaf, `/api/ca-cert` is served
+  over HTTPS signed by the CA the client has not installed yet, and WPAD
+  clients will not fetch `/proxy.pac` from an endpoint they do not trust —
+  install the CA out of band or set `mgmt_cert_file`/`mgmt_key_file`. The
+  Android path sets `mgmtapi.Server.ForcePlaintext` because the WebView (and
+  the PAC URL the app advertises) has no trust path to that leaf, and an MDM
+  `settings_json` push could otherwise remotely lock an admin out of the only
+  UI the device has. The SNI-less fallback (IP-literal clients send no SNI,
+  so the leaf is issued for the address the connection landed on) lives once
+  in `certs.ServerTLSConfig` and is shared with `Engine.proxyTLSConfig` —
+  don't reimplement it. The session cookie's `Secure` flag is conditional on
+  `mgmt_tls`; making it unconditional breaks login on every plaintext
+  deployment, since the browser then never sends the cookie back.
 - **`/metrics` counters are in-process, and `/health` must stay cheap.**
   Under standalone `webfilter mgmt` the engine is a different process, so
   every engine-side family reports zero — scrape a process that serves

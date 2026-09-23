@@ -125,7 +125,7 @@ positives have real cost and should be an explicit opt-in.
 Config lives entirely on disk, matching the Python original's layout:
 
 - `config/settings.json` - global settings. Requires a restart to pick up
-  changes.
+  changes. Set `mgmt_tls` to serve the management UI over HTTPS (below).
 - `policies/*.json` - per-client policies. Hot-reloaded; edit via the UI or
   the file directly.
 - `certs/` - generated CA + leaf certificate cache.
@@ -135,6 +135,25 @@ Config lives entirely on disk, matching the Python original's layout:
 
 Runtime state is generated or copied from the shipped `.example` templates
 and is not committed to the repo.
+
+### Management HTTPS
+
+`mgmt_tls` serves the management UI and API over TLS, including the login
+request. The certificate is either a pair you supply
+(`mgmt_cert_file`/`mgmt_key_file` - the path for a publicly trusted
+certificate) or one minted on demand by the runtime CA, the same issuer the
+proxy uses for TLS-wrapped listeners.
+
+One consequence of the CA-minted option is worth knowing before enabling
+it: the CA download at `/api/ca-cert` is then itself served over HTTPS
+signed by the CA the client has not installed yet, so the first fetch warns.
+WPAD clients will likewise not fetch `/proxy.pac` from an endpoint they do
+not trust. Install `certs/ca.crt` out of band first, supply a real
+certificate, or leave `mgmt_tls` off if you distribute PAC from this port.
+
+The Android app always serves its management UI over plain loopback HTTP
+regardless of this setting - its WebView has no trust path to a CA-minted
+leaf.
 
 ## Monitoring
 

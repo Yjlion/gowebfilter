@@ -115,6 +115,12 @@ func startEngine(dataDir string, tunFd int, proxyOnly bool) error {
 		return fmt.Errorf("build mgmt server: %w", err)
 	}
 	mgmtSrv.OnCARotated = rt.LeafIssuer.Clear
+	// Android always serves the management UI over plain loopback HTTP,
+	// whatever settings.json says. The WebView that renders it has no trust
+	// path to a CA-minted management leaf, and neither does the PAC URL the
+	// app hands out - so honouring mgmt_tls here would break the only UI the
+	// device has, and a managed-configuration push could do it remotely.
+	mgmtSrv.ForcePlaintext = true
 
 	ctx, cancel := context.WithCancel(context.Background())
 	rt.Start(ctx)

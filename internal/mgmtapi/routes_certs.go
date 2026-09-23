@@ -68,6 +68,10 @@ func (s *Server) handleCertsImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.CA = newCA
+	// The management server's own TLS leaves (mgmt_tls) are minted from
+	// s.CA, so the issuer must be dropped here or HTTPS on this interface
+	// would keep presenting leaves signed by the CA that was just replaced.
+	s.ResetTLSLeafIssuer()
 	if s.OnCARotated != nil {
 		s.OnCARotated()
 	}

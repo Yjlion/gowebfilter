@@ -32,6 +32,9 @@ type SettingsForm struct {
 	PacDirectIPs     string // one per line
 	DisableTray      bool
 
+	MgmtTLS        bool
+	MgmtCertFile   string
+	MgmtKeyFile    string
 	MetricsEnabled bool
 	MetricsToken   string
 
@@ -60,6 +63,9 @@ func LoadSettingsForm(s models.GlobalSettings) SettingsForm {
 		PacDirectHosts:   strings.Join(s.PacDirectHosts, ", "),
 		PacDirectIPs:     strings.Join(s.PacDirectIPs, ", "),
 		DisableTray:      s.DisableTray,
+		MgmtTLS:          s.MgmtTLS,
+		MgmtCertFile:     s.MgmtCertFile,
+		MgmtKeyFile:      s.MgmtKeyFile,
 		MetricsEnabled:   s.MetricsEnabled,
 		MetricsToken:     s.MetricsToken,
 
@@ -105,6 +111,9 @@ func (f SettingsForm) Apply(base models.GlobalSettings) (models.GlobalSettings, 
 	out.PacDirectHosts = SplitLines(f.PacDirectHosts)
 	out.PacDirectIPs = SplitLines(f.PacDirectIPs)
 	out.DisableTray = f.DisableTray
+	out.MgmtTLS = f.MgmtTLS
+	out.MgmtCertFile = strings.TrimSpace(f.MgmtCertFile)
+	out.MgmtKeyFile = strings.TrimSpace(f.MgmtKeyFile)
 	out.MetricsEnabled = f.MetricsEnabled
 	out.MetricsToken = strings.TrimSpace(f.MetricsToken)
 
