@@ -38,6 +38,7 @@ type controller struct {
 	running  bool
 	mode     string // "vpn" (TUN capture) or "proxy" (listeners only)
 	cancel   context.CancelFunc
+	serving  sync.WaitGroup // engine + mgmt Serve goroutines
 	dataDir  string
 	mgmtURL  string
 	settings string // absolute settings.json path
@@ -126,12 +127,15 @@ func startEngine(dataDir string, tunFd int, proxyOnly bool) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	rt.Start(ctx)
 
+	ctl.serving.Add(2)
 	go func() {
+		defer ctl.serving.Done()
 		if err := eng.Serve(ctx, listeners); err != nil {
 			logMobile("proxy engine stopped: %v", err)
 		}
 	}()
 	go func() {
+		defer ctl.serving.Done()
 		if err := app.ServeMgmt(ctx, mgmtSrv); err != nil {
 			logMobile("mgmt server stopped: %v", err)
 		}
@@ -144,6 +148,7 @@ func startEngine(dataDir string, tunFd int, proxyOnly bool) error {
 			for _, ln := range listeners {
 				_ = ln.Close()
 			}
+			ctl.serving.Wait()
 			rt.Logs.Close()
 			mgmtSrv.Logs.Close()
 			return fmt.Errorf("start tun2socks: %w", err)
@@ -178,6 +183,10 @@ func Stop() {
 	if ctl.cancel != nil {
 		ctl.cancel()
 	}
+	// Cancelling only asks the listeners to close; wait until they have, or
+	// an immediate re-Start (VpnService revoke/reconnect) can race the close
+	// and fail with "address already in use".
+	ctl.serving.Wait()
 	// Both the runtime and the mgmt server hold their own sqlite write
 	// connection on the same DB file (logstore.Configure opens a fresh one
 	// per caller), so both must be closed or a VpnService revoke/reconnect

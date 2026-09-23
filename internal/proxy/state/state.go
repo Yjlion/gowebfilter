@@ -175,10 +175,10 @@ func (rt *Runtime) ReloadSettings() {
 // deployment work, where `webfilter mgmt` writes the file and `webfilter
 // proxy` has to notice.
 func (rt *Runtime) Start(ctx context.Context) {
-	go config.WatchDir(ctx, rt.policyStore.Dir, 300*time.Millisecond, rt.ReloadPolicies)
+	config.WatchDir(ctx, rt.policyStore.Dir, 300*time.Millisecond, rt.ReloadPolicies)
 
 	if dir := filepath.Dir(rt.SettingsPath); dir != "" {
-		go config.WatchDir(ctx, dir, 300*time.Millisecond, rt.ReloadSettings)
+		config.WatchDir(ctx, dir, 300*time.Millisecond, rt.ReloadSettings)
 	}
 }
 
