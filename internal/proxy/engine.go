@@ -23,6 +23,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/yjlion/gowebfilter/internal/certs"
 	"github.com/yjlion/gowebfilter/internal/config"
 	"github.com/yjlion/gowebfilter/internal/metrics"
 	"github.com/yjlion/gowebfilter/internal/models"
@@ -192,26 +193,12 @@ func (e *Engine) Listen() ([]Listener, error) {
 // (https@ / tls@ / tls+<base>@). The proxy presents a leaf issued on the fly
 // by the runtime CA for the SNI the client sent (falling back to a fixed name
 // for SNI-less clients), so a client that already trusts the CA for MITM also
-// trusts the proxy endpoint itself. Only http/1.1 is advertised, matching the
-// rest of the engine's no-h2 stance.
+// trusts the proxy endpoint itself.
+//
+// The implementation is shared with the management server's mgmt_tls mode
+// (internal/app.ServeMgmt) so the two cannot drift on the SNI-less rule.
 func (e *Engine) proxyTLSConfig() *tls.Config {
-	return &tls.Config{
-		GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-			name := hello.ServerName
-			if name == "" && hello.Conn != nil {
-				// SNI-less clients (notably those pointed at an IP-literal
-				// proxy endpoint, for which no TLS client sends SNI) get a
-				// leaf for the address they actually connected to, so
-				// hostname/IP verification against it still passes.
-				name = hostOnlyOf(hello.Conn.LocalAddr().String())
-			}
-			if name == "" {
-				name = "webfilter-proxy"
-			}
-			return e.Runtime.LeafIssuer.CertificateFor(name)
-		},
-		NextProtos: []string{"http/1.1"},
-	}
+	return certs.ServerTLSConfig(e.Runtime.LeafIssuer, "webfilter-proxy")
 }
 
 // Serve accepts connections on every listener until ctx is cancelled or

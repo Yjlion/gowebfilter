@@ -8,9 +8,11 @@ package settingsvc
 
 import (
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"strings"
 
 	"github.com/yjlion/gowebfilter/internal/gateway"
 	"github.com/yjlion/gowebfilter/internal/models"
@@ -102,7 +104,36 @@ func MergeSettings(cur models.GlobalSettings, body []byte) (models.GlobalSetting
 	if err := gateway.ValidateConfig(merged.Gateway, merged.MgmtPort); err != nil {
 		return models.GlobalSettings{}, &ValidationError{Msg: err.Error()}
 	}
+	if err := validateMgmtTLS(merged); err != nil {
+		return models.GlobalSettings{}, err
+	}
 	return merged, nil
+}
+
+// validateMgmtTLS rejects a management-TLS configuration that would fail at
+// the next start. Catching it here turns "the UI never comes back after a
+// restart" into a 400 with a reason, which matters because an operator
+// enabling HTTPS on the management interface is editing it *through* that
+// same interface.
+//
+// An empty cert/key pair is valid and means "mint a leaf from the runtime
+// CA"; only a half-configured or unusable pair is an error.
+func validateMgmtTLS(s models.GlobalSettings) error {
+	certFile := strings.TrimSpace(s.MgmtCertFile)
+	keyFile := strings.TrimSpace(s.MgmtKeyFile)
+
+	if (certFile == "") != (keyFile == "") {
+		return &ValidationError{Msg: "Set both mgmt_cert_file and mgmt_key_file, or neither (to use the built-in CA)."}
+	}
+	if certFile == "" {
+		return nil
+	}
+	// Load it now rather than discovering at startup that the pair is
+	// mismatched, unreadable or not a certificate at all.
+	if _, err := tls.LoadX509KeyPair(certFile, keyFile); err != nil {
+		return &ValidationError{Msg: "Management TLS certificate could not be loaded: " + err.Error()}
+	}
+	return nil
 }
 
 // SettingsDTO strips the three secret fields and adds the two derived

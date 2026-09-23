@@ -177,3 +177,48 @@ func TestMergePolicyPatchInvalidJSON(t *testing.T) {
 		t.Fatalf("expected ValidationError, got %v", err)
 	}
 }
+
+// A half-configured management TLS pair must be rejected at PUT time, not
+// discovered at the next start - the operator is editing this through the
+// very interface it would break.
+func TestMergeSettingsRejectsHalfConfiguredMgmtTLS(t *testing.T) {
+	cur := models.NewGlobalSettings()
+
+	for _, body := range []string{
+		`{"mgmt_tls":true,"mgmt_cert_file":"/tmp/only-cert.pem"}`,
+		`{"mgmt_tls":true,"mgmt_key_file":"/tmp/only-key.pem"}`,
+	} {
+		if _, err := MergeSettings(cur, []byte(body)); err == nil {
+			t.Errorf("%s was accepted; want a validation error", body)
+		} else if !IsValidationError(err) {
+			t.Errorf("%s gave %v; want a ValidationError (400, not 500)", body, err)
+		}
+	}
+}
+
+// An unreadable or mismatched pair must also fail validation rather than
+// taking the management server down on the next restart.
+func TestMergeSettingsRejectsUnloadableMgmtTLSPair(t *testing.T) {
+	cur := models.NewGlobalSettings()
+	body := `{"mgmt_tls":true,"mgmt_cert_file":"/nonexistent/cert.pem","mgmt_key_file":"/nonexistent/key.pem"}`
+
+	if _, err := MergeSettings(cur, []byte(body)); err == nil {
+		t.Error("a nonexistent certificate pair was accepted")
+	} else if !IsValidationError(err) {
+		t.Errorf("got %v; want a ValidationError", err)
+	}
+}
+
+// mgmt_tls with no cert files is the supported "mint from the runtime CA"
+// mode and must validate cleanly.
+func TestMergeSettingsAllowsMgmtTLSWithoutCertFiles(t *testing.T) {
+	cur := models.NewGlobalSettings()
+
+	got, err := MergeSettings(cur, []byte(`{"mgmt_tls":true}`))
+	if err != nil {
+		t.Fatalf("mgmt_tls without cert files was rejected: %v", err)
+	}
+	if !got.MgmtTLS {
+		t.Error("mgmt_tls did not survive the merge")
+	}
+}

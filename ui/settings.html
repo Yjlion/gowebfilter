@@ -397,6 +397,34 @@
           </div>
         </div>
 
+        <!-- Management HTTPS -->
+        <div class="bg-card rounded-xl shadow-sm border border-gray-100 p-6 space-y-4 mt-4">
+          <div>
+            <h2 class="text-sm font-semibold text-gray-900">Management HTTPS</h2>
+            <p class="text-xs text-gray-500 mt-0.5">Serve this interface over TLS instead of plain HTTP &mdash; including the login request. Restart after saving changes.</p>
+          </div>
+          <label class="flex items-center gap-3 cursor-pointer">
+            <input type="checkbox" class="w-4 h-4 accent-blue-600" x-model="settings.mgmt_tls" />
+            <span class="text-sm text-gray-700">Serve the management interface over HTTPS</span>
+          </label>
+          <div x-show="settings.mgmt_tls" class="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2">
+            <p class="text-xs text-amber-800"><span class="font-semibold">Before you enable this without a certificate below:</span> the built-in CA signs the certificate, so browsers warn until that CA is installed &mdash; and the CA download at <span class="font-mono">/api/ca-cert</span> would itself be behind that warning. Install <span class="font-mono">certs/ca.crt</span> on your machine first, or supply a publicly trusted certificate. WPAD clients will also stop fetching <span class="font-mono">/proxy.pac</span> from an endpoint they do not trust, so leave this off if you distribute PAC from this port.</p>
+          </div>
+          <div x-show="settings.mgmt_tls">
+            <label class="text-xs font-medium text-gray-700 block mb-1">Certificate file <span class="text-gray-400">(optional &mdash; leave blank to use the built-in CA)</span></label>
+            <input type="text" x-model="settings.mgmt_cert_file" placeholder="/etc/ssl/certs/webfilter.pem"
+                   autocomplete="off" spellcheck="false"
+                   class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div x-show="settings.mgmt_tls">
+            <label class="text-xs font-medium text-gray-700 block mb-1">Private key file</label>
+            <input type="text" x-model="settings.mgmt_key_file" placeholder="/etc/ssl/private/webfilter.key"
+                   autocomplete="off" spellcheck="false"
+                   class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <p class="text-xs text-gray-400 mt-1">Set both or neither. The pair is loaded and checked when you save, so a bad path is reported here rather than taking the interface down on the next restart.</p>
+          </div>
+        </div>
+
         <!-- Authentication -->
         <div class="bg-card rounded-xl shadow-sm border border-gray-100 p-6 space-y-4 mt-4">
           <div>

@@ -55,7 +55,14 @@ func (ManagementAccess) HandleRequest(fc *proxy.FlowContext) {
 		if strings.Contains(proxyIP, ":") && !strings.HasPrefix(proxyIP, "[") {
 			proxyIP = "[" + proxyIP + "]"
 		}
-		location := fmt.Sprintf("http://%s:%d/", proxyIP, mgmtPort)
+		// The scheme has to follow mgmt_tls, or this redirect sends the
+		// browser to http:// against a TLS listener and it lands on a
+		// protocol error instead of the UI.
+		scheme := "http"
+		if settings.MgmtTLS {
+			scheme = "https"
+		}
+		location := fmt.Sprintf("%s://%s:%d/", scheme, proxyIP, mgmtPort)
 		fc.Response = &http.Response{
 			StatusCode: http.StatusFound,
 			Header: http.Header{

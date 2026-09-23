@@ -210,6 +210,16 @@ for local dev. They persist to disk; the mgmt API's
   through. `Engine.Settings` is the startup snapshot (bind-time decisions
   only); per-request reads go through `Runtime.Settings()` /
   `Engine.LiveSettings()`.
+- `mgmt_tls` serves the management UI over TLS. With a CA-minted leaf,
+  `/api/ca-cert` and `/proxy.pac` sit behind a warning the CA itself would
+  resolve - install it out of band or use `mgmt_cert_file`/`mgmt_key_file`.
+  Android sets `mgmtapi.Server.ForcePlaintext` (the WebView cannot trust a
+  CA-minted leaf, and MDM could otherwise lock an admin out). The SNI-less
+  fallback lives once in `certs.ServerTLSConfig`, shared with
+  `Engine.proxyTLSConfig`. The session cookie's `Secure` flag follows the
+  connection (`r.TLS != nil`), not `mgmt_tls` - unconditional would break
+  plaintext logins, and the setting can disagree with what is served
+  (restart-required; `ForcePlaintext`).
 - `/metrics` counters are in-process: standalone `webfilter mgmt` reports
   zeroes for every engine family, so scrape a process that serves traffic.
   Do not "fix" that with scrape-time SQL against `logstore` (single-writer

@@ -122,13 +122,17 @@ not speculative.
   the admin and breaks on every password change. Revocable, optionally
   read-only tokens would fix both.
 
-- [ ] **HTTPS for the management UI.** `M`
-  The mgmt server is plaintext HTTP only — including the login POST. The
-  runtime CA can mint its leaf, mirroring what `Engine.dispatchConn`
-  (`internal/proxy/engine.go:250`) already does for TLS-wrapped proxy
-  listeners.
-  Touches: `app.ServeMgmt` (`internal/app/engine.go:120`),
-  `internal/mgmtapi/server.go`.
+- [x] **HTTPS for the management UI.** `M`
+  `mgmt_tls` serves the UI and API (including the login POST) over TLS.
+  Certificate comes from `mgmt_cert_file`/`mgmt_key_file` when set, and is
+  otherwise minted by the runtime CA through `certs.ServerTLSConfig` — the
+  SNI-less fallback rule is now shared with `Engine.proxyTLSConfig` instead
+  of duplicated. Android forces plaintext (`Server.ForcePlaintext`): the
+  WebView has no trust path to a CA-minted leaf, and an MDM push could
+  otherwise lock an admin out. Documented caveat: with a CA-minted
+  certificate, `/api/ca-cert` and `/proxy.pac` sit behind a warning the CA
+  itself would resolve, so install the CA out of band or use a real
+  certificate.
 
 - [x] **Settings hot-reload.** `L`
   `settingsvc`'s `hotFields` allowlist classifies every field (unknown =

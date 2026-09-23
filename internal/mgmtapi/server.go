@@ -59,8 +59,47 @@ type Server struct {
 	// standalone `mgmt`, where the nil Ref falls back to the settings view.
 	Gateway *gateway.Ref
 
+	// ForcePlaintext makes ServeMgmt ignore mgmt_tls and serve plain HTTP.
+	// Set by the Android path (mobile/): the WebView that renders this UI has
+	// no trust path to a CA-minted management leaf, and neither does the PAC
+	// URL the app hands out, so a managed-configuration push that enabled
+	// mgmt_tls would otherwise lock an admin out of their own device UI.
+	ForcePlaintext bool
+
 	settingsMu sync.RWMutex
 	settings   models.GlobalSettings
+
+	leafMu     sync.Mutex
+	leafIssuer *certs.LeafIssuer
+}
+
+// TLSLeafIssuer returns the issuer that mints management-endpoint leaves
+// from the current CA, building it on first use.
+//
+// It is rebuilt rather than merely cleared when the CA is replaced: a
+// LeafIssuer holds its CA by pointer, and POST /api/certs/import swaps
+// Server.CA for a different *CA entirely, so a Clear() alone would keep
+// issuing from the old one.
+func (s *Server) TLSLeafIssuer() (*certs.LeafIssuer, error) {
+	s.leafMu.Lock()
+	defer s.leafMu.Unlock()
+	if s.leafIssuer != nil {
+		return s.leafIssuer, nil
+	}
+	li, err := certs.NewLeafIssuer(s.CA)
+	if err != nil {
+		return nil, err
+	}
+	s.leafIssuer = li
+	return li, nil
+}
+
+// ResetTLSLeafIssuer drops the cached issuer so the next handshake mints
+// from whatever CA is current. Called after a CA import.
+func (s *Server) ResetTLSLeafIssuer() {
+	s.leafMu.Lock()
+	s.leafIssuer = nil
+	s.leafMu.Unlock()
 }
 
 // NewServer loads settings.json once and wires up the policy store, log
