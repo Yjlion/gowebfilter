@@ -475,6 +475,30 @@
           </div>
         </div>
 
+        <!-- Monitoring -->
+        <div class="bg-card rounded-xl shadow-sm border border-gray-100 p-6 space-y-4 mt-4">
+          <div>
+            <h2 class="text-sm font-semibold text-gray-900">Monitoring</h2>
+            <p class="text-xs text-gray-500 mt-0.5">Prometheus metrics and a health endpoint for load balancers. <span class="font-mono">/health</span> is always available and needs no authentication &mdash; a load balancer cannot log in.</p>
+          </div>
+          <label class="flex items-center gap-3 cursor-pointer">
+            <input type="checkbox" class="w-4 h-4 accent-blue-600" x-model="settings.metrics_enabled" />
+            <span class="text-sm text-gray-700">Expose Prometheus metrics at <span class="font-mono">/metrics</span></span>
+          </label>
+          <div x-show="settings.metrics_enabled">
+            <label class="text-xs font-medium text-gray-700 block mb-1">Scrape token <span class="text-gray-400">(optional)</span></label>
+            <input type="text" x-model="settings.metrics_token" placeholder="Leave blank to require a login session"
+                   autocomplete="off" spellcheck="false"
+                   class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <p class="text-xs text-gray-400 mt-1">Only needed when management authentication is on: a Prometheus scraper cannot log in, so it sends this instead as <span class="font-mono">Authorization: Bearer &lt;token&gt;</span>. It grants read access to the counters and nothing else &mdash; it is not a second management password, and it is stored and shown in plain text because it has to be copied into a scrape config.</p>
+          </div>
+          <div class="flex flex-wrap gap-3 text-xs">
+            <a :href="pacUrl('/health')" target="_blank" class="px-3 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 font-mono text-gray-700" x-text="pacUrl('/health')"></a>
+            <a x-show="settings.metrics_enabled" :href="pacUrl('/metrics')" target="_blank" class="px-3 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 font-mono text-gray-700" x-text="pacUrl('/metrics')"></a>
+          </div>
+          <p class="text-xs text-gray-400">Counters are per-process: if you run <span class="font-mono">webfilter proxy</span> and <span class="font-mono">webfilter mgmt</span> as separate processes, scrape the one serving traffic &mdash; the management process reports zeroes.</p>
+        </div>
+
         <div class="bg-card rounded-xl shadow-sm border border-gray-100 p-6 mt-4 space-y-5">
           <div>
             <h2 class="text-sm font-semibold text-gray-900 mb-1" data-i18n="set.caCert">CA Certificate</h2>

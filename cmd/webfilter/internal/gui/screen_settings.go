@@ -42,6 +42,8 @@ type settingsScreen struct {
 	mgmtTLS      state.Signal[bool]
 	mgmtCertFile state.Signal[string]
 	mgmtKeyFile  state.Signal[string]
+	metricsOn    state.Signal[bool]
+	metricsToken state.Signal[string]
 	tunEnabled   state.Signal[bool]
 	tunDNS       state.Signal[string]
 	tunRoutes    state.Signal[bool]
@@ -73,6 +75,8 @@ func newSettingsScreen(u *ui) *settingsScreen {
 		mgmtTLS:      state.NewSignal(false),
 		mgmtCertFile: state.NewSignal(""),
 		mgmtKeyFile:  state.NewSignal(""),
+		metricsOn:    state.NewSignal(false),
+		metricsToken: state.NewSignal(""),
 		tunEnabled:   state.NewSignal(false),
 		tunDNS:       state.NewSignal(""),
 		tunRoutes:    state.NewSignal(false),
@@ -116,6 +120,8 @@ func (s *settingsScreen) reload() {
 	s.mgmtTLS.Set(f.MgmtTLS)
 	s.mgmtCertFile.Set(f.MgmtCertFile)
 	s.mgmtKeyFile.Set(f.MgmtKeyFile)
+	s.metricsOn.Set(f.MetricsEnabled)
+	s.metricsToken.Set(f.MetricsToken)
 	s.tunEnabled.Set(f.Tun2SocksEnabled)
 	s.tunDNS.Set(f.Tun2SocksDNSServers)
 	s.tunRoutes.Set(f.Tun2SocksAutoRoutes)
@@ -144,6 +150,8 @@ func (s *settingsScreen) form() uimodel.SettingsForm {
 		MgmtTLS:              s.mgmtTLS.Get(),
 		MgmtCertFile:         s.mgmtCertFile.Get(),
 		MgmtKeyFile:          s.mgmtKeyFile.Get(),
+		MetricsEnabled:       s.metricsOn.Get(),
+		MetricsToken:         s.metricsToken.Get(),
 		Tun2SocksEnabled:     s.tunEnabled.Get(),
 		Tun2SocksDNSServers:  s.tunDNS.Get(),
 		Tun2SocksAutoRoutes:  s.tunRoutes.Get(),
@@ -261,6 +269,11 @@ func (s *settingsScreen) build() widget.Widget {
 		sectionTitle("Upstream proxy"),
 		fieldLabel("Upstream proxy (host:port, empty = direct)"), tf(s.upstream, ""),
 		fieldLabel("Upstream auth (user:pass)"), tf(s.upstreamAuth, ""),
+
+		sectionTitle("Monitoring"),
+		cb("Expose Prometheus metrics at /metrics", s.metricsOn),
+		fieldLabel("Scrape token (only needed when management auth is on; read-only, counters only)"),
+		tf(s.metricsToken, ""),
 
 		sectionTitle("PAC / WPAD"),
 		fieldLabel("Proxy host advertised in proxy.pac"), tf(s.pacProxyHost, ""),

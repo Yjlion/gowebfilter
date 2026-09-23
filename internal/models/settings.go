@@ -61,6 +61,20 @@ type GlobalSettings struct {
 	ProxyAuthUsername     string `json:"proxy_auth_username"`
 	ProxyAuthPasswordHash string `json:"proxy_auth_password_hash"`
 
+	// MetricsEnabled exposes GET /metrics on the management server in the
+	// Prometheus text exposition format. Defaults on: the endpoint carries
+	// only aggregate counters (no hostnames, paths or client addresses) and
+	// sits behind the same auth as the rest of the management API.
+	MetricsEnabled bool `json:"metrics_enabled"`
+
+	// MetricsToken, when set, additionally accepts
+	// `Authorization: Bearer <token>` on /metrics, because a Prometheus
+	// scraper cannot log in and carry a session cookie. Deliberately NOT
+	// treated as a secret by settingsvc: it has to be readable to be copied
+	// into a scrape config, and it grants read access to counters only -
+	// never to the UI or any mutation.
+	MetricsToken string `json:"metrics_token"`
+
 	Tun2Socks Tun2SocksConfig `json:"tun2socks"`
 	Gateway   GatewayConfig   `json:"gateway"`
 	Icap      IcapConfig      `json:"icap"`
@@ -324,6 +338,7 @@ func NewGlobalSettings() GlobalSettings {
 		LogBlocks:        true,
 		LogRequests:      true,
 		LogRetentionDays: 30,
+		MetricsEnabled:   true,
 		PacDirectHosts:   []string{},
 		PacDirectIPs:     []string{},
 		MgmtHostname:     "web.filter",

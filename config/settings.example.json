@@ -20,6 +20,8 @@
   "password_hash": "",
   "secret_key": "",
   "pac_direct_ips": [],
+  "metrics_enabled": true,
+  "metrics_token": "",
   "mgmt_hostname": "web.filter",
   "mgmt_hostname_ip": "",
   "tun2socks": {

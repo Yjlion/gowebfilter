@@ -3,7 +3,9 @@ package addons
 import (
 	"regexp"
 	"strings"
+	"time"
 
+	"github.com/yjlion/gowebfilter/internal/metrics"
 	"github.com/yjlion/gowebfilter/internal/models"
 	"github.com/yjlion/gowebfilter/internal/proxy"
 )
@@ -54,13 +56,27 @@ func keywordScore(text string) float64 {
 }
 
 func (tc TextClassifier) classify(text string, threshold float64) bool {
+	started := time.Now()
+	result := metrics.ResultClean
+	defer func() { metrics.ObserveClassifier("text", started, result) }()
+
 	if keywordScore(text) >= 1.0 {
+		result = metrics.ResultNSFW
 		return true
 	}
 	if tc.Scorer != nil {
-		if p, ok := tc.Scorer.Score(text); ok {
-			return p >= threshold
+		p, ok := tc.Scorer.Score(text)
+		if !ok {
+			// Unscoreable text passes through. Reported as an error rather
+			// than "clean" so a corrupt embedded model is visible as
+			// something other than a sudden drop in detections.
+			result = metrics.ResultError
+			return false
 		}
+		if p >= threshold {
+			result = metrics.ResultNSFW
+		}
+		return p >= threshold
 	}
 	return false
 }

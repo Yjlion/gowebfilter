@@ -85,15 +85,25 @@ not speculative.
   `internal/settingsvc` validation, so a bundle can be checked before import
   and a hand-edited `policies/*.json` before a restart.
 
-- [ ] **Container image.** `S`
-  No Dockerfile in the repo. The binary is static (`CGO_ENABLED=0`, pure-Go
-  SQLite and classifiers), so this is close to free and is the obvious server
-  deployment path. Needs a volume for `config/`, `policies/`, `certs/`,
-  `categories/`, `logs/`.
+- [x] **Container image.** `S`
+  `Dockerfile` + `docker-compose.yml` at the repo root, documented in
+  [docs/docker.md](docs/docker.md). Static binary on Alpine, non-root, one
+  `/data` volume holding `config/`, `policies/`, `certs/`, `categories/` and
+  `logs/`. No settings file is baked in: `config.BootstrapRuntimeFiles`
+  generates one with `0.0.0.0` binds and absolute `/data` paths on first
+  start, which `settings.example.json` (loopback binds, CWD-relative dirs)
+  would not. Built (not published) by the `docker` job in `ci.yml`.
 
-- [ ] **`/metrics` endpoint.** `S`
-  No Prometheus or metrics surface anywhere in the tree. Requests by action,
-  blocks by component, classifier latency, upstream errors.
+- [x] **`/metrics` and `/health` endpoints.** `S`
+  `internal/metrics` is a dependency-free Prometheus text-exposition registry
+  (counters/gauges/histograms); `internal/mgmtapi/routes_ops.go` serves
+  `/metrics` and a cheap unauthenticated `/health`. Instrumented at the
+  existing choke points: `RequestLogger.record`, `FlowContext.LogBlock` plus
+  the two connection-level block sites, both classifiers, the upstream
+  round-trip, and `dispatchConn`. Scrapers authenticate with the optional
+  `metrics_token` bearer, since a scraper cannot hold a session cookie.
+  Documented in [docs/metrics.md](docs/metrics.md), including that counters
+  are per-process and a standalone `mgmt` process reports zeroes.
 
 - [ ] **Category management from the desktop mgmt API.** `M`
   `internal/mgmtapi/routes_categories.go` registers exactly one route,

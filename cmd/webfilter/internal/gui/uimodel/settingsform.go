@@ -32,9 +32,11 @@ type SettingsForm struct {
 	PacDirectIPs     string // one per line
 	DisableTray      bool
 
-	MgmtTLS      bool
-	MgmtCertFile string
-	MgmtKeyFile  string
+	MgmtTLS        bool
+	MgmtCertFile   string
+	MgmtKeyFile    string
+	MetricsEnabled bool
+	MetricsToken   string
 
 	Tun2SocksEnabled     bool
 	Tun2SocksDNSServers  string // one per line
@@ -64,6 +66,8 @@ func LoadSettingsForm(s models.GlobalSettings) SettingsForm {
 		MgmtTLS:          s.MgmtTLS,
 		MgmtCertFile:     s.MgmtCertFile,
 		MgmtKeyFile:      s.MgmtKeyFile,
+		MetricsEnabled:   s.MetricsEnabled,
+		MetricsToken:     s.MetricsToken,
 
 		Tun2SocksEnabled:     s.Tun2Socks.Enabled,
 		Tun2SocksDNSServers:  strings.Join(s.Tun2Socks.DNSServers, ", "),
@@ -110,6 +114,8 @@ func (f SettingsForm) Apply(base models.GlobalSettings) (models.GlobalSettings, 
 	out.MgmtTLS = f.MgmtTLS
 	out.MgmtCertFile = strings.TrimSpace(f.MgmtCertFile)
 	out.MgmtKeyFile = strings.TrimSpace(f.MgmtKeyFile)
+	out.MetricsEnabled = f.MetricsEnabled
+	out.MetricsToken = strings.TrimSpace(f.MetricsToken)
 
 	out.Tun2Socks.Enabled = f.Tun2SocksEnabled
 	out.Tun2Socks.DNSServers = SplitLines(f.Tun2SocksDNSServers)
