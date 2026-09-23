@@ -2,6 +2,7 @@ package mgmtapi_test
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -70,5 +71,55 @@ func TestSessionCookieAuthenticates(t *testing.T) {
 	}
 	if loginCookie.Value != value {
 		t.Errorf("SessionCookie value differs from login-issued cookie")
+	}
+}
+
+// The Secure flag must follow the connection actually serving the login, not
+// the mgmt_tls setting. The two disagree right after mgmt_tls is saved (it is
+// restart-required, so the listener is still plain HTTP) and always on
+// Android (ForcePlaintext). A Secure cookie over plain HTTP is never sent
+// back, so keying on the setting would lock the admin out until a restart.
+func TestLoginCookieSecureFollowsConnection(t *testing.T) {
+	s, ts := newTestServer(t)
+
+	resp, err := ts.Client().Do(mustRequest(t, http.MethodPut, ts.URL+"/api/settings",
+		`{"auth_enabled": true, "new_password": "correcthorse", "mgmt_tls": true}`))
+	if err != nil {
+		t.Fatalf("PUT /api/settings: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("enable auth + mgmt_tls: status = %d, want 200", resp.StatusCode)
+	}
+
+	login := func(client *http.Client, base string) *http.Cookie {
+		t.Helper()
+		resp, err := client.Post(base+"/api/login", "application/json",
+			strings.NewReader(`{"password": "correcthorse"}`))
+		if err != nil {
+			t.Fatalf("POST /api/login: %v", err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("login status = %d, want 200", resp.StatusCode)
+		}
+		name, _ := s.SessionCookie()
+		for _, c := range resp.Cookies() {
+			if c.Name == name {
+				return c
+			}
+		}
+		t.Fatalf("login response did not set cookie %q", name)
+		return nil
+	}
+
+	if c := login(ts.Client(), ts.URL); c.Secure {
+		t.Error("plain-HTTP login set a Secure cookie; the browser would never send it back")
+	}
+
+	tlsTS := httptest.NewTLSServer(s.Router())
+	defer tlsTS.Close()
+	if c := login(tlsTS.Client(), tlsTS.URL); !c.Secure {
+		t.Error("HTTPS login did not set a Secure cookie")
 	}
 }

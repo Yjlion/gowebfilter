@@ -94,6 +94,14 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		Value:    sessionToken(cfg.SecretKey, cfg.PasswordHash),
 		Path:     "/",
 		HttpOnly: true,
+		// Conditional, not unconditional: a Secure cookie is never sent back
+		// over plain HTTP, so setting it always would make login succeed and
+		// then immediately appear to fail on every non-TLS deployment. Keyed
+		// on the connection rather than mgmt_tls, because the setting can
+		// disagree with what is being served: it is restart-required (a
+		// saved-but-not-yet-applied mgmt_tls), and ForcePlaintext overrides
+		// it on Android.
+		Secure:   r.TLS != nil,
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   sessionMaxAge,
 	})
