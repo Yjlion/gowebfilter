@@ -9,11 +9,121 @@ hardware/an OS not available in this environment.
 Before starting anything here, read [CLAUDE.md](CLAUDE.md)'s gotchas — several
 items below are one gotcha away from being implemented wrong.
 
+## 0. Security: default-install takeover
+
+These outrank even the coverage gaps: each one lets someone other than the
+admin turn the filter off, not just slip past it.
+
+- [ ] **The mgmt API is open to every proxied client and every website by default.** `S`
+  `config/settings.example.json` ships `auth_enabled: false` with an empty
+  `password_hash`, and `authMiddleware` passes every request when either is
+  unset (`internal/mgmtapi/middleware.go:47`). `ManagementAccess` lets a LAN
+  client reach the UI at `web.filter`, so a filtered client can edit its own
+  policy. Separately, nothing checks Origin, Host or Content-Type
+  (`readJSON`, `internal/mgmtapi/jsonutil.go`), so any web page can send a
+  preflight-free PUT to `127.0.0.1:8000`, and DNS rebinding can read
+  `GET /api/certs/export`, which includes the CA private key. Fix: require a
+  password on first run (or refuse mutations and mgmt passthrough while auth
+  is off), reject non-JSON bodies, and check Host/Origin.
+
+- [ ] **Android: any installed app can reconfigure the filter.** `M`
+  `mobile/settings.go:18` claims the loopback mgmt server "is only reachable
+  from the app's own WebView". Any app with INTERNET permission can reach
+  `127.0.0.1`, though, and auth is off by default, so any app can
+  `PUT /api/policies/default`. `requireUnlocked` only helps under an MDM lock.
+  Fix: a per-launch secret that only the WebView (and the native screens,
+  which go through the gomobile API anyway) receives.
+
+- [ ] **Session and login hardening.** `S`–`M`
+  The session token is a fixed HMAC of the password hash (`sessionToken`,
+  `internal/mgmtapi/auth.go:27`): the 7-day expiry is enforced only by the
+  browser, logout doesn't revoke it, and a stolen cookie works until the
+  password changes. `handleLogin` (`auth.go:71`) has no rate limit, lockout, or
+  failure logging. `new_password` is accepted without the current password
+  (`internal/settingsvc/settingsvc.go:66`). The cookie never sets `Secure`,
+  there are no CSP / `X-Frame-Options` / `nosniff` headers, and the mgmt
+  `http.Server` has no timeouts (`internal/app/engine.go:155`).
+
+- [ ] **Data race on CA import.** `S`
+  `handleCertsImport` assigns `s.CA = newCA`
+  (`internal/mgmtapi/routes_certs.go:70`) with no lock while the download and
+  export handlers read `s.CA` concurrently. `go test -race` would flag it once
+  a test covers import alongside a download.
+
 ## 1. Filtering coverage gaps
 
 Places traffic escapes the pipeline **today**. These outrank everything below:
 each one is a way the filter silently does nothing. Verified against the code,
 not speculative.
+
+- [ ] **Transparent mode: a forged SNI buys a blind splice to any IP.** `M`
+  `transparent.go:52` takes `hostOnly` from the peeked SNI/Host header, and
+  `handleTunnel` makes the MITM-exclusion and host-gate decisions on that
+  name but then splices to the recovered `origDst`
+  (`internal/proxy/handler.go:210`), which is never checked against the name.
+  A client that sends SNI `chase.com` (MITM-excluded in
+  `policies/default.json.example`) gets an unfiltered tunnel to any IP:443:
+  a VPN, a proxy, or a blocked site reached by address. Explicit CONNECT and
+  SOCKS aren't affected, because there the upstream is dialled *by* the name.
+  Fix: in transparent mode, splice only if `origDst` is in the name's
+  resolution; otherwise MITM or refuse.
+
+- [ ] **Host and URL matching aren't normalised.** `S`
+  `HostMatches`/`fnmatch` (`internal/proxy/matching.go`) are case-sensitive
+  and don't strip a trailing dot, so `blocked.com.` gets past a `blocked.com`
+  or `*.blocked.com` rule in the custom lists and in `HostFilterVerdict`. The
+  same exact-match miss hits `youtubeHosts` and the SafeSearch `domains` sets.
+  Categories already normalise. Path patterns match `URL.String()`
+  (`internal/proxy/addons/url_filter.go:26`), which keeps the client's
+  `RawPath`, so `/%62ad` gets past a `/bad` rule while the server serves
+  `/bad`. Normalise once (lowercase, trim the dot, decode the path) before any
+  matcher sees the host or path.
+
+- [ ] **SafeSearch coverage holes.** `S`–`M`
+  In `internal/proxy/addons/safesearch.go`, Bing's `adlt=strict` and Yandex's
+  `fyandex=1` are only injected under `pathPrefix: "/search"`, so
+  `/images/search` and `/videos/search` get no SafeSearch unless the tab is
+  blocked outright (Brave is covered by its cookie). DuckDuckGo is an exact
+  domain set, so `html.duckduckgo.com` and `lite.duckduckgo.com` escape.
+  Ecosia, Startpage and Qwant aren't listed. YouTube Restricted Mode keys on
+  `.youtube.com` and misses `youtubei.googleapis.com` and
+  `www.youtube-nocookie.com`, both on Google's own enforcement list.
+
+- [ ] **YouTube channel filter coverage.** `M`
+  `youtubeHosts` (`internal/proxy/addons/youtube_filter.go:26`) lacks
+  `music.youtube.com` and `www.youtube-nocookie.com`, so embeds are
+  unfiltered. Only four exact `youtubei` API paths are handled: Shorts
+  (`/youtubei/v1/reel/…`, `/shorts/`) and `/embed/` fall through, and the
+  JSON-only decode means the mobile apps' protobuf responses pass.
+
+- [ ] **The image classifier trusts the server's Content-Type.** `S`
+  `image_classifier.go:175` only scores responses whose header starts with
+  `image/`, case-sensitively. `application/octet-stream` (common on S3), a
+  missing type, or `Image/JPEG` are skipped, yet browsers still render them in
+  `<img>`. Sniff the bytes (`http.DetectContentType`) when the header isn't
+  a known non-image type.
+
+- [ ] **Gateway mode: IPv6 and other ports go around the filter.** `M`
+  `internal/gateway/ruleset.go` only builds a `table ip`, so a gateway that
+  also forwards IPv6 (e.g. it sends router advertisements) passes all IPv6 web
+  traffic untouched. Only `intercept_ports` are redirected and only UDP
+  443/853 is dropped, so TCP/853 (DoT) and HTTPS on other ports are
+  forwarded unfiltered. At minimum, fail closed: drop forwarded IPv6 and
+  TCP/853.
+
+- [ ] **The Android VPN routes no IPv6.** `S`
+  `WebFilterVpnService.kt:71-73` adds only an IPv4 address and
+  `0.0.0.0/0`, so on dual-stack networks IPv6 bypasses the TUN. Nothing
+  documents this for Android (the CLAUDE.md IPv6 note is about desktop TUN).
+  Cheap fix: add an IPv6 address and a `::/0` route, and drop that traffic.
+
+- [ ] **User-Agent exclusion also skips the URL block lists.** `S` (decide first)
+  `mitm_control.go` sets `MitmPassthrough` from the client-supplied
+  User-Agent, and `UrlFilter` deliberately honours it. With
+  `ua_mode: exclude` and, say, `okhttp`, a browser that sets that UA escapes
+  even the explicit block list. Decide whether block lists and categories
+  should still apply to UA-excluded flows (the host gate already applies them
+  to spliced ones).
 
 - [ ] **AVIF and animated WebP fail open.** `M`
   An image with no registered decoder makes `Score` return `ok=false`, which
@@ -133,6 +243,49 @@ not speculative.
   `ci.yml`'s cross-compile matrix, and `internal/tun2socks` has no
   `platform_darwin.go` for route/DNS setup (see `packaging/README.md`).
 
+- [ ] **Android service robustness.** `S`
+  There's no `RECEIVE_BOOT_COMPLETED` receiver and no always-on/lockdown VPN
+  guidance, so after a reboot the filter stays off until the app is opened. A
+  `START_STICKY` restart with a null intent falls through to VPN mode
+  (`WebFilterVpnService.kt:44-53`) and ignores `Prefs.proxyOnlyMode`, so
+  proxy-only users silently lose filtering. `android:allowBackup="true"` with
+  no backup/extraction rules puts the CA key, password hash and
+  `managed.json` in cloud backups, and restoring one can undo an MDM lock.
+
+- [ ] **Android tamper resistance.** `M`–`L`
+  No device-admin receiver and no uninstall protection. `onRevoke` only logs
+  and stops, so revoking the VPN raises no alert. Pairs with the
+  webhook-alerts item above.
+
+- [ ] **Audit settings changes, not just policies.** `S`–`M`
+  Only policy edits reach `policy_changes` (`routes_policies.go`). Turning
+  auth off, changing the password, editing listeners, or importing a CA leaves
+  no record.
+
+- [ ] **Bound the log database.** `S`
+  `Prune` (`internal/logstore/prune.go`) never touches `policy_changes`, only
+  runs every 500 inserts (`write.go:88`, so nothing is pruned while the proxy
+  is idle), and there's no `auto_vacuum`/VACUUM or size cap, so the file
+  never shrinks.
+
+- [ ] **Windows service hardening.** `S`–`M` (partly unverifiable here)
+  `service_windows.go` installs no recovery actions, so the service stays
+  down after a crash. It runs as LocalSystem, slog output probably goes
+  nowhere under the SCM, and relative paths from a hand-written settings.json
+  may resolve under `System32`. Windows TUN capture is still unverified on
+  hardware (HANDOFF.md).
+
+- [ ] **CI depth.** `S`
+  `ci.yml` runs tests without `-race` and has no staticcheck/govulncheck or
+  `gofmt -l` gate. Windows is cross-compiled but never tested. The release
+  job attaches a debug-signed APK.
+
+- [ ] **Mobile API and desktop GUI parity.** `M`
+  The gomobile API has no policy simulator, classifier health, cert
+  export/import, or log export (the WebView covers them). The native GUI shows
+  schedules read-only (`uimodel/policyform.go:53`) and can't edit the
+  SafeSearch engine list.
+
 ## 4. Classifier quality
 
 - [ ] **Measure image-classifier latency and accuracy.** `M`
@@ -152,6 +305,25 @@ not speculative.
   Only the English LDNOOBW-derived seed vocabulary is embedded, so
   `text_classifier` is near-blind outside English. Same licensing constraint as
   above.
+
+## 5. Docs, i18n and tests
+
+- [ ] **Finish the UI translations.** `M`
+  About 100 English keys in `ui/i18n.js`, including the whole Tools page
+  (`nav.tools`, `tools.*`), `th.userAgent` and `th.previousName`, are missing
+  from all six other languages. They fall back to English, which looks worst
+  in the RTL locales. A few keys the UI uses aren't defined even in English
+  (`ed.scheduleDay`, `ed.dohCustom`, `ed.minDimension`, `ed.minDimHelp`).
+
+- [ ] **Doc drift.** `S`
+  `android/README.md` (around line 204) still says the Kotlin sources have
+  never been compiled, which contradicts HANDOFF.md and `android.yml`.
+  AGENTS.md lacks CLAUDE.md's gateway-sysctl gotcha, and the two gotcha
+  lists should be diffed again for other drift.
+
+- [ ] **Test the capability gate.** `S`
+  `internal/netpriv` (the root-or-`CAP_NET_ADMIN` probe TUN capture relies on)
+  has no tests. `cmd/webfilter` has none either.
 
 ## Done
 
