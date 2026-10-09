@@ -1,0 +1,18 @@
+Embedded multilingual word lists
+
+words/*.txt are an unmodified snapshot of the per-language lists from the
+LDNOOBW project ("List of Dirty, Naughty, Obscene, and Otherwise Bad Words"):
+
+  https://github.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words
+  snapshot: commit 5faf2ba42d7b1c0977169ec3611df25a3c08eb13
+
+That project is licensed under Creative Commons Attribution 4.0
+International (CC-BY-4.0) and is copyrighted by Shutterstock, Inc. The
+files keep their upstream names with a .txt suffix added (e.g. "de" ->
+"de.txt").
+
+The files are not edited. Entries that are ordinary words in their own
+language, numeric-only entries, and very short entries in scripts written
+without spaces are filtered out at load time in profanity.go (see the
+`skipped` map and minUnspacedHanLetters and minUnspacedThaiLetters), so the raw lists stay diffable against
+upstream when the snapshot is refreshed.

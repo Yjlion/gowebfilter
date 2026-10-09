@@ -121,3 +121,73 @@ func mustModel(t *testing.T) *Model {
 	}
 	return m
 }
+
+// LDNOOBW entries are light-weight: ordinary swearing alone must stay under
+// the default threshold, in any language.
+func TestScoreSwearingAloneBelowDefaultThreshold(t *testing.T) {
+	m := mustModel(t)
+	for lang, text := range map[string]string{
+		"de": "So ein Arschloch! Der Mistkerl hat mein Fahrrad geklaut, dieser Wichser. Ich bin stinksauer und gehe jetzt nach Hause.",
+		"es": "¡Qué cabrón! Ese gilipollas me robó la bicicleta. Estoy muy enfadado y me voy a casa ahora mismo.",
+		"en": "This fucking printer is shit. What a bullshit morning, the bastard thing jammed again before my meeting.",
+		"ru": "Этот мудак опять сломал принтер, хрен знает что теперь делать. Пойду домой.",
+	} {
+		score, ok := m.Score(text)
+		if !ok {
+			t.Fatalf("%s: Score ok=false", lang)
+		}
+		if score >= 0.8 {
+			t.Errorf("%s swearing scored %.3f, want < 0.8", lang, score)
+		}
+	}
+}
+
+// Dense explicit vocabulary in non-English languages now adds evidence
+// (the old ASCII tokenizer saw none of it).
+func TestScoreNonEnglishExplicitTextRaisesScore(t *testing.T) {
+	m := mustModel(t)
+	cases := []struct{ lang, neutral, explicit string }{
+		{"ja", "今日は公園で散歩をして、美味しいラーメンを食べました。天気がとても良かったです。",
+			"無修正のアダルト動画、フェラチオ、中出し、ぶっかけ、手コキ、潮吹きの動画を毎日更新。"},
+		{"zh", "今天我们去公园散步，然后吃了很好吃的面条。天气非常好。",
+			"免费三级片、色情电影、成人电影、黄色网站、口交、肛交视频每日更新。"},
+		{"ko", "오늘은 공원에서 산책을 하고 맛있는 음식을 먹었습니다.",
+			"무료 포르노 야동 섹스 몰카 하드코어 영상 매일 업데이트"},
+		{"ru", "Сегодня мы гуляли в парке и ели вкусное мороженое.",
+			"Бесплатное порно видео, ебля, минет, анальный секс, сиськи и пизда каждый день."},
+	}
+	for _, c := range cases {
+		neutral, ok1 := m.Score(c.neutral)
+		explicit, ok2 := m.Score(c.explicit)
+		if !ok1 || !ok2 {
+			t.Fatalf("%s: Score ok=false (%v, %v)", c.lang, ok1, ok2)
+		}
+		t.Logf("%s: neutral=%.3f explicit=%.3f", c.lang, neutral, explicit)
+		if explicit <= neutral {
+			t.Errorf("%s: explicit %.3f not above neutral %.3f", c.lang, explicit, neutral)
+		}
+		if neutral >= 0.8 {
+			t.Errorf("%s: neutral text scored %.3f", c.lang, neutral)
+		}
+	}
+}
+
+func TestTokenizeUnicodeWords(t *testing.T) {
+	got := tokenize("Größe ÜBER-Cool пизда")
+	want := []string{"größe", "über", "cool", "пизда"}
+	if len(got) != len(want) {
+		t.Fatalf("tokenize = %v", got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("tokenize = %v, want %v", got, want)
+		}
+	}
+}
+
+func TestScoreUnspacedOnlyTextIsScoreable(t *testing.T) {
+	m := mustModel(t)
+	if _, ok := m.Score("今日はいい天気です"); !ok {
+		t.Fatal("CJK-only text returned ok=false")
+	}
+}

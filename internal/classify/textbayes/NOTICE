@@ -1,6 +1,7 @@
 Embedded adult-text Bayesian scorer data notice
 
-The seed adult vocabulary is curated from concepts present in the English
+The curated, high-weight adult vocabulary (scripts/text_bayes_curated.json)
+is drawn from concepts present in the English
 LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words project:
 
   https://github.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words
@@ -12,3 +13,9 @@ The e2guardian and Redwood pornography lists named in the implementation
 plan were reviewed as references only. Their raw data is not embedded in
 this package by default because redistribution compatibility was not
 confirmed for this project.
+
+Since model version 2, model_data.json also carries every entry of the
+multilingual LDNOOBW lists vendored in internal/classify/profanity/words
+(same project, same CC-BY-4.0 licence, snapshot commit recorded in that
+package's NOTICE) as low-weight features. See
+scripts/build_text_bayes_model.go for the weighting rationale.
