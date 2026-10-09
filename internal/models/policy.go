@@ -50,18 +50,50 @@ func (c *DohConfig) UnmarshalJSON(data []byte) error {
 
 // ---- TextClassifierConfig ----
 
+// TextClassifierMode selects what the text classifier does with a page.
+type TextClassifierMode string
+
+const (
+	// TextModeBlock replaces adult pages with the block page (the original
+	// and default behaviour).
+	TextModeBlock TextClassifierMode = "block"
+	// TextModeCensor never blocks; it masks offensive words in the page
+	// text with asterisks.
+	TextModeCensor TextClassifierMode = "censor"
+	// TextModeBoth blocks adult pages and censors the rest.
+	TextModeBoth TextClassifierMode = "both"
+)
+
+// Blocks reports whether the mode can block a page.
+func (m TextClassifierMode) Blocks() bool { return m != TextModeCensor }
+
+// Censors reports whether the mode masks words.
+func (m TextClassifierMode) Censors() bool { return m == TextModeCensor || m == TextModeBoth }
+
 type TextClassifierConfig struct {
-	Enabled     bool     `json:"enabled"`
-	Threshold   float64  `json:"threshold"`
-	Exclude     []string `json:"exclude"`
-	IncludeOnly []string `json:"include_only"`
+	Enabled     bool               `json:"enabled"`
+	Mode        TextClassifierMode `json:"mode"`
+	Threshold   float64            `json:"threshold"`
+	Exclude     []string           `json:"exclude"`
+	IncludeOnly []string           `json:"include_only"`
+	// CensorWords are extra words/phrases masked in censor modes, on top of
+	// the embedded multilingual list.
+	CensorWords []string `json:"censor_words"`
+	// CensorLanguages pins which languages' Latin-script word lists the
+	// censor uses (e.g. ["en","de"]). Empty means automatic: the page's
+	// <html lang> / Content-Language, falling back to English. Words in
+	// non-Latin scripts are always checked.
+	CensorLanguages []string `json:"censor_languages"`
 }
 
 func NewTextClassifierConfig() TextClassifierConfig {
 	return TextClassifierConfig{
-		Threshold:   0.80,
-		Exclude:     []string{},
-		IncludeOnly: []string{},
+		Mode:            TextModeBlock,
+		Threshold:       0.80,
+		Exclude:         []string{},
+		IncludeOnly:     []string{},
+		CensorWords:     []string{},
+		CensorLanguages: []string{},
 	}
 }
 
@@ -93,6 +125,26 @@ func (c *TextClassifierConfig) UnmarshalJSON(data []byte) error {
 	if v, ok := raw["include_only"]; ok {
 		if err := json.Unmarshal(v, &c.IncludeOnly); err != nil {
 			return err
+		}
+	}
+	if v, ok := raw["mode"]; ok {
+		var m string
+		if err := json.Unmarshal(v, &m); err != nil {
+			return fmt.Errorf("text_classifier.mode: %w", err)
+		}
+		switch mode := TextClassifierMode(strings.ToLower(strings.TrimSpace(m))); mode {
+		case TextModeBlock, TextModeCensor, TextModeBoth:
+			c.Mode = mode
+		default:
+			// Unknown (or empty) modes keep the safe historical behaviour.
+			c.Mode = TextModeBlock
+		}
+	}
+	for key, dst := range map[string]*[]string{"censor_words": &c.CensorWords, "censor_languages": &c.CensorLanguages} {
+		if v, ok := raw[key]; ok && string(v) != "null" {
+			if err := json.Unmarshal(v, dst); err != nil {
+				return fmt.Errorf("text_classifier.%s: %w", key, err)
+			}
 		}
 	}
 	return nil

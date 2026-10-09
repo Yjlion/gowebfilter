@@ -290,3 +290,40 @@ func TestSettingsLegacyProxyPortMigration(t *testing.T) {
 		t.Errorf("MgmtHost = %q, want 127.0.0.1", s.MgmtHost)
 	}
 }
+
+func TestTextClassifierModeDefaultsAndValidation(t *testing.T) {
+	cases := map[string]models.TextClassifierMode{
+		`{}`:                models.TextModeBlock,
+		`{"mode":"censor"}`: models.TextModeCensor,
+		`{"mode":" Both "}`: models.TextModeBoth,
+		`{"mode":"shout"}`:  models.TextModeBlock,
+		`{"mode":""}`:       models.TextModeBlock,
+	}
+	for in, want := range cases {
+		var c models.TextClassifierConfig
+		if err := json.Unmarshal([]byte(in), &c); err != nil {
+			t.Fatalf("%s: %v", in, err)
+		}
+		if c.Mode != want {
+			t.Errorf("%s: Mode = %q, want %q", in, c.Mode, want)
+		}
+		if c.CensorWords == nil || c.CensorLanguages == nil {
+			t.Errorf("%s: censor lists must default to empty, not null", in)
+		}
+	}
+	var c models.TextClassifierConfig
+	if err := json.Unmarshal([]byte(`{"mode":"both","censor_words":["frak"],"censor_languages":["de"]}`), &c); err != nil {
+		t.Fatal(err)
+	}
+	out, _ := json.Marshal(c)
+	var back models.TextClassifierConfig
+	if err := json.Unmarshal(out, &back); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(c, back) {
+		t.Fatalf("round trip changed config: %+v -> %+v", c, back)
+	}
+	if !models.TextModeBoth.Blocks() || !models.TextModeBoth.Censors() || models.TextModeCensor.Blocks() || models.TextModeBlock.Censors() {
+		t.Fatal("mode predicates wrong")
+	}
+}
