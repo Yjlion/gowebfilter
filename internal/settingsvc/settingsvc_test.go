@@ -237,6 +237,15 @@ func TestMergePolicyPatchLegacyCategoriesStillApply(t *testing.T) {
 		t.Fatalf("legacy patch: actions = %v, want %v", p.UrlFilter.CategoryActions, want)
 	}
 
+	// A patch naming category_actions replaces the stored map.
+	p, err = MergePolicyPatch(cur, []byte(`{"url_filter":{"category_actions":{"porn":"block"}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := map[string]models.CategoryAction{"porn": "block"}; !reflect.DeepEqual(p.UrlFilter.CategoryActions, want) {
+		t.Fatalf("actions patch merged instead of replacing: %v", p.UrlFilter.CategoryActions)
+	}
+
 	// A patch touching something else keeps the stored actions.
 	p, err = MergePolicyPatch(cur, []byte(`{"url_filter":{"enabled":true}}`))
 	if err != nil {

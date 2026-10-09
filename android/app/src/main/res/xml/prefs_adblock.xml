@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <SwitchPreferenceCompat
+        android:key="adblock_enabled"
+        android:title="@string/pref_enabled"
+        android:defaultValue="false" />
+
+    <MultiSelectListPreference
+        android:key="adblock_lists"
+        android:title="@string/pref_adblock_lists"
+        android:entries="@array/adblock_list_labels"
+        android:entryValues="@array/adblock_list_values" />
+
+    <SwitchPreferenceCompat
+        android:key="adblock_cosmetic"
+        android:title="@string/pref_adblock_cosmetic"
+        android:summary="@string/pref_adblock_cosmetic_summary"
+        android:defaultValue="true" />
+
+    <EditTextPreference
+        android:key="adblock_allow"
+        android:title="@string/pref_adblock_allow" />
+
+    <Preference
+        android:key="adblock_note"
+        android:summary="@string/pref_adblock_note"
+        android:selectable="false"
+        android:persistent="false" />
+</PreferenceScreen>

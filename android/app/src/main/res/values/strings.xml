@@ -103,8 +103,8 @@
 
     <!-- Category blocklists -->
     <string name="title_categories">Category blocklists</string>
-    <string name="pref_categories_nav">Blocked categories</string>
-    <string name="pref_categories_nav_summary">Download ipfire category lists and pick which ones this policy blocks.</string>
+    <string name="pref_categories_nav">Categories</string>
+    <string name="pref_categories_nav_summary">Download ipfire category lists and set each one to block, allow or off for this policy.</string>
     <string name="categories_hint">Lists download from dbl.ipfire.org onto this device (stored compressed) and are shared by all policies. The checkbox controls whether THIS policy blocks the category. Long-press an installed list to delete it.</string>
     <string name="category_download">Download</string>
     <string name="category_update">Update</string>
@@ -154,4 +154,22 @@
     <string name="engine_youtube">YouTube</string>
     <string name="engine_brave">Brave</string>
     <string name="engine_yandex">Yandex</string>
+    <!-- Category actions (CategoriesActivity) -->
+    <string name="category_action_off">Off</string>
+    <string name="category_action_block">Block</string>
+    <string name="category_action_allow">Allow</string>
+    <string name="pref_url_filter_mode">Sites not matched by any list or category</string>
+
+    <!-- Text classifier censor mode -->
+    <string name="pref_text_mode">Action</string>
+    <string name="pref_censor_words">Extra words to censor</string>
+    <string name="pref_censor_words_summary">One per line. Added to the built-in multilingual list.</string>
+
+    <!-- Adblock -->
+    <string name="cat_adblock">Ad &amp; tracker blocking</string>
+    <string name="pref_adblock_lists">Filter lists</string>
+    <string name="pref_adblock_cosmetic">Hide ad elements on pages</string>
+    <string name="pref_adblock_cosmetic_summary">Injects the lists\' element-hiding rules as CSS.</string>
+    <string name="pref_adblock_allow">Don\'t block ads on these sites</string>
+    <string name="pref_adblock_note">Lists download automatically when a policy uses them and refresh daily. Works on intercepted (HTTPS-inspected) traffic only.</string>
 </resources>

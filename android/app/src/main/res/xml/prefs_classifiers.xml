@@ -7,6 +7,17 @@
             android:key="text_classifier_enabled"
             android:title="@string/pref_enabled"
             android:defaultValue="false" />
+        <ListPreference
+            android:key="text_classifier_mode"
+            android:title="@string/pref_text_mode"
+            android:entries="@array/text_mode_labels"
+            android:entryValues="@array/text_mode_values"
+            android:defaultValue="block"
+            app:useSimpleSummaryProvider="true" />
+        <EditTextPreference
+            android:key="text_classifier_censor_words"
+            android:title="@string/pref_censor_words"
+            android:summary="@string/pref_censor_words_summary" />
         <EditTextPreference
             android:key="text_classifier_threshold"
             android:title="@string/pref_threshold"

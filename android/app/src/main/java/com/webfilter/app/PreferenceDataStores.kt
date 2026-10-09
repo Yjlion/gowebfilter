@@ -3,6 +3,7 @@ package com.webfilter.app
 import android.content.Context
 import android.widget.Toast
 import androidx.preference.PreferenceDataStore
+import org.json.JSONArray
 
 /**
  * Routes androidx.preference widgets to [PolicyJsonStore] instead of
@@ -20,7 +21,7 @@ class PolicyPreferenceDataStore(
         const val DOH_CUSTOM = "__custom__"
     }
 
-    private enum class Kind { BOOL, TEXT, LINES, NUMBER, INT, PRESET }
+    private enum class Kind { BOOL, TEXT, LINES, NUMBER, INT, PRESET, SET }
 
     private class Spec(val path: String, val kind: Kind)
 
@@ -36,9 +37,10 @@ class PolicyPreferenceDataStore(
         put("url_filter_mode", Spec("url_filter.mode", Kind.TEXT))
         put("url_filter_allow", Spec("url_filter.allow", Kind.LINES))
         put("url_filter_block", Spec("url_filter.block", Kind.LINES))
-        // url_filter_categories is edited by CategoriesActivity (checkbox
-        // list), not a preference widget; the MDM restriction of the same
-        // name still exists and is mapped by ManagedConfig.
+        // url_filter_categories / url_filter_category_actions are edited by
+        // CategoriesActivity (per-category block/allow/off), not a preference
+        // widget; the MDM restrictions of those names are mapped by
+        // ManagedConfig.
         put("url_filter_block_quic", Spec("url_filter.block_quic", Kind.BOOL))
         put("youtube_enabled", Spec("youtube.enabled", Kind.BOOL))
         put("youtube_mode", Spec("youtube.mode", Kind.TEXT))
@@ -48,6 +50,12 @@ class PolicyPreferenceDataStore(
         put("youtube_remove_recommendations", Spec("youtube.remove_recommendations", Kind.BOOL))
         put("text_classifier_enabled", Spec("text_classifier.enabled", Kind.BOOL))
         put("text_classifier_threshold", Spec("text_classifier.threshold", Kind.NUMBER))
+        put("text_classifier_mode", Spec("text_classifier.mode", Kind.TEXT))
+        put("text_classifier_censor_words", Spec("text_classifier.censor_words", Kind.LINES))
+        put("adblock_enabled", Spec("adblock.enabled", Kind.BOOL))
+        put("adblock_lists", Spec("adblock.lists", Kind.SET))
+        put("adblock_cosmetic", Spec("adblock.cosmetic", Kind.BOOL))
+        put("adblock_allow", Spec("adblock.allow", Kind.LINES))
         put("image_classifier_enabled", Spec("image_classifier.enabled", Kind.BOOL))
         put("image_classifier_action", Spec("image_classifier.action", Kind.TEXT))
         put("image_classifier_threshold", Spec("image_classifier.threshold", Kind.NUMBER))
@@ -76,6 +84,18 @@ class PolicyPreferenceDataStore(
         store.getBool(spec(key).path, defValue)
 
     override fun putBoolean(key: String, value: Boolean) = write { store.set(spec(key).path, value) }
+
+    // MultiSelectListPreference (adblock_lists) <-> a JSON string array.
+    override fun getStringSet(key: String, defValues: MutableSet<String>?): MutableSet<String> {
+        val arr = store.get(spec(key).path) as? JSONArray ?: return defValues ?: mutableSetOf()
+        return (0 until arr.length()).map { arr.optString(it) }.toMutableSet()
+    }
+
+    override fun putStringSet(key: String, values: MutableSet<String>?) = write {
+        val arr = JSONArray()
+        (values ?: emptySet()).sorted().forEach { arr.put(it) }
+        store.set(spec(key).path, arr)
+    }
 
     override fun getString(key: String, defValue: String?): String {
         val s = spec(key)

@@ -158,6 +158,7 @@ class PrefsFragment : PreferenceFragmentCompat() {
             "nav_url_filter" -> host.openScreen(R.xml.prefs_url_filter, KIND_POLICY)
             "nav_youtube" -> host.openScreen(R.xml.prefs_youtube, KIND_POLICY)
             "nav_classifiers" -> host.openScreen(R.xml.prefs_classifiers, KIND_POLICY)
+            "nav_adblock" -> host.openScreen(R.xml.prefs_adblock, KIND_POLICY)
             "nav_doh" -> host.openScreen(R.xml.prefs_doh, KIND_POLICY)
             "nav_block_page" -> host.openScreen(R.xml.prefs_block_page, KIND_POLICY)
             "nav_general" -> host.openScreen(R.xml.prefs_general, KIND_SETTINGS)

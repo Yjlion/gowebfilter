@@ -122,6 +122,19 @@ object ManagedConfig {
         linesIfSet(b, "url_filter_allow")?.let { urlFilter.put("allow", it) }
         linesIfSet(b, "url_filter_block")?.let { urlFilter.put("block", it) }
         linesIfSet(b, "url_filter_categories")?.let { urlFilter.put("categories", it) }
+        // name:action lines; when present this wins over the legacy list
+        // (the Go side reads categories only when category_actions is absent).
+        linesIfSet(b, "url_filter_category_actions")?.let { lines ->
+            val actions = JSONObject()
+            for (i in 0 until lines.length()) {
+                val parts = lines.optString(i).split(':', limit = 2).map { it.trim() }
+                if (parts.size != 2) continue
+                val name = parts[0]
+                val action = parts[1].lowercase()
+                if (name.isNotEmpty() && (action == "block" || action == "allow")) actions.put(name, action)
+            }
+            urlFilter.put("category_actions", actions)
+        }
         boolIfSet(b, "url_filter_block_quic") { urlFilter.put("block_quic", it) }
         if (urlFilter.length() > 0) policy.put("url_filter", urlFilter)
 
@@ -137,7 +150,16 @@ object ManagedConfig {
         val text = JSONObject()
         boolIfSet(b, "text_classifier_enabled") { text.put("enabled", it) }
         stringIfSet(b, "text_classifier_threshold")?.let { text.put("threshold", it) }
+        stringIfSet(b, "text_classifier_mode")?.let { text.put("mode", it) }
+        linesIfSet(b, "text_classifier_censor_words")?.let { text.put("censor_words", it) }
         if (text.length() > 0) policy.put("text_classifier", text)
+
+        val adblock = JSONObject()
+        boolIfSet(b, "adblock_enabled") { adblock.put("enabled", it) }
+        linesIfSet(b, "adblock_lists")?.let { adblock.put("lists", it) }
+        boolIfSet(b, "adblock_cosmetic") { adblock.put("cosmetic", it) }
+        linesIfSet(b, "adblock_allow")?.let { adblock.put("allow", it) }
+        if (adblock.length() > 0) policy.put("adblock", adblock)
 
         val image = JSONObject()
         boolIfSet(b, "image_classifier_enabled") { image.put("enabled", it) }
