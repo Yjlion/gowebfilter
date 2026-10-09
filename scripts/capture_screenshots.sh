@@ -11,6 +11,7 @@
 #   --out DIR   where to write PNGs (default: <repo>/screenshots)
 #   --port N    mgmt port for the temporary server (default: 8099)
 #   --keep      don't delete the temporary data directory on exit
+#   --only A,B  capture only the named shots (Node driver only)
 #
 # Requires a Chromium/Chrome binary. Set CHROME=/path/to/chromium to point at
 # one explicitly; otherwise the usual names are tried on PATH.
@@ -19,14 +20,17 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT_DIR="$REPO_ROOT/screenshots"
 PORT=8099
+PROXY_PORT=18089
 KEEP=0
+ONLY=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --out)  OUT_DIR="$2"; shift 2 ;;
     --port) PORT="$2"; shift 2 ;;
     --keep) KEEP=1; shift ;;
-    -h|--help) sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --only) ONLY="$2"; shift 2 ;;
+    -h|--help) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
 done
@@ -80,7 +84,7 @@ echo "[shots] building webfilter ..."
 (cd "$REPO_ROOT" && CGO_ENABLED=0 go build -o "$BIN" ./cmd/webfilter)
 
 echo "[shots] seeding sample data ..."
-(cd "$REPO_ROOT" && go run scripts/seed_sample_data.go -dir "$DATA_DIR" -mgmt-port "$PORT" >/dev/null)
+(cd "$REPO_ROOT" && go run scripts/seed_sample_data.go -dir "$DATA_DIR" -mgmt-port "$PORT" -proxy-port "$PROXY_PORT" >/dev/null)
 
 echo "[shots] starting server on 127.0.0.1:$PORT ..."
 "$BIN" run --settings "$DATA_DIR/config/settings.json" >"$DATA_DIR/server.log" 2>&1 &
@@ -112,15 +116,25 @@ shoot() {
 }
 
 echo "[shots] capturing ..."
-# Heights are per-page: enough to show the whole view without a lot of dead
-# space under it.
-shoot dashboard      "index.html"                       1440 1000
-shoot policies       "policies.html"                    1440  620
-shoot policy-editor  "policy-editor.html?name=kids"     1440 1400
-shoot logs           "logs.html"                        1440 1100
-shoot analytics      "analytics.html"                   1440 1250
-shoot tools          "tools.html"                       1440 1500
-shoot settings       "settings.html"                    1440 1400
+# The Node driver (scripts/screenshots.mjs) talks to Chromium over the
+# DevTools protocol, so it can expand editor sections, switch to dark mode and
+# browse through the proxy. Without Node, fall back to plain --screenshot
+# captures of the main pages.
+if command -v node >/dev/null 2>&1 && node -e 'process.exit(typeof WebSocket === "function" ? 0 : 1)' 2>/dev/null; then
+  node "$REPO_ROOT/scripts/screenshots.mjs" --base "http://127.0.0.1:$PORT" \
+    --proxy "127.0.0.1:$PROXY_PORT" --chrome "$BROWSER" --out "$OUT_DIR" ${ONLY:+--only "$ONLY"}
+else
+  echo "[shots] node 22+ not found: capturing the main pages only"
+  # Heights are per-page: enough to show the whole view without a lot of dead
+  # space under it.
+  shoot dashboard      "index.html"                       1440 1000
+  shoot policies       "policies.html"                    1440  680
+  shoot policy-editor  "policy-editor.html?name=kids"     1440 1400
+  shoot logs           "logs.html"                        1440 1100
+  shoot analytics      "analytics.html"                   1440 1250
+  shoot tools          "tools.html"                       1440 1500
+  shoot settings       "settings.html"                    1440 1400
+fi
 
 echo "[shots] done -> $OUT_DIR"
 ls -1 "$OUT_DIR"

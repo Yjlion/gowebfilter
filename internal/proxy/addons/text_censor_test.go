@@ -143,3 +143,23 @@ func TestStripHTMLDropsScriptAndStyle(t *testing.T) {
 		t.Fatalf("StripHTML = %q", got)
 	}
 }
+
+func TestCensorHonoursElementLang(t *testing.T) {
+	body := `<html lang="en"><body><p>Oh shit.</p><blockquote lang="de"><p>Du Arschloch, shit</p></blockquote><p>Du Arschloch</p></body></html>`
+	fc := censorFlow(t, models.TextModeCensor, body, nil)
+	addons.TextClassifier{}.HandleResponse(fc)
+	want := `<html lang="en"><body><p>Oh ****.</p><blockquote lang="de"><p>Du *********, shit</p></blockquote><p>Du Arschloch</p></body></html>`
+	if got := string(fc.ResponseBody); got != want {
+		t.Fatalf("got  %s\nwant %s", got, want)
+	}
+}
+
+func TestCensorSkipTagNestingAndUnclosedElements(t *testing.T) {
+	body := `<html><body><ul><li>shit<li>fine</ul><pre><b>shit</b></pre><p>shit</body></html>`
+	fc := censorFlow(t, models.TextModeCensor, body, nil)
+	addons.TextClassifier{}.HandleResponse(fc)
+	want := `<html><body><ul><li>****<li>fine</ul><pre><b>shit</b></pre><p>****</body></html>`
+	if got := string(fc.ResponseBody); got != want {
+		t.Fatalf("got  %s\nwant %s", got, want)
+	}
+}

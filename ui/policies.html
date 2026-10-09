@@ -110,8 +110,9 @@
                         <template x-if="policy.doh.enabled"><span class="badge bg-purple-100 text-purple-700">DOH</span></template>
                         <template x-if="policy.safesearch.enabled"><span class="badge bg-green-100 text-green-700">SafeSearch</span></template>
                         <template x-if="policy.youtube.enabled"><span class="badge bg-red-100 text-red-700">YouTube</span></template>
-                        <template x-if="policy.text_classifier.enabled"><span class="badge bg-yellow-100 text-yellow-700">Text</span></template>
+                        <template x-if="policy.text_classifier.enabled"><span class="badge bg-yellow-100 text-yellow-700" x-text="({censor: 'Censor', both: 'Text + Censor'})[policy.text_classifier.mode] || 'Text'">Text</span></template>
                         <template x-if="policy.image_classifier.enabled"><span class="badge bg-orange-100 text-orange-700">Image</span></template>
+                        <template x-if="policy.adblock && policy.adblock.enabled"><span class="badge bg-gray-100 text-gray-700">Ads</span></template>
                       </div>
                     </td>
                     <td class="px-6 py-3 text-right whitespace-nowrap">

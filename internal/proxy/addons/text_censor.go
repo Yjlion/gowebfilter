@@ -47,6 +47,21 @@ func censorLanguages(configured []string, body []byte, contentLanguage string) [
 	return langs
 }
 
+// voidElements never have an end tag, so they are not pushed on the
+// element stack censorHTML keeps for lang inheritance.
+var voidElements = map[string]bool{
+	"area": true, "base": true, "br": true, "col": true, "embed": true, "hr": true,
+	"img": true, "input": true, "link": true, "meta": true, "param": true,
+	"source": true, "track": true, "wbr": true,
+}
+
+// censorFrame is one open element: its name and the matcher its text uses.
+type censorFrame struct {
+	name string
+	m    *profanity.Matcher
+	skip bool // inside a censorSkipTags element
+}
+
 // censorHTML masks matched words in the text content of an HTML document
 // and returns the new body and the number of masked matches. Everything
 // other than text nodes (tags, attributes, comments, and the contents of
@@ -54,12 +69,18 @@ func censorLanguages(configured []string, body []byte, contentLanguage string) [
 // comes back unchanged and a matched one differs only inside its text.
 // If the document can't be tokenized to the end, the original body is
 // returned untouched.
-func censorHTML(body []byte, m *profanity.Matcher) ([]byte, int) {
+//
+// Text is matched with the page's matcher, except inside an element that
+// declares its own language (<blockquote lang="de">): when forLang is not
+// nil, that subtree uses forLang(lang) instead, as HTML's lang inheritance
+// says it should. A quoted German sentence on an English page is German.
+func censorHTML(body []byte, page *profanity.Matcher, forLang func(string) *profanity.Matcher) ([]byte, int) {
 	z := html.NewTokenizer(bytes.NewReader(body))
 	var out bytes.Buffer
 	out.Grow(len(body))
 	total := 0
-	skipDepth := 0
+	stack := []censorFrame{{m: page}}
+	top := func() censorFrame { return stack[len(stack)-1] }
 	for {
 		tt := z.Next()
 		if tt == html.ErrorToken {
@@ -71,21 +92,36 @@ func censorHTML(body []byte, m *profanity.Matcher) ([]byte, int) {
 		raw := z.Raw()
 		switch tt {
 		case html.StartTagToken:
-			name, _ := z.TagName()
-			if censorSkipTags[string(name)] {
-				skipDepth++
+			name, hasAttr := z.TagName()
+			tag := string(name)
+			if voidElements[tag] {
+				break
 			}
+			f := censorFrame{name: tag, m: top().m, skip: top().skip || censorSkipTags[tag]}
+			for hasAttr && forLang != nil {
+				var k, v []byte
+				k, v, hasAttr = z.TagAttr()
+				if string(k) == "lang" && len(v) > 0 {
+					f.m = forLang(string(v))
+				}
+			}
+			stack = append(stack, f)
 		case html.EndTagToken:
 			name, _ := z.TagName()
-			if censorSkipTags[string(name)] && skipDepth > 0 {
-				skipDepth--
+			// Pop to the matching element; real-world HTML leaves <p> and
+			// <li> unclosed, and an end tag with no open match is ignored.
+			for i := len(stack) - 1; i > 0; i-- {
+				if stack[i].name == string(name) {
+					stack = stack[:i]
+					break
+				}
 			}
 		case html.TextToken:
-			if skipDepth == 0 {
+			if f := top(); !f.skip {
 				// Mask the raw source text: entity references (&amp;) are
 				// split off as punctuation by the tokenizer, so they never
 				// land inside a match and survive intact.
-				masked, n := m.Censor(string(raw))
+				masked, n := f.m.Censor(string(raw))
 				if n > 0 {
 					total += n
 					out.WriteString(masked)

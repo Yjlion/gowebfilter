@@ -76,7 +76,7 @@
             <div class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2" data-i18n="dash.proxyStatus">Proxy Status</div>
             <div class="flex items-center gap-2">
               <div :class="status.proxy_running ? 'bg-green-500' : 'bg-red-500'" class="w-3 h-3 rounded-full"></div>
-              <span class="text-lg font-semibold" x-text="$t(status.proxy_running ? 'dash.running' : 'dash.stopped')"></span>
+              <span class="text-lg font-semibold text-gray-900" x-text="$t(status.proxy_running ? 'dash.running' : 'dash.stopped')"></span>
             </div>
             <div class="text-sm text-gray-500 mt-1" x-text="$t('dash.port') + ' ' + status.proxy_port"></div>
           </div>
@@ -133,8 +133,9 @@
                         <template x-if="policy.doh.enabled"><span class="badge bg-purple-100 text-purple-700">DOH</span></template>
                         <template x-if="policy.safesearch.enabled"><span class="badge bg-green-100 text-green-700">SafeSearch</span></template>
                         <template x-if="policy.youtube.enabled"><span class="badge bg-red-100 text-red-700">YouTube</span></template>
-                        <template x-if="policy.text_classifier.enabled"><span class="badge bg-yellow-100 text-yellow-700">Text</span></template>
+                        <template x-if="policy.text_classifier.enabled"><span class="badge bg-yellow-100 text-yellow-700" x-text="({censor: 'Censor', both: 'Text + Censor'})[policy.text_classifier.mode] || 'Text'">Text</span></template>
                         <template x-if="policy.image_classifier.enabled"><span class="badge bg-orange-100 text-orange-700">Image</span></template>
+                        <template x-if="policy.adblock && policy.adblock.enabled"><span class="badge bg-gray-100 text-gray-700">Ads</span></template>
                       </div>
                     </td>
                     <td class="px-6 py-3 text-right">

@@ -155,7 +155,13 @@ func (tc TextClassifier) shouldBlock(text string, threshold float64) bool {
 func censorResponse(fc *proxy.FlowContext, cfg models.TextClassifierConfig) {
 	langs := censorLanguages(cfg.CensorLanguages, fc.ResponseBody, fc.Response.Header.Get("Content-Language"))
 	matcher := profanity.ForLanguages(langs, cfg.CensorWords)
-	body, n := censorHTML(fc.ResponseBody, matcher)
+	// Element-level lang attributes refine the automatic choice; a policy
+	// that pins censor_languages means exactly those, everywhere.
+	var forLang func(string) *profanity.Matcher
+	if len(cfg.CensorLanguages) == 0 {
+		forLang = func(lang string) *profanity.Matcher { return profanity.ForLanguages([]string{lang}, cfg.CensorWords) }
+	}
+	body, n := censorHTML(fc.ResponseBody, matcher, forLang)
 	if n == 0 {
 		return
 	}
