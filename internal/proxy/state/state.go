@@ -26,6 +26,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/yjlion/gowebfilter/internal/adblock"
 	"github.com/yjlion/gowebfilter/internal/categories"
 	"github.com/yjlion/gowebfilter/internal/certs"
 	"github.com/yjlion/gowebfilter/internal/config"
@@ -49,6 +50,7 @@ type Runtime struct {
 	LeafIssuer *certs.LeafIssuer
 	Logs       *logstore.Store
 	Categories *categories.Store
+	Adblock    *adblock.Store
 
 	policyStore *config.PolicyStore
 	policies    atomic.Pointer[[]models.Policy]
@@ -83,6 +85,7 @@ func New(settingsPath string) (*Runtime, error) {
 		LeafIssuer:   leafIssuer,
 		Logs:         logs,
 		Categories:   categories.NewStore(s.CategoriesDir),
+		Adblock:      adblock.NewStoreFromSettings(s.Adblock),
 		policyStore:  config.NewPolicyStore(s.PoliciesDir),
 	}
 	rt.settings.Store(&s)
@@ -144,6 +147,9 @@ func (rt *Runtime) ApplySettings(next models.GlobalSettings) []string {
 	if rt.Categories != nil && merged.CategoriesDir != live.CategoriesDir {
 		rt.Categories.Configure(merged.CategoriesDir)
 	}
+	if rt.Adblock != nil {
+		rt.Adblock.Apply(merged.Adblock)
+	}
 	return pending
 }
 
@@ -179,6 +185,12 @@ func (rt *Runtime) Start(ctx context.Context) {
 
 	if dir := filepath.Dir(rt.SettingsPath); dir != "" {
 		config.WatchDir(ctx, dir, 300*time.Millisecond, rt.ReloadSettings)
+	}
+
+	// Keep the adblock lists that enabled policies reference downloaded
+	// and current. Lists are fetched only once a policy asks for them.
+	if rt.Adblock != nil {
+		go rt.Adblock.Run(ctx, rt.AdblockListsInUse)
 	}
 }
 
@@ -271,4 +283,27 @@ func (rt *Runtime) GetPolicy(clientIP string) *models.Policy {
 		return nil
 	}
 	return &policies[match.PolicyIndex]
+}
+
+// AdblockListsInUse returns the list names referenced by every active
+// policy with adblock enabled - what the list refresher keeps current.
+func (rt *Runtime) AdblockListsInUse() []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, p := range rt.Policies() {
+		if p.Inactive || !p.Adblock.Enabled {
+			continue
+		}
+		lists := p.Adblock.Lists
+		if len(lists) == 0 {
+			lists = adblock.DefaultLists
+		}
+		for _, l := range lists {
+			if !seen[l] {
+				seen[l] = true
+				out = append(out, l)
+			}
+		}
+	}
+	return out
 }

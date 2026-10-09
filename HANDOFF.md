@@ -97,8 +97,8 @@ expected verification commands after changes.
 `internal/app/engine.go`'s `BuildProxyEngine` wires addons in fixed order:
 
 `ManagementAccess -> ProxyAuthGate -> PolicyRouter -> MitmControl ->
-UrlFilter -> QuicBlocker -> DohFilter -> SafeSearch -> YouTubeFilter ->
-TextClassifier -> ImageClassifier -> RequestLogger`
+UrlFilter -> Adblock -> QuicBlocker -> DohFilter -> SafeSearch ->
+YouTubeFilter -> TextClassifier -> ImageClassifier -> RequestLogger`
 
 Order matters. Request hooks still run after an earlier hook sets
 `fc.Response`; only the upstream fetch is skipped. This wiring is
@@ -452,10 +452,44 @@ the transport that feeds them — decoded bodies — was verified).
   Bayesian scoring noise.
 - `text_classifier_model_path` is deprecated and ignored. It remains in the
   settings struct only for backward-compatible JSON round trips.
-- The Bayesian scorer's seed vocabulary is curated from LDNOOBW English list
-  concepts with CC-BY-4.0 attribution; see
+- The Bayesian scorer has two layers (model version 2): 47 curated
+  high-weight features (`scripts/text_bayes_curated.json`) and ~2,370
+  light-weight features from every LDNOOBW language list, CC-BY-4.0; see
   `internal/classify/textbayes/NOTICE`. e2guardian and Redwood lists were
-  treated as references only, not embedded data.
+  treated as references only, not embedded data. Tokenizing is Unicode-aware
+  (it was `[a-z0-9]+`, which dropped every non-ASCII word), and
+  Han/Kana/Thai features match by substring.
+- `text_classifier.mode` = `block` (default) / `censor` / `both`. Censoring
+  masks words from `internal/classify/profanity` in HTML text nodes only. See
+  [docs/text-classifier.md](docs/text-classifier.md).
+- Calibration is by tests, not by a labelled corpus: swearing paragraphs in
+  four languages stay under 0.8, dense explicit text in JA/ZH/KO/RU scores
+  above neutral text. Real-world precision/recall in non-English languages
+  is **unmeasured**.
+
+## Adblock and URL-filter categories
+
+- `internal/adblock` parses ABP/uBO lists, hosts files and domain lists;
+  see [docs/adblock.md](docs/adblock.md) for exactly what is and isn't
+  supported. Unsupported rules are skipped, never approximated.
+- Verified: unit tests per syntax/option; a sizing run against the real
+  EasyList + EasyPrivacy (Oct 2026: ~109k network + ~24k cosmetic rules,
+  ~3% skipped, 0.3 s compile, ~27 MB, ~20 us/match, correct verdicts for
+  google-analytics/doubleclick); and a live `webfilter run` through the HTTP
+  proxy with a local origin and list server (script blocked with an empty
+  typed response, cosmetic CSS injected, logs rows correct). The
+  screenshot run also drives a real Chromium through the proxy.
+- **Not verified**: browsing real ad-heavy HTTPS sites end to end, cosmetic
+  hiding on real sites, the breakage rate on popular sites, and the
+  refresher across a 24 h cycle.
+- URL-filter categories are per-category actions
+  (`url_filter.category_actions`); `mode` is the default for unmatched sites.
+  Legacy `categories` lists migrate on load. Live-checked through the proxy
+  (allow-category passes, block-category and unlisted-in-whitelist are
+  blocked with the right reasons).
+- Android: the native screens and MDM keys for all of the above were written
+  without an Android SDK on the authoring host and are **not compiled or
+  device-tested yet**; build with the manual `android.yml` workflow.
 - Image classification is opt-in per policy through `image_classifier.enabled`
   and uses the embedded MobileNetV2 model. The image addon also scans inline
   `data:image/...` URIs in HTML/CSS/JS/JSON bodies.

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/yjlion/gowebfilter/internal/models"
@@ -288,5 +289,89 @@ func TestSettingsLegacyProxyPortMigration(t *testing.T) {
 	}
 	if s.MgmtHost != "127.0.0.1" {
 		t.Errorf("MgmtHost = %q, want 127.0.0.1", s.MgmtHost)
+	}
+}
+
+func TestTextClassifierModeDefaultsAndValidation(t *testing.T) {
+	cases := map[string]models.TextClassifierMode{
+		`{}`:                models.TextModeBlock,
+		`{"mode":"censor"}`: models.TextModeCensor,
+		`{"mode":" Both "}`: models.TextModeBoth,
+		`{"mode":"shout"}`:  models.TextModeBlock,
+		`{"mode":""}`:       models.TextModeBlock,
+	}
+	for in, want := range cases {
+		var c models.TextClassifierConfig
+		if err := json.Unmarshal([]byte(in), &c); err != nil {
+			t.Fatalf("%s: %v", in, err)
+		}
+		if c.Mode != want {
+			t.Errorf("%s: Mode = %q, want %q", in, c.Mode, want)
+		}
+		if c.CensorWords == nil || c.CensorLanguages == nil {
+			t.Errorf("%s: censor lists must default to empty, not null", in)
+		}
+	}
+	var c models.TextClassifierConfig
+	if err := json.Unmarshal([]byte(`{"mode":"both","censor_words":["frak"],"censor_languages":["de"]}`), &c); err != nil {
+		t.Fatal(err)
+	}
+	out, _ := json.Marshal(c)
+	var back models.TextClassifierConfig
+	if err := json.Unmarshal(out, &back); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(c, back) {
+		t.Fatalf("round trip changed config: %+v -> %+v", c, back)
+	}
+	if !models.TextModeBoth.Blocks() || !models.TextModeBoth.Censors() || models.TextModeCensor.Blocks() || models.TextModeBlock.Censors() {
+		t.Fatal("mode predicates wrong")
+	}
+}
+
+func TestUrlFilterCategoryActionsAndLegacyMigration(t *testing.T) {
+	cases := []struct {
+		in       string
+		wantMode models.UrlFilterMode
+		want     map[string]models.CategoryAction
+	}{
+		{`{"mode":"blacklist","categories":["porn","gambling"]}`, models.UrlFilterModeBlacklist,
+			map[string]models.CategoryAction{"porn": "block", "gambling": "block"}},
+		{`{"mode":"whitelist","categories":["kids"]}`, models.UrlFilterModeWhitelist,
+			map[string]models.CategoryAction{"kids": "allow"}},
+		// Old whitelist-without-categories never blocked anything; keep it so.
+		{`{"mode":"whitelist","categories":[]}`, models.UrlFilterModeBlacklist,
+			map[string]models.CategoryAction{}},
+		// category_actions wins over the legacy list; junk actions are "off".
+		{`{"mode":"whitelist","categories":["x"],"category_actions":{"porn":"block","bank":"Allow","news":"off","y":"nope"}}`,
+			models.UrlFilterModeWhitelist, map[string]models.CategoryAction{"porn": "block", "bank": "allow"}},
+		{`{"mode":"whatever"}`, models.UrlFilterModeBlacklist, map[string]models.CategoryAction{}},
+	}
+	for _, c := range cases {
+		var u models.UrlFilterConfig
+		if err := json.Unmarshal([]byte(c.in), &u); err != nil {
+			t.Fatalf("%s: %v", c.in, err)
+		}
+		if u.Mode != c.wantMode || !reflect.DeepEqual(u.CategoryActions, c.want) {
+			t.Errorf("%s: mode=%q actions=%v, want %q %v", c.in, u.Mode, u.CategoryActions, c.wantMode, c.want)
+		}
+		out, err := json.Marshal(u)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var back models.UrlFilterConfig
+		if err := json.Unmarshal(out, &back); err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(u, back) {
+			t.Errorf("%s: round trip changed config:\n%+v\n%+v", c.in, u, back)
+		}
+	}
+	// The legacy list is written as the names that have an action.
+	u := models.NewUrlFilterConfig()
+	u.CategoryActions = map[string]models.CategoryAction{"b": "allow", "a": "block"}
+	out, _ := json.Marshal(u)
+	if !strings.Contains(string(out), `"categories":["a","b"]`) {
+		t.Fatalf("marshal = %s", out)
 	}
 }

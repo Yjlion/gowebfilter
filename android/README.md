@@ -148,6 +148,12 @@ Workspace ONE, MobileIron, TestDPC, ...) can provision it:
   admin actually sets are applied — a partial push never clobbers unmanaged
   on-device edits. Lists are newline-separated strings; thresholds are
   strings ("0.8") because Android restrictions have no float type.
+- **Newer typed keys**: `url_filter_category_actions` (one `name:action`
+  per line, action `block` or `allow`; it replaces the policy's category
+  actions and wins over the legacy `url_filter_categories` block list),
+  `text_classifier_mode` (`block` / `censor` / `both`),
+  `text_classifier_censor_words`, and `adblock_enabled`, `adblock_lists`
+  (preset names, one per line), `adblock_cosmetic`, `adblock_allow`.
 - **`policy_json`** — a full policy document that replaces the device's
   `default` policy wholesale, for admins who outgrow the typed keys
   (`schedule_json` is the same escape hatch scoped to the schedule).
@@ -245,6 +251,9 @@ path, all JSON-string in/out — `getSettingsJson`, `updateSettingsJson`,
 `getPolicyJson`, `updatePolicyJson`, `getManagedStateJson`,
 `applyManagedConfigJson`, `listPoliciesJson`, `createPolicyJson`,
 `deletePolicy`, `listCategoriesJson`, `downloadCategoryJson`,
-`deleteCategory`, `queryLogsJson`, and `analyticsJson` (see
+`deleteCategory`, `listAdblockListsJson`, `downloadAdblockListJson`,
+`deleteAdblockList`, `queryLogsJson`, and `analyticsJson` (see
 `mobile/settingsapi.go`, `managed.go`, `policiesapi.go`,
-`categoriesapi.go`, and `logsapi.go`).
+`categoriesapi.go`, `adblockapi.go`, and `logsapi.go`). The native Ad &
+tracker blocking screen picks lists; downloads happen automatically in the
+engine, so it does not call the adblock functions yet.

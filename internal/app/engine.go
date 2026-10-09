@@ -45,6 +45,10 @@ func BuildProxyEngine(settingsPath string) (*proxy.Engine, *state.Runtime, error
 		return nil, nil, err
 	}
 
+	// List downloads go out through the engine's own egress path, so a
+	// capture-mode host (TUN/gateway) never loops them back into itself.
+	rt.Adblock.Client = &http.Client{Transport: proxy.NewTransport(), Timeout: 5 * time.Minute}
+
 	authGate := addons.NewProxyAuthGate(rt)
 	pipeline := proxy.NewPipeline([]proxy.Addon{
 		addons.ManagementAccess{},
@@ -52,6 +56,7 @@ func BuildProxyEngine(settingsPath string) (*proxy.Engine, *state.Runtime, error
 		addons.PolicyRouter{},
 		addons.MitmControl{},
 		addons.UrlFilter{},
+		addons.Adblock{},
 		addons.QuicBlocker{},
 		addons.DohFilter{},
 		addons.SafeSearch{},

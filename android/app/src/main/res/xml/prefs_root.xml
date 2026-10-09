@@ -18,6 +18,11 @@
         android:persistent="false" />
 
     <Preference
+        android:key="nav_adblock"
+        android:title="@string/cat_adblock"
+        android:persistent="false" />
+
+    <Preference
         android:key="nav_classifiers"
         android:title="@string/cat_classifiers"
         android:persistent="false" />

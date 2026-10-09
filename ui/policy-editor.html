@@ -239,28 +239,33 @@
               </div>
             </div>
             <div class="mt-4 border-t border-gray-100 pt-3">
-              <div class="flex items-center justify-between mb-2">
+              <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
                 <label class="text-xs font-medium text-gray-700"><span data-i18n="ed.categories">Categories</span> <span class="text-gray-400" data-i18n="ed.categoriesNote">(the allow / block lists above take precedence)</span></label>
-                <div class="flex gap-3">
-                  <label class="flex items-center gap-1.5 cursor-pointer">
-                    <input type="radio" x-model="policy.url_filter.mode" value="blacklist" class="text-blue-600" />
-                    <span class="text-xs text-gray-700" data-i18n="ed.blacklistBlock">Blacklist (block these)</span>
-                  </label>
-                  <label class="flex items-center gap-1.5 cursor-pointer">
-                    <input type="radio" x-model="policy.url_filter.mode" value="whitelist" class="text-blue-600" />
-                    <span class="text-xs text-gray-700" data-i18n="ed.whitelistAllow">Whitelist (allow only these)</span>
-                  </label>
-                </div>
+                <label class="flex items-center gap-2 text-xs text-gray-700">
+                  <span data-i18n="ed.unlistedSites">Sites not matched by any list or category:</span>
+                  <select x-model="policy.url_filter.mode" class="border border-gray-200 rounded px-2 py-1 text-xs bg-card">
+                    <option value="blacklist" data-i18n="ed.unlistedAllow">Allow (default)</option>
+                    <option value="whitelist" data-i18n="ed.unlistedBlock">Block</option>
+                  </select>
+                </label>
               </div>
-              <p class="text-xs text-gray-400 mb-2" x-text="policy.url_filter.mode === 'whitelist' ? $t('ed.catWhitelistHelp') : $t('ed.catBlacklistHelp')"></p>
-              <div x-show="categories.length===0" class="text-xs text-gray-400" data-i18n="ed.noCategories">No categories installed yet. Run <span class="font-mono">scripts/update_categories.sh</span> on the server.</div>
-              <div class="grid grid-cols-3 gap-x-4 gap-y-1">
-                <template x-for="c in categories" :key="c.name">
-                  <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-                    <input type="checkbox" class="w-4 h-4 accent-blue-600" :value="c.name" x-model="policy.url_filter.categories" />
-                    <span x-text="c.name"></span>
-                    <span class="text-xs text-gray-400" x-text="'(' + (c.count||0).toLocaleString() + ')'"></span>
-                  </label>
+              <p class="text-xs text-gray-400 mb-2" data-i18n="ed.catActionsHelp">Set each category to Block, Allow or Off. Allow wins over Block when a site is in both (e.g. allow "banking" inside a broader blocked list), and an allowed site also skips the content filters.</p>
+              <p x-show="policy.url_filter.mode === 'whitelist'" class="text-xs text-amber-600 mb-2" data-i18n="ed.unlistedBlockWarn">Every site that is not in an allowed category or the Allow List above is blocked.</p>
+              <div x-show="categoryRows().length===0" class="text-xs text-gray-400" data-i18n="ed.noCategories">No categories installed yet. Run <span class="font-mono">scripts/update_categories.sh</span> on the server.</div>
+              <div class="grid grid-cols-2 gap-x-4 gap-y-1">
+                <template x-for="c in categoryRows()" :key="c.name">
+                  <div class="flex items-center justify-between gap-2 text-sm text-gray-700">
+                    <span class="truncate">
+                      <span x-text="c.name" :class="catAction(c.name)==='block' ? 'text-red-700' : (catAction(c.name)==='allow' ? 'text-green-700' : '')"></span>
+                      <span class="text-xs text-gray-400" x-text="c.missing ? $t('ed.catNotInstalled', '(not installed)') : '(' + (c.count||0).toLocaleString() + ')'"></span>
+                    </span>
+                    <select :value="catAction(c.name)" @change="setCatAction(c.name, $event.target.value)"
+                            class="border border-gray-200 rounded px-2 py-1 text-xs bg-card">
+                      <option value="" x-text="$t('ed.catOff', 'Off')"></option>
+                      <option value="block" x-text="$t('ed.catBlock', 'Block')"></option>
+                      <option value="allow" x-text="$t('ed.catAllow', 'Allow')"></option>
+                    </select>
+                  </div>
                 </template>
               </div>
             </div>
@@ -271,6 +276,60 @@
               </label>
               <p class="text-xs text-gray-400 mt-1" data-i18n="ed.blockQuicHelp">Strips the Alt-Svc header so browsers stay on TCP/TLS, where this proxy can inspect them. It cannot block UDP/443 itself on the plain-proxy path; TUN capture always drops QUIC regardless of this setting.</p>
             </div>
+          </div>
+        </div>
+
+        <!-- Adblock -->
+        <div class="section">
+          <div class="section-header" @click="open.adblock = !open.adblock">
+            <div class="flex items-center gap-3">
+              <input type="checkbox" class="toggle" x-model="policy.adblock.enabled" @click.stop />
+              <div>
+                <div class="text-sm font-semibold text-gray-900" data-i18n="ed.adblock">Ad &amp; Tracker Blocking</div>
+                <div class="text-xs text-gray-500" data-i18n="ed.adblockDesc">Block ads and trackers with standard filter lists (EasyList, EasyPrivacy, ...)</div>
+              </div>
+            </div>
+            <svg class="w-4 h-4 text-gray-400 transition-transform" :class="open.adblock ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+          </div>
+          <div x-show="open.adblock" class="px-6 pb-5 border-t border-gray-100 pt-4 space-y-3">
+            <div>
+              <label class="text-xs font-medium text-gray-700 block mb-1" data-i18n="ed.adblockLists">Filter lists</label>
+              <p class="text-xs text-gray-400 mb-2" data-i18n="ed.adblockListsHelp">Lists are shared by all policies and downloaded automatically when a policy uses them, then refreshed daily. Custom lists can be added in Settings.</p>
+              <div x-show="adblockLists.length===0" class="text-xs text-gray-400" data-i18n="ed.adblockNoLists">Could not load the list catalog.</div>
+              <div class="space-y-1">
+                <template x-for="l in adblockLists" :key="l.name">
+                  <div class="flex items-center justify-between gap-2 text-sm text-gray-700">
+                    <label class="flex items-center gap-2 cursor-pointer truncate">
+                      <input type="checkbox" class="w-4 h-4 accent-blue-600" :checked="adblockUses(l.name)" @change="toggleAdblockList(l.name, $event.target.checked)" />
+                      <span x-text="l.title || l.name"></span>
+                    </label>
+                    <span class="flex items-center gap-2 text-xs text-gray-400">
+                      <span x-show="l.installed" x-text="(l.rules||0).toLocaleString() + ' ' + $t('ed.adblockRules', 'rules')"></span>
+                      <span x-show="!l.installed" x-text="$t('ed.adblockNotDownloaded', 'not downloaded')"></span>
+                      <span x-show="l.error" class="text-amber-600" :title="l.error" x-text="$t('ed.adblockError', 'last update failed')"></span>
+                      <button type="button" @click="updateAdblockList(l.name)" :disabled="adblockBusy===l.name"
+                              class="text-blue-600 hover:text-blue-700 font-medium"
+                              x-text="adblockBusy===l.name ? $t('ed.adblockUpdating', 'updating...') : (l.installed ? $t('ed.adblockUpdate', 'Update') : $t('ed.adblockDownload', 'Download'))"></button>
+                    </span>
+                  </div>
+                </template>
+              </div>
+            </div>
+            <div class="border-t border-gray-100 pt-3">
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" class="w-4 h-4 accent-blue-600" x-model="policy.adblock.cosmetic" />
+                <span class="text-xs font-medium text-gray-700" data-i18n="ed.adblockCosmetic">Hide ad elements on pages (cosmetic filtering)</span>
+              </label>
+              <p class="text-xs text-gray-400 mt-1" data-i18n="ed.adblockCosmeticHelp">Injects the lists' element-hiding rules as CSS so empty ad slots and banners disappear. Pages with a strict Content-Security-Policy may ignore it.</p>
+            </div>
+            <div>
+              <label class="text-xs font-medium text-gray-700 block mb-1" data-i18n="ed.adblockAllow">Don't block ads on these sites</label>
+              <textarea x-model="adblockAllowText" @input="policy.adblock.allow = adblockAllowText.split('\n').map(s=>s.trim()).filter(Boolean)"
+                        rows="3" placeholder="supported-site.com&#10;*.news.example"
+                        class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"></textarea>
+              <p class="text-xs text-gray-400 mt-1" data-i18n="ed.adblockAllowHelp">one per line · applies to everything a listed site's pages load</p>
+            </div>
+            <p class="text-xs text-gray-400" data-i18n="ed.adblockMitmNote">Works on intercepted (MITM) traffic only; sites excluded from interception are not ad-filtered.</p>
           </div>
         </div>
 
@@ -434,13 +493,37 @@
               <input type="checkbox" class="toggle" x-model="policy.text_classifier.enabled" @click.stop />
               <div>
                 <div class="text-sm font-semibold text-gray-900" data-i18n="ed.textClf">Adult Text Classifier</div>
-                <div class="text-xs text-gray-500" data-i18n="ed.textClfDesc">Detect and block pages with adult text content</div>
+                <div class="text-xs text-gray-500" data-i18n="ed.textClfDesc2">Block adult pages, or mask offensive words (multilingual)</div>
               </div>
             </div>
             <svg class="w-4 h-4 text-gray-400 transition-transform" :class="open.text ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
           </div>
           <div x-show="open.text" class="px-6 pb-5 border-t border-gray-100 pt-4 space-y-3">
             <div>
+              <label class="text-xs font-medium text-gray-700 block mb-1" data-i18n="ed.textMode">Action</label>
+              <select x-model="policy.text_classifier.mode" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-card">
+                <option value="block" data-i18n="ed.textModeBlock">Block adult pages</option>
+                <option value="censor" data-i18n="ed.textModeCensor">Censor offensive words (never block)</option>
+                <option value="both" data-i18n="ed.textModeBoth">Block adult pages and censor the rest</option>
+              </select>
+              <p class="text-xs text-gray-400 mt-1" data-i18n="ed.textModeHelp">Censoring replaces matched words with **** in the page text only - never in scripts, styles, form fields or code. Words come from the multilingual LDNOOBW lists; Latin-script words follow the page's declared language.</p>
+            </div>
+            <div x-show="policy.text_classifier.mode !== 'block'" class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="text-xs font-medium text-gray-700 block mb-1" data-i18n="ed.censorWords">Extra words to censor</label>
+                <textarea x-model="censorWordsText" @input="policy.text_classifier.censor_words = censorWordsText.split('\n').map(s=>s.trim()).filter(Boolean)"
+                          rows="3" placeholder="word&#10;two word phrase"
+                          class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"></textarea>
+                <p class="text-xs text-gray-400 mt-1" data-i18n="ed.censorWordsHelp">one per line · whole words, any language</p>
+              </div>
+              <div>
+                <label class="text-xs font-medium text-gray-700 block mb-1" data-i18n="ed.censorLangs">Languages</label>
+                <input type="text" x-model="censorLangsText" placeholder="auto"
+                       class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <p class="text-xs text-gray-400 mt-1" data-i18n="ed.censorLangsHelp">Blank = automatic (the page's language, else English). Or list codes, e.g. en, de, es. Non-Latin scripts are always checked.</p>
+              </div>
+            </div>
+            <div x-show="policy.text_classifier.mode !== 'censor'">
               <label class="text-xs font-medium text-gray-700 block mb-1">
                 <span data-i18n="ed.threshold">Threshold:</span> <span class="font-mono" x-text="policy.text_classifier.threshold"></span>
               </label>
@@ -683,6 +766,11 @@
         editName,
         policy: defaultPolicy(),
         categories: [],
+        adblockLists: [],
+        adblockBusy: '',
+        adblockAllowText: '',
+        censorWordsText: '',
+        censorLangsText: '',
         alert: '',
         alertType: 'success',
         ipInput: '',
@@ -692,7 +780,7 @@
         macNeighbors: [],
         macScanning: false,
         macScanError: '',
-        open: { schedule: false, url: false, doh: false, safe: false, yt: false, text: false, img: false, mitm: false, bp: false },
+        open: { schedule: false, url: false, adblock: false, doh: false, safe: false, yt: false, text: false, img: false, mitm: false, bp: false },
         youtubeIcon: YOUTUBE_ICON,
         // SafeSearch engines (id must match proxy/addons/safesearch.py). ai=false
         // hides the AI column for engines with no AI assistant to block.
@@ -794,6 +882,7 @@
             const r = await fetch('/api/categories');
             if (r.ok) this.categories = (await r.json()).categories || [];
           } catch (e) {}
+          await this.loadAdblockLists();
           if (!isNew && editName) {
             try {
               const res = await fetch(`/api/policies/${encodeURIComponent(editName)}`);
@@ -805,6 +894,9 @@
                 this.policy.schedule.active_windows = this.policy.schedule.active_windows || [];
                 this.policy.url_filter.categories = this.policy.url_filter.categories || [];
                 this.policy.url_filter.mode = this.policy.url_filter.mode || 'blacklist';
+                this.policy.url_filter.category_actions = this.policy.url_filter.category_actions || {};
+                this.policy.adblock = Object.assign(defaultPolicy().adblock, this.policy.adblock || {});
+                this.policy.text_classifier = Object.assign(defaultPolicy().text_classifier, this.policy.text_classifier || {});
                 if (this.policy.url_filter.block_quic === undefined) this.policy.url_filter.block_quic = true;
                 this.policy.mitm.ua_mode = this.policy.mitm.ua_mode || 'off';
                 this.policy.mitm.user_agents = this.policy.mitm.user_agents || [];
@@ -847,6 +939,61 @@
           this.imgIncludeText = (this.policy.image_classifier.include_only || []).join('\n');
           this.mitmSitesText = (this.policy.mitm.sites || []).join('\n');
           this.mitmUserAgentsText = (this.policy.mitm.user_agents || []).join('\n');
+          this.adblockAllowText = (this.policy.adblock.allow || []).join('\n');
+          this.censorWordsText = (this.policy.text_classifier.censor_words || []).join('\n');
+          this.censorLangsText = (this.policy.text_classifier.censor_languages || []).join(', ');
+        },
+
+        // ---- URL filter category actions ----
+        // Installed categories, plus any the policy references that are not
+        // installed (so a stale action stays visible and can be switched off).
+        categoryRows() {
+          const rows = this.categories.map(c => ({ name: c.name, count: c.count }));
+          const have = new Set(rows.map(r => r.name));
+          for (const name of Object.keys(this.policy.url_filter.category_actions || {})) {
+            if (!have.has(name)) rows.push({ name, missing: true });
+          }
+          return rows;
+        },
+        catAction(name) {
+          return (this.policy.url_filter.category_actions || {})[name] || '';
+        },
+        setCatAction(name, action) {
+          const acts = Object.assign({}, this.policy.url_filter.category_actions || {});
+          if (action) acts[name] = action; else delete acts[name];
+          this.policy.url_filter.category_actions = acts;
+          // Keep the legacy list in step; the server derives it anyway.
+          this.policy.url_filter.categories = Object.keys(acts).sort();
+        },
+
+        // ---- Adblock ----
+        async loadAdblockLists() {
+          try {
+            const r = await fetch('/api/adblock/lists');
+            if (r.ok) this.adblockLists = (await r.json()).lists || [];
+          } catch (e) {}
+        },
+        adblockUses(name) {
+          return (this.policy.adblock.lists || []).includes(name);
+        },
+        toggleAdblockList(name, on) {
+          const set = new Set(this.policy.adblock.lists || []);
+          if (on) set.add(name); else set.delete(name);
+          this.policy.adblock.lists = [...set];
+        },
+        async updateAdblockList(name) {
+          this.adblockBusy = name;
+          try {
+            const r = await fetch(`/api/adblock/lists/${encodeURIComponent(name)}/update`, { method: 'POST' });
+            if (!r.ok) {
+              const err = await r.json().catch(() => ({}));
+              this.showAlert(err.detail || window.wfT('ed.adblockUpdateFailed'), 'error');
+            }
+          } catch (e) {
+            this.showAlert(window.wfT('ed.netErr') + e.message, 'error');
+          }
+          this.adblockBusy = '';
+          await this.loadAdblockLists();
         },
 
         async save() {
@@ -869,6 +1016,7 @@
           this.policy.text_classifier.threshold = num(this.policy.text_classifier.threshold, 0.8);
           this.policy.image_classifier.threshold = num(this.policy.image_classifier.threshold, 0.4);
           this.policy.image_classifier.min_dimension = Math.round(num(this.policy.image_classifier.min_dimension, 100));
+          this.policy.text_classifier.censor_languages = (this.censorLangsText || '').split(/[\s,]+/).map(s => s.trim()).filter(Boolean);
 
           const method = this.isNew ? 'POST' : 'PUT';
           const url = this.isNew
@@ -908,7 +1056,8 @@
         source_ips: [],
         source_macs: [],
         schedule: { enabled: false, active_windows: [] },
-        url_filter: { enabled: false, allow: [], block: [], mode: 'blacklist', categories: [], block_quic: true },
+        url_filter: { enabled: false, allow: [], block: [], mode: 'blacklist', category_actions: {}, categories: [], block_quic: true },
+        adblock: { enabled: false, lists: ['easylist', 'easyprivacy'], cosmetic: true, allow: [] },
         doh: { enabled: false, server: 'https://1.1.1.3/dns-query', exclude: [], include_only: [] },
         safesearch: { enabled: false, engines: {
           google: { enabled: true, block_images_tab: false, block_videos_tab: false, block_ai_tab: false },
@@ -920,7 +1069,7 @@
           youtube: { enabled: true, block_images_tab: false, block_videos_tab: false, block_ai_tab: false },
         }, exclude: [], include_only: [] },
         youtube: { enabled: false, mode: 'blacklist', channels: [], exclude: [], include_only: [], block_home: true, remove_comments: false, remove_recommendations: false },
-        text_classifier: { enabled: false, threshold: 0.8, exclude: [], include_only: [] },
+        text_classifier: { enabled: false, mode: 'block', threshold: 0.8, exclude: [], include_only: [], censor_words: [], censor_languages: [] },
         image_classifier: { enabled: false, action: 'blur', threshold: 0.4, min_dimension: 100, exclude: [], include_only: [] },
         mitm: { mode: 'exclude', sites: [], ua_mode: 'off', user_agents: [] },
         block_page: { template: 'default', message: '' },

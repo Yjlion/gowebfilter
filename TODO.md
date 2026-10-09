@@ -185,6 +185,20 @@ not speculative.
 
 ## 3. Ops and platform
 
+- [ ] **Egress mark stays set when TUN capture is disabled.** `S`
+  `runEngineWithTun` (`cmd/webfilter/runners.go`) sets
+  `SetUpstreamEgressMark` before `sup.Start`, but `Supervisor.Start`
+  returns nil (not `StartupSkippedError`) when `tun2socks.enabled` is false,
+  so the mark is never cleared. Every upstream socket then tries `SO_MARK`
+  (logging "could not mark upstream socket" on unprivileged hosts) and uses
+  the PreferGo resolver, contradicting "the mark stays 0 unless capture
+  starts". Only set it when capture is enabled.
+- [ ] **Adblock: compile Android, then test on real sites.** `M`
+  The native adblock/censor/category screens are unbuilt (no SDK where they
+  were written). Then measure breakage on popular sites and hiding of
+  JS-inserted ads (generic cosmetic rules only cover classes present in the
+  server HTML).
+
 - [ ] **Backup/restore of config + policies.** `M`
   `internal/mgmtapi/routes_backup.go` is a 10-line empty stub whose own comment
   states the requirement: the restore route must be wrapped in
@@ -318,10 +332,15 @@ not speculative.
   `internal/classify/textbayes/NOTICE` (e2guardian and Redwood are references
   only, not embeddable data).
 
-- [ ] **Non-English adult-text coverage.** `L`
-  Only the English LDNOOBW-derived seed vocabulary is embedded, so
-  `text_classifier` is near-blind outside English. Same licensing constraint as
-  above.
+- [ ] **Non-English adult-text accuracy.** `L`
+  Every LDNOOBW language is now embedded, but as light-weight profanity
+  evidence; nothing curated and high-weight exists outside English, and
+  accuracy outside English is unmeasured. Curate per-language adult phrases
+  (licence-compatible) into `scripts/text_bayes_curated.json`.
+- [ ] **Censor: per-language skip-list review.** `S`
+  `internal/classify/profanity`'s `skipped` map was built from a quick pass
+  over short entries; a native-speaker review per language would catch more
+  everyday words the lists mask.
 
 ## 5. Docs, i18n and tests
 
@@ -331,6 +350,11 @@ not speculative.
   from all six other languages. They fall back to English, which looks worst
   in the RTL locales. A few keys the UI uses aren't defined even in English
   (`ed.scheduleDay`, `ed.dohCustom`, `ed.minDimension`, `ed.minDimHelp`).
+
+- [ ] **Translate the new UI strings.** `S`
+  The category-action, censor and adblock keys (`ed.cat*`, `ed.unlisted*`,
+  `ed.textMode*`, `ed.censor*`, `ed.adblock*`, `set.adblock*`) exist only in
+  English.
 
 - [ ] **Doc drift.** `S`
   `android/README.md` (around line 204) still says the Kotlin sources have
@@ -343,6 +367,16 @@ not speculative.
   has no tests. `cmd/webfilter` has none either.
 
 ## Done
+
+- [x] **Multilingual text classifier + censor mode** — every LDNOOBW language
+  embedded (`internal/classify/profanity`), Unicode-aware Bayesian scoring,
+  and `text_classifier.mode` block/censor/both. See
+  [docs/text-classifier.md](docs/text-classifier.md).
+- [x] **Ad & tracker blocking** from standard filter lists, with cosmetic
+  hiding, runtime list downloads and refresh. See
+  [docs/adblock.md](docs/adblock.md).
+- [x] **Per-category block / allow / off** in the URL filter, with the global
+  mode as the default for unlisted sites.
 
 - [x] **ICAP adaptation service** (`internal/icap` + `internal/proxy/icap.go`)
   — `icap@host:port`/`icaps@` is a served `proxy_listen` mode, so a site that

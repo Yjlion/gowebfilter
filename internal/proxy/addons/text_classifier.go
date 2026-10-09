@@ -2,9 +2,11 @@ package addons
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/yjlion/gowebfilter/internal/classify/profanity"
 	"github.com/yjlion/gowebfilter/internal/metrics"
 	"github.com/yjlion/gowebfilter/internal/models"
 	"github.com/yjlion/gowebfilter/internal/proxy"
@@ -93,11 +95,16 @@ func textClassifierShouldFilter(host, url string, cfg models.TextClassifierConfi
 
 // htmlTagRe strips HTML tags without a full parser - the same
 // no-dependency fallback text_classifier.py itself falls back to when
-// BeautifulSoup isn't installed.
-var htmlTagRe = regexp.MustCompile(`<[^>]+>`)
+// BeautifulSoup isn't installed. Script and style bodies are dropped
+// first (htmlCodeRe): they are code, not prose, and scoring them only adds
+// noise - including the CSS the adblock addon injects.
+var (
+	htmlTagRe  = regexp.MustCompile(`<[^>]+>`)
+	htmlCodeRe = regexp.MustCompile(`(?is)<script\b[^>]*>.*?</script\s*>|<style\b[^>]*>.*?</style\s*>`)
+)
 
 func stripHTML(html string) string {
-	return htmlTagRe.ReplaceAllString(html, " ")
+	return htmlTagRe.ReplaceAllString(htmlCodeRe.ReplaceAllString(html, " "), " ")
 }
 
 func (tc TextClassifier) HandleResponse(fc *proxy.FlowContext) {
@@ -123,16 +130,43 @@ func (tc TextClassifier) HandleResponse(fc *proxy.FlowContext) {
 		return
 	}
 
-	text := stripHTML(string(fc.ResponseBody))
-	if keywordScore(text) >= 1.0 {
+	if cfg.Mode.Blocks() && tc.shouldBlock(stripHTML(string(fc.ResponseBody)), cfg.Threshold) {
 		fc.Block("Adult text content detected", "text_classifier")
 		return
+	}
+	if cfg.Mode.Censors() {
+		censorResponse(fc, cfg)
+	}
+}
+
+// shouldBlock is the block-mode decision: the keyword prefilter on any
+// page, then the Bayesian scorer for pages with enough text to score.
+func (tc TextClassifier) shouldBlock(text string, threshold float64) bool {
+	if keywordScore(text) >= 1.0 {
+		return true
 	}
 	if len(text) < 100 { // skip tiny pages
+		return false
+	}
+	return tc.classify(text, threshold)
+}
+
+// censorResponse masks offensive words in the page's text in place.
+func censorResponse(fc *proxy.FlowContext, cfg models.TextClassifierConfig) {
+	langs := censorLanguages(cfg.CensorLanguages, fc.ResponseBody, fc.Response.Header.Get("Content-Language"))
+	matcher := profanity.ForLanguages(langs, cfg.CensorWords)
+	// Element-level lang attributes refine the automatic choice; a policy
+	// that pins censor_languages means exactly those, everywhere.
+	var forLang func(string) *profanity.Matcher
+	if len(cfg.CensorLanguages) == 0 {
+		forLang = func(lang string) *profanity.Matcher { return profanity.ForLanguages([]string{lang}, cfg.CensorWords) }
+	}
+	body, n := censorHTML(fc.ResponseBody, matcher, forLang)
+	if n == 0 {
 		return
 	}
-
-	if tc.classify(text, cfg.Threshold) {
-		fc.Block("Adult text content detected", "text_classifier")
-	}
+	fc.ResponseBody = body
+	fc.Response.Header.Set("Content-Length", strconv.Itoa(len(body)))
+	fc.WFAction = "modified"
+	fc.WFComponent = "text_classifier"
 }

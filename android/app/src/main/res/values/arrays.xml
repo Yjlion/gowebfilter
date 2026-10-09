@@ -9,6 +9,45 @@
         <item>whitelist</item>
     </string-array>
 
+    <!-- URL filter: the global mode is the default for sites no rule or
+         category matches (values are the Go model's blacklist/whitelist). -->
+    <string-array name="url_filter_mode_labels">
+        <item>Allow unlisted sites (default)</item>
+        <item>Block unlisted sites</item>
+    </string-array>
+
+    <string-array name="text_mode_labels">
+        <item>Block adult pages</item>
+        <item>Censor offensive words (never block)</item>
+        <item>Block adult pages and censor the rest</item>
+    </string-array>
+    <string-array name="text_mode_values">
+        <item>block</item>
+        <item>censor</item>
+        <item>both</item>
+    </string-array>
+
+    <!-- Built-in adblock presets (internal/adblock/store.go Presets). Custom
+         lists from settings are managed in the web UI. -->
+    <string-array name="adblock_list_labels">
+        <item>EasyList (ads)</item>
+        <item>EasyPrivacy (trackers)</item>
+        <item>Fanboy\'s Annoyance</item>
+        <item>Peter Lowe\'s list</item>
+        <item>AdGuard Base</item>
+        <item>uBlock Origin filters</item>
+        <item>uBlock Origin privacy</item>
+    </string-array>
+    <string-array name="adblock_list_values">
+        <item>easylist</item>
+        <item>easyprivacy</item>
+        <item>fanboy-annoyance</item>
+        <item>peter-lowe</item>
+        <item>adguard-base</item>
+        <item>ublock-filters</item>
+        <item>ublock-privacy</item>
+    </string-array>
+
     <!-- Same preset list as the web dashboard's policy editor
          (ui/policy-editor.html dohPresets) — keep the two in sync. -->
     <string-array name="doh_preset_labels">

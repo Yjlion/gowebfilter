@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"html/template"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/yjlion/gowebfilter/internal/logstore"
@@ -123,4 +124,38 @@ func (fc *FlowContext) Block(reason, component string) {
 		Header:     http.Header{"Content-Type": []string{"text/html; charset=utf-8"}},
 	}
 	fc.ResponseBody = buf.Bytes()
+}
+
+// transparentGIF is a 1x1 transparent GIF, the stand-in for a blocked image.
+var transparentGIF = []byte{
+	0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x00, 0x01, 0x00, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0xff, 0xff, 0xff, 0x21, 0xf9, 0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0x2c, 0x00, 0x00, 0x00, 0x00,
+	0x01, 0x00, 0x01, 0x00, 0x00, 0x02, 0x02, 0x44, 0x01, 0x00, 0x3b,
+}
+
+// BlockEmpty logs a block and answers with an empty response of the right
+// kind for a subresource (resourceType as in adblock: "image", "script",
+// "stylesheet", ...): a transparent GIF for images, an empty script or
+// stylesheet, and an empty 204 otherwise. An HTML block page is useless
+// inside a <script> or <img> slot and, for images, renders as a broken-image
+// icon.
+func (fc *FlowContext) BlockEmpty(reason, component, resourceType string) {
+	fc.LogBlock(reason, component)
+	status, ctype, body := http.StatusOK, "", []byte{}
+	switch resourceType {
+	case "image":
+		ctype, body = "image/gif", transparentGIF
+	case "script":
+		ctype = "application/javascript"
+	case "stylesheet":
+		ctype = "text/css"
+	default:
+		status = http.StatusNoContent
+	}
+	h := http.Header{"Content-Length": []string{strconv.Itoa(len(body))}}
+	if ctype != "" {
+		h.Set("Content-Type", ctype)
+	}
+	fc.Response = &http.Response{StatusCode: status, Header: h}
+	fc.ResponseBody = body
 }

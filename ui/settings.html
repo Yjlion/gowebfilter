@@ -397,6 +397,58 @@
           </div>
         </div>
 
+        <!-- Ad & tracker filter lists -->
+        <div class="bg-card rounded-xl shadow-sm border border-gray-100 p-6 space-y-4">
+          <div>
+            <div class="text-sm font-semibold text-gray-900" data-i18n="set.adblock">Ad &amp; Tracker Filter Lists</div>
+            <p class="text-xs text-gray-500 mt-1" data-i18n="set.adblockDesc">Shared by every policy that turns on Ad &amp; Tracker Blocking. Lists a policy uses are downloaded automatically and refreshed on the interval below.</p>
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="text-xs font-medium text-gray-700 block mb-1" data-i18n="set.adblockDir">List Directory</label>
+              <input type="text" x-model="settings.adblock.dir" placeholder="./adblock" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label class="text-xs font-medium text-gray-700 block mb-1" data-i18n="set.adblockHours">Refresh every (hours)</label>
+              <input type="number" x-model.number="settings.adblock.update_hours" min="1" step="1"
+                     class="w-32 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+          </div>
+          <div>
+            <label class="text-xs font-medium text-gray-700 block mb-1" data-i18n="set.adblockCustom">Custom lists</label>
+            <textarea x-model="adblockCustomText" rows="3" placeholder="my-list https://example.com/filters.txt"
+                      class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"></textarea>
+            <p class="text-xs text-gray-400 mt-1" data-i18n="set.adblockCustomHelp">one per line: a name (lowercase letters, digits, - or _) then the list URL. Adblock Plus / uBlock syntax, hosts files and plain domain lists all work.</p>
+          </div>
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <label class="text-xs font-medium text-gray-700" data-i18n="set.adblockStatus">Downloaded lists</label>
+              <button type="button" @click="updateAllAdblock()" :disabled="adblockBusy !== ''"
+                      class="text-xs text-blue-600 hover:text-blue-700 font-medium"
+                      x-text="adblockBusy === '*' ? $t('set.adblockUpdating', 'Updating...') : $t('set.adblockUpdateAll', 'Update all now')"></button>
+            </div>
+            <div class="divide-y divide-gray-100 border border-gray-100 rounded-lg">
+              <template x-for="l in adblockLists" :key="l.name">
+                <div class="flex items-center justify-between gap-2 px-3 py-2 text-sm">
+                  <div class="truncate">
+                    <span class="text-gray-900" x-text="l.title || l.name"></span>
+                    <span class="text-xs text-gray-400 font-mono" x-text="l.name"></span>
+                  </div>
+                  <div class="flex items-center gap-3 text-xs text-gray-500 whitespace-nowrap">
+                    <span x-show="l.installed" x-text="(l.rules||0).toLocaleString() + ' rules · ' + (l.updated || '').slice(0, 10)" :title="l.updated"></span>
+                    <span x-show="!l.installed" class="text-gray-400" data-i18n="set.adblockNotDownloaded">not downloaded</span>
+                    <span x-show="l.error" class="text-amber-600" :title="l.error" data-i18n="set.adblockFailed">last update failed</span>
+                    <button type="button" @click="updateAdblock(l.name)" :disabled="adblockBusy !== ''" class="text-blue-600 hover:text-blue-700 font-medium"
+                            x-text="adblockBusy === l.name ? $t('set.adblockUpdating', 'Updating...') : (l.installed ? $t('set.adblockUpdate', 'Update') : $t('set.adblockDownload', 'Download'))"></button>
+                    <button type="button" x-show="l.installed" @click="deleteAdblock(l.name)" :disabled="adblockBusy !== ''"
+                            class="text-red-600 hover:text-red-700 font-medium" data-i18n="set.adblockDelete">Delete</button>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+        </div>
+
         <!-- Management HTTPS -->
         <div class="bg-card rounded-xl shadow-sm border border-gray-100 p-6 space-y-4 mt-4">
           <div>
@@ -573,10 +625,13 @@
   <script>
     function settingsPage() {
       return {
-        settings: { proxy_listen: ['0.0.0.0:8080', 'socks5@127.0.0.1:1080'], mgmt_host: '0.0.0.0', mgmt_port: 8000, cert_dir: './certs', policies_dir: './policies', logs_dir: './logs', categories_dir: './categories', log_blocks: true, log_requests: true, log_retention_days: 30, default_policy: null, auth_enabled: false, has_password: false, pac_proxy_host: '', pac_direct_hosts: [], pac_direct_ips: [], mgmt_hostname: 'web.filter', upstream_proxy: '', upstream_auth: '', ui_language: 'en', proxy_auth_enabled: false, proxy_auth_username: '', has_proxy_auth: false, tun2socks: { enabled: false, device_name: 'webfilter-tun', interface_name: '', tun_address: '198.18.0.1', tun_gateway: '198.18.0.1', tun_netmask: '255.254.0.0', dns_servers: [], auto_routes: true, bypass_cidrs: ['127.0.0.0/8', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'] } },
+        settings: { proxy_listen: ['0.0.0.0:8080', 'socks5@127.0.0.1:1080'], mgmt_host: '0.0.0.0', mgmt_port: 8000, cert_dir: './certs', policies_dir: './policies', logs_dir: './logs', categories_dir: './categories', log_blocks: true, log_requests: true, log_retention_days: 30, default_policy: null, auth_enabled: false, has_password: false, pac_proxy_host: '', pac_direct_hosts: [], pac_direct_ips: [], mgmt_hostname: 'web.filter', upstream_proxy: '', upstream_auth: '', ui_language: 'en', proxy_auth_enabled: false, proxy_auth_username: '', has_proxy_auth: false, adblock: { dir: './adblock', update_hours: 24, custom_lists: [] }, tun2socks: { enabled: false, device_name: 'webfilter-tun', interface_name: '', tun_address: '198.18.0.1', tun_gateway: '198.18.0.1', tun_netmask: '255.254.0.0', dns_servers: [], auto_routes: true, bypass_cidrs: ['127.0.0.0/8', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'] } },
         status: { proxy_port: null, tun2socks: { running: false, platform: 'unknown', supported: false, privilege_ok: false, socks_addr: '', binary_present: false } },
         newPassword: '',
         newProxyAuthPassword: '',
+        adblockLists: [],
+        adblockBusy: '',
+        adblockCustomText: '',
         alert: '',
         alertType: 'success',
         restartRequired: [],
@@ -663,12 +718,40 @@
               if (!Array.isArray(s.pac_direct_ips)) s.pac_direct_ips = [];
               if (!s.mgmt_hostname) s.mgmt_hostname = 'web.filter';
               s.tun2socks = this.normalizeTun(s.tun2socks);
+              s.adblock = Object.assign({ dir: './adblock', update_hours: 24, custom_lists: [] }, s.adblock || {});
+              this.adblockCustomText = (s.adblock.custom_lists || []).map(l => `${l.name} ${l.url}`).join('\n');
               this.settings = s;
             }
           } catch (e) {}
           await this.loadStatus();
           await this.refreshWireguard();
+          await this.loadAdblock();
         },
+
+        async loadAdblock() {
+          try {
+            const r = await fetch('/api/adblock/lists');
+            if (r.ok) this.adblockLists = (await r.json()).lists || [];
+          } catch (e) {}
+        },
+        async adblockCall(url, method, busy) {
+          this.adblockBusy = busy;
+          try {
+            const r = await fetch(url, { method });
+            if (!r.ok) {
+              const err = await r.json().catch(() => ({}));
+              this.alert = err.detail || window.wfT('set.adblockFailed');
+              this.alertType = 'error';
+            }
+          } catch (e) {
+            this.alert = e.message; this.alertType = 'error';
+          }
+          this.adblockBusy = '';
+          await this.loadAdblock();
+        },
+        updateAdblock(name) { return this.adblockCall(`/api/adblock/lists/${encodeURIComponent(name)}/update`, 'POST', name); },
+        updateAllAdblock() { return this.adblockCall('/api/adblock/update', 'POST', '*'); },
+        deleteAdblock(name) { return this.adblockCall(`/api/adblock/lists/${encodeURIComponent(name)}`, 'DELETE', name); },
 
         async loadStatus() {
           try {
@@ -698,6 +781,12 @@
             payload.tun2socks.dns_servers = (payload.tun2socks.dns_servers || []).map(h => (h || '').trim()).filter(Boolean);
             payload.tun2socks.bypass_cidrs = (payload.tun2socks.bypass_cidrs || []).map(h => (h || '').trim()).filter(Boolean);
           }
+          payload.adblock = Object.assign({}, payload.adblock || {}, {
+            custom_lists: (this.adblockCustomText || '').split('\n').map(l => l.trim()).filter(Boolean).map(l => {
+              const [name, ...rest] = l.split(/\s+/);
+              return { name: (name || '').toLowerCase(), url: rest.join(' ') };
+            }).filter(l => l.name && l.url),
+          });
           if (this.newPassword) payload.new_password = this.newPassword;
           if (this.newProxyAuthPassword !== '') payload.new_proxy_auth_password = this.newProxyAuthPassword;
           try {

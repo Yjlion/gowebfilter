@@ -9,8 +9,8 @@
 
     <ListPreference
         android:key="url_filter_mode"
-        android:title="@string/pref_mode"
-        android:entries="@array/filter_mode_labels"
+        android:title="@string/pref_url_filter_mode"
+        android:entries="@array/url_filter_mode_labels"
         android:entryValues="@array/filter_mode_values"
         android:defaultValue="blacklist"
         app:useSimpleSummaryProvider="true" />

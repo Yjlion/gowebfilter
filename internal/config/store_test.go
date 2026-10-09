@@ -81,3 +81,27 @@ func TestSaveThenLoadSettingsRoundTrips(t *testing.T) {
 		t.Errorf("loaded = %+v, want MgmtPort=9001 AuthEnabled=true", loaded)
 	}
 }
+
+func TestLoadSettingsRootsMissingAdblockDir(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "config", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"categories_dir":"/data/categories"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := config.LoadSettings(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(root, "adblock"); s.Adblock.Dir != want {
+		t.Fatalf("Adblock.Dir = %q, want %q", s.Adblock.Dir, want)
+	}
+	if err := os.WriteFile(path, []byte(`{"adblock":{"dir":"/srv/lists"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if s, _ = config.LoadSettings(path); s.Adblock.Dir != "/srv/lists" {
+		t.Fatalf("explicit dir overridden: %q", s.Adblock.Dir)
+	}
+}

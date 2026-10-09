@@ -16,11 +16,18 @@ aimed at replacing a Python + mitmproxy runtime with one static executable.
 
 ## Screenshots
 
-The management web UI — dashboard, policies, logs, analytics, tools and
-settings — is in [screenshots/](screenshots/), rendered against generated
-sample data. Regenerate with `bash scripts/capture_screenshots.sh`.
+All captures are in [screenshots/](screenshots/) (see its README for the
+full list), rendered against generated sample data. Regenerate with
+`bash scripts/capture_screenshots.sh`.
 
 [![Dashboard](screenshots/dashboard.png)](screenshots/)
+
+| | |
+|---|---|
+| [![Policies](screenshots/policies.png)](screenshots/policies.png) Policies | [![Dashboard, dark theme](screenshots/dashboard-dark.png)](screenshots/dashboard-dark.png) Dark theme |
+| [![URL filter categories](screenshots/editor-url-filter.png)](screenshots/editor-url-filter.png) Per-category block / allow / off | [![Ad & tracker blocking](screenshots/editor-adblock.png)](screenshots/editor-adblock.png) Ad & tracker blocking |
+| [![Text classifier](screenshots/editor-text-classifier.png)](screenshots/editor-text-classifier.png) Text classifier: block, censor or both | [![Logs](screenshots/logs-requests.png)](screenshots/logs-requests.png) Request log |
+| [![Before](screenshots/censor-before.png)](screenshots/censor-before.png) A page as published... | [![After](screenshots/censor-after.png)](screenshots/censor-after.png) ...and through the proxy: words censored, ads hidden |
 
 ## What it does
 
@@ -30,10 +37,14 @@ sample data. Regenerate with `bash scripts/capture_screenshots.sh`.
 - **Per-client policy routing**: policies match by MAC address, exact IP,
   CIDR range, or a catch-all default, using the same tiered matching as the
   Python original.
-- **Filtering addons**: URL allow/blacklist with category blocklists,
-  SafeSearch enforcement, YouTube channel filtering, DNS-over-HTTPS
-  blocking, QUIC blocking, an embedded pure-Go Bayesian adult-text
-  classifier, and a pure-Go embedded NSFW image classifier.
+- **Filtering addons**: URL allow/block lists plus shared category lists,
+  each set to block, allow or off per policy (so "banking: allow" can carve
+  banks out of a broader blocked list); ad and tracker blocking from
+  standard filter lists (EasyList, EasyPrivacy, uBlock/AdGuard lists, hosts
+  files) with element hiding; SafeSearch enforcement; YouTube channel
+  filtering; DNS-over-HTTPS blocking; QUIC blocking; an embedded pure-Go
+  adult-text classifier that can block pages or censor offensive words in
+  ~28 languages; and a pure-Go embedded NSFW image classifier.
 - **ICAP service**: an `icap@host:port` listener turns the same filtering
   into an adaptation service for a proxy you already run — Squid keeps its
   caching, ACLs, auth and TLS interception and hands each request and
@@ -110,11 +121,17 @@ it as a Windows service or Linux systemd unit.
   embedded directly in the binary (`internal/classify/image/model.bin`,
   ~8.6MB) and run by a from-scratch pure-Go inference engine. See
   `scripts/nsfw-model/README.md` for provenance and regeneration notes.
-- **Text (embedded Bayesian scorer)**: no setup needed. A compact
-  adult-text feature table is embedded in the binary and scored with a
-  pure-Go Naive Bayes classifier. The seed vocabulary is curated from
-  LDNOOBW's English list concepts with CC-BY-4.0 attribution; see
-  `internal/classify/textbayes/NOTICE`.
+- **Text (embedded Bayesian scorer + multilingual word lists)**: no setup
+  needed. A compact adult-text feature table is embedded in the binary and
+  scored with a pure-Go Naive Bayes classifier, and every language list
+  from [LDNOOBW](https://github.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words)
+  (CC-BY-4.0) is embedded for the censor mode and as low-weight scorer
+  evidence. See [docs/text-classifier.md](docs/text-classifier.md) and the
+  `NOTICE` files in `internal/classify/textbayes` and
+  `internal/classify/profanity`.
+- **Ad/tracker filter lists**: not embedded. Lists a policy uses are
+  downloaded at runtime and refreshed daily; see
+  [docs/adblock.md](docs/adblock.md).
 
 Enable `image_classifier`/`text_classifier` on the policies that should use
 them. Both default to disabled per-policy because NSFW classification false
@@ -132,6 +149,8 @@ Config lives entirely on disk, matching the Python original's layout:
 - `certs/` - generated CA + leaf certificate cache.
 - `categories/` - domain-list blocklists refreshed by
   `webfilter categories update`.
+- `adblock/` - downloaded ad/tracker filter lists (`adblock.dir` in
+  settings), refreshed automatically or with `webfilter adblock update`.
 - `logs/webfilter.db` - SQLite request/block log, browsable from the UI.
 
 Runtime state is generated or copied from the shipped `.example` templates
@@ -141,7 +160,8 @@ and is not committed to the repo.
 
 Policies hot-reload wholesale. Settings reload the fields whose consumers
 read them per request - interface language, proxy authentication, the
-management pseudo-hostname, ICAP tuning, PAC settings, management auth - and
+management pseudo-hostname, ICAP tuning, PAC settings, management auth, the
+adblock list directory and custom lists - and
 the API tells you about the rest rather than making you guess:
 
 ```json
@@ -175,6 +195,35 @@ certificate, or leave `mgmt_tls` off if you distribute PAC from this port.
 The Android app always serves its management UI over plain loopback HTTP
 regardless of this setting - its WebView has no trust path to a CA-minted
 leaf.
+
+## URL filter categories
+
+Shared category lists (`webfilter categories update`, or per-category
+downloads on Android) are set per policy in `url_filter.category_actions`:
+
+```json
+"url_filter": {
+  "enabled": true,
+  "mode": "blacklist",
+  "category_actions": { "porn": "block", "gambling": "block", "banking": "allow" }
+}
+```
+
+A category that is absent is off. `mode` is the default for sites nothing
+matched: `blacklist` lets them through (the default), `whitelist` blocks
+them. A request is decided by the first of these that matches:
+
+1. the custom `allow` list (then the content filters are skipped too),
+2. the custom `block` list,
+3. an `allow` category (also skips the content filters - useful for
+   banking or school sites),
+4. a `block` category,
+5. `mode`.
+
+Older policy files with a plain `categories` list keep working: on load each
+listed category becomes `block` in blacklist mode or `allow` in whitelist
+mode, exactly what the list meant before. (A whitelist policy that listed no
+categories never blocked anything, so it loads as blacklist.)
 
 ## Monitoring
 

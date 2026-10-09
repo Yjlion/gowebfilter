@@ -38,7 +38,7 @@ for local dev. They persist to disk; the mgmt API's
 ## Layout
 
 - `cmd/webfilter/` - cobra CLI (`run`/`proxy`/`mgmt`/`tray`/`gui`/
-  `categories update`/`oui update`)
+  `categories update`/`adblock update|status`/`oui update`)
 - `cmd/webfilter/internal/gui/` - native desktop management UI
   (github.com/gogpu/ui, pure Go/WebGPU, CGO_ENABLED=0). Deliberately under
   `cmd/`, not top-level `internal/`, so the Android sweep
@@ -70,7 +70,12 @@ for local dev. They persist to disk; the mgmt API's
   `PUT /api/settings` and the `mobile/` native-settings path, plus the MDM
   managed-config apply (`ApplyManagedConfig`)
 - `internal/classify/textbayes/` - embedded pure-Go Bayesian adult-text scorer
+  (curated features + light-weight multilingual LDNOOBW; see docs/text-classifier.md)
+- `internal/classify/profanity/` - embedded multilingual LDNOOBW lists and the
+  Unicode word matcher shared by censor mode and the textbayes tokenizer
 - `internal/classify/image/` - embedded pure-Go GantMan/nsfw_model image classifier
+- `internal/adblock/` - ABP/uBO filter-list parser/matcher, cosmetic
+  selectors, on-disk list store and background refresher (docs/adblock.md)
 - `internal/tun2socks/` - supervises the **external** tun2socks binary as a
   child process, downloads it sha256-verified from the upstream GitHub release
   into `bin/` beside the executable. The Linux privilege gate is root **or**
@@ -247,6 +252,22 @@ for local dev. They persist to disk; the mgmt API's
   Proxy-only mode (`mobile.StartProxyOnly`) injects a session-only
   `regular@127.0.0.1:8080` (`app.EnsureLocalHTTPProxyListener`), never
   persisted to settings.json.
+- URL-filter categories are per-category actions:
+  `url_filter.category_actions` = {name: block|allow} (absent = off), and
+  `mode` is only the default for unmatched sites (whitelist = block them).
+  Precedence is single-sourced in `proxy.CategoryVerdict`: custom allow >
+  custom block > allow-category > block-category > mode. The legacy
+  `categories` list migrates on load; `MergePolicyPatch` makes category
+  patches replace the stored map.
+- Adblock drops any rule it does not fully implement (unsupported options,
+  procedural/scriptlet cosmetics, bad regexes) instead of approximating it,
+  refuses cosmetic selectors containing `<{}\`, never blocks a request on a
+  compile (`Store.Engine` fails open; tests use `EngineSync`), and downloads
+  lists only through an egress-dialer `Store.Client`. Lists are never embedded.
+- Censor mode rewrites only text nodes outside script/style/textarea/code/pre;
+  Latin-script words follow the element/page language (default English),
+  non-Latin scripts always apply. LDNOOBW is deliberately light-weight in the
+  Bayesian model.
 - Category lists may be stored gzip-compressed: the store prefers
   `<name>/domains.gz`; per-category downloads
   (`categories.DownloadCategory`, `https://dbl.ipfire.org/lists/<name>/domains.txt`)

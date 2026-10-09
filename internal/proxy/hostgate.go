@@ -38,27 +38,44 @@ type HostVerdict struct {
 	Component string
 }
 
+// CategoryDecision is the outcome of a policy's category rules for a host.
+type CategoryDecision int
+
+const (
+	// CategoryNone: no category decided; later rules (or nothing) apply.
+	CategoryNone CategoryDecision = iota
+	// CategoryAllowed: an allow-category matched - the site is explicitly
+	// allowed, like a custom allow entry.
+	CategoryAllowed
+	// CategoryBlocked: a block-category matched, or the policy blocks
+	// unlisted sites (whitelist mode) and nothing allowed this one.
+	CategoryBlocked
+)
+
 // CategoryVerdict applies a policy's url_filter category rules to a hostname.
-// Shared by the UrlFilter addon (full-URL request path) and HostFilterVerdict
-// (connection path) so the two can never drift apart - categories are matched
-// on the hostname alone in both.
-func CategoryVerdict(cats *categories.Store, host string, cfg models.UrlFilterConfig) (blocked bool, reason string) {
-	if len(cfg.Categories) == 0 || cats == nil {
-		return false, ""
-	}
-	cat := cats.MatchAny(host, cfg.Categories)
-	if cfg.Mode == models.UrlFilterModeWhitelist {
-		// Only listed categories are allowed; block everything else.
-		if cat == "" {
-			return true, "Site not in an allowed category (whitelist)"
+// Shared by the UrlFilter addon (full-URL request path), HostFilterVerdict
+// (connection path) and the policy simulator so they can never drift apart -
+// categories are matched on the hostname alone in all of them.
+//
+// Precedence: allow-category > block-category > the global default
+// (whitelist mode blocks, blacklist mode lets the site through). Custom
+// allow/block patterns are checked by the callers before this.
+func CategoryVerdict(cats *categories.Store, host string, cfg models.UrlFilterConfig) (CategoryDecision, string) {
+	allow, block := cfg.CategoryLists()
+	if cats != nil {
+		if len(allow) > 0 && cats.MatchAny(host, allow) != "" {
+			return CategoryAllowed, ""
 		}
-		return false, ""
+		if len(block) > 0 {
+			if cat := cats.MatchAny(host, block); cat != "" {
+				return CategoryBlocked, "Site category '" + cat + "' blocked by policy"
+			}
+		}
 	}
-	// blacklist: block domains that fall in a listed category.
-	if cat != "" {
-		return true, "Site category '" + cat + "' blocked by policy"
+	if cfg.Mode == models.UrlFilterModeWhitelist {
+		return CategoryBlocked, "Site not in an allowed category or list (unlisted sites are blocked)"
 	}
-	return false, ""
+	return CategoryNone, ""
 }
 
 // HostFilterVerdict is the host-only subset of the UrlFilter addon, evaluated
@@ -101,7 +118,7 @@ func HostFilterVerdict(rt *state.Runtime, policy *models.Policy, host string) Ho
 	if rt != nil {
 		cats = rt.Categories
 	}
-	if blocked, reason := CategoryVerdict(cats, host, cfg); blocked {
+	if decision, reason := CategoryVerdict(cats, host, cfg); decision == CategoryBlocked {
 		return HostVerdict{Blocked: true, Reason: reason, Component: "url_filter"}
 	}
 	return HostVerdict{}

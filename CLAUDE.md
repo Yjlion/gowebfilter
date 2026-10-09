@@ -28,7 +28,7 @@ go vet ./...
 go test ./...
 
 # focused checks after classifier or pipeline-wiring changes:
-go test ./internal/classify/textbayes ./internal/proxy/addons ./internal/app
+go test ./internal/classify/... ./internal/adblock ./internal/proxy/addons ./internal/app
 go test ./internal/proxy
 
 # single test:
@@ -48,7 +48,7 @@ the proxy+mgmt server if nothing is already listening on the mgmt port),
 `gui` (native desktop management window, gogpu/ui — same self-host-or-attach
 decision as `tray`; closing the window stops a self-hosted engine but never
 an attached one), `service` (Windows service management),
-`categories update`, `oui update`, `tun2socks download|status|cleanup`,
+`categories update`, `adblock update|status`, `oui update`, `tun2socks download|status|cleanup`,
 `gateway status|cleanup`, `version`.
 
 `config/settings.json` and `policies/*.json` are gitignored runtime state —
@@ -77,7 +77,7 @@ Request/block/audit logs go to SQLite at `logs/webfilter.db`.
   the Android `mobile/` package. `BuildProxyEngine` wires the addon pipeline in
   a **fixed order** that matters (mirrors the Python original):
   `ManagementAccess → ProxyAuthGate → PolicyRouter → MitmControl → UrlFilter →
-  QuicBlocker → DohFilter → SafeSearch → YouTubeFilter → TextClassifier →
+  Adblock → QuicBlocker → DohFilter → SafeSearch → YouTubeFilter → TextClassifier →
   ImageClassifier → RequestLogger`. Request hooks still run after an earlier
   hook sets `fc.Response`; only the upstream fetch is skipped. Also holds
   `LoadTextScorer`/`LoadImageDetector`, `EnsureTunSocksListener`, and
@@ -155,9 +155,18 @@ Request/block/audit logs go to SQLite at `logs/webfilter.db`.
 - `internal/classify/textbayes/` — embedded pure-Go Bayesian adult-text
   scorer (implements `addons.MLScorer`). The feature table
   (`model_data.json`, `//go:embed`) is regenerated offline by
-  `scripts/build_text_bayes_model.go` from local wordlist snapshots; the
-  seed vocabulary is curated from LDNOOBW (CC-BY-4.0) — see the package's
-  `NOTICE`.
+  `scripts/build_text_bayes_model.go`: curated high-weight features from
+  `scripts/text_bayes_curated.json` plus every LDNOOBW language at a light
+  weight — see the package's `NOTICE` and
+  [docs/text-classifier.md](docs/text-classifier.md).
+- `internal/classify/profanity/` — the multilingual LDNOOBW word lists
+  (unmodified snapshot under `words/`, `//go:embed`) and the Unicode word
+  matcher shared by the censor mode (`addons/text_censor.go`) and the
+  textbayes tokenizer.
+- `internal/adblock/` — ABP/uBO filter-list parser, matcher (glob + token
+  index, no per-rule regexps), cosmetic selectors, and the on-disk list
+  store with its background refresher (`Store.Run`, started by
+  `Runtime.Start`). See [docs/adblock.md](docs/adblock.md).
 - `internal/classify/image/` — pure-Go NSFW image classifier:
   GantMan/nsfw_model (MobileNetV2, MIT) embedded as `model.bin`
   (`//go:embed`), executed by a from-scratch pure-Go inference engine
@@ -481,6 +490,38 @@ Request/block/audit logs go to SQLite at `logs/webfilter.db`.
   restriction). `CreatePolicyJson` creates policies `inactive:true` unless
   the body says otherwise — an ACTIVE schedule-less catch-all would compete
   with `default` by filename sort (see the policy-selection gotcha above).
+- **URL-filter categories are per-category actions, not one list + a mode.**
+  `url_filter.category_actions` maps each category to `block`/`allow`
+  (absent = off); `mode` is only the default for unmatched sites
+  (whitelist = block them). Precedence lives in `proxy.CategoryVerdict`
+  (shared by the addon, the host gate and the policy simulator): custom
+  allow > custom block > allow-category > block-category > mode. The legacy
+  `categories` list migrates on load in `UrlFilterConfig.UnmarshalJSON`
+  (and `EffectiveCategoryActions` for structs built in Go); a legacy
+  whitelist with no categories migrates to blacklist because it never
+  blocked anything. `settingsvc.MergePolicyPatch` drops the stored actions
+  whenever a patch names `categories` or `category_actions`, so MDM/legacy
+  patches replace rather than RFC 7386-merge.
+- **Adblock skips what it doesn't implement — never approximate a rule.**
+  Unsupported `$options`, procedural/scriptlet cosmetics and uncompilable
+  regexes are dropped at parse time (a skipped rule can only let an ad
+  through; a misread one blocks things the author never meant). Cosmetic
+  selectors are injected verbatim into a `<style>`, so `parseCosmetic`
+  refuses `<`, `{`, `}` and `\`. `Store.Engine` never blocks a request: it
+  returns the previous engine (or nil = fail open) and compiles in the
+  background; tests that need an engine use `EngineSync`. Lists are never
+  embedded (licences), only downloaded via `Store.Client`, which must be an
+  egress-dialer client (`proxy.NewTransport()`).
+- **Censor mode only rewrites text nodes.** `censorHTML` re-emits every
+  token's raw bytes and masks only text outside `censorSkipTags`
+  (script/style/textarea/code/pre/...), so a clean page is byte-identical.
+  Latin-script words are language-scoped (element `lang` → `<html lang>` →
+  Content-Language → English) because short entries collide across
+  languages; non-Latin scripts always apply. Han/Kana/Thai entries match by
+  substring and short ones are dropped (`longEnoughUnspaced`). LDNOOBW is a
+  profanity list, so in the Bayesian model it is deliberately light-weight
+  — don't raise those weights without re-running the swearing-stays-below-
+  threshold tests.
 - **Both classifiers are opt-in per policy and need zero setup.**
   `text_classifier.enabled` / `image_classifier.enabled` (both default
   off — NSFW false positives have real cost) are the only switches; there
@@ -490,7 +531,8 @@ Request/block/audit logs go to SQLite at `logs/webfilter.db`.
   a high-precision keyword prefilter (3 hits = block, even on tiny pages)
   and then the embedded Bayesian scorer against the policy's
   `text_classifier.threshold`; the 100-character floor only shields
-  weak/ambiguous text from Bayesian scoring noise.
+  weak/ambiguous text from Bayesian scoring noise. `text_classifier.mode`
+  (`block`/`censor`/`both`) decides whether it blocks, masks words, or both.
 - `http.FileServer`/`FileServerFS` must not be reintroduced for the UI
   static path — it causes a `/` ↔ `/index.html` redirect loop with this
   UI's own navigation. See `internal/mgmtapi/static.go` and

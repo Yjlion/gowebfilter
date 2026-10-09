@@ -126,7 +126,11 @@
         android:restrictionType="string" />
     <restriction
         android:key="url_filter_categories"
-        android:title="Blocked categories (one per line)"
+        android:title="Blocked categories (one per line; legacy - prefer url_filter_category_actions)"
+        android:restrictionType="string" />
+    <restriction
+        android:key="url_filter_category_actions"
+        android:title="Category actions, one name:action per line (action = block or allow)"
         android:restrictionType="string" />
     <restriction
         android:key="url_filter_block_quic"
@@ -176,6 +180,37 @@
     <restriction
         android:key="text_classifier_threshold"
         android:title="Text classifier threshold (0.0-1.0)"
+        android:restrictionType="string" />
+    <restriction
+        android:key="text_classifier_mode"
+        android:title="Text classifier action"
+        android:restrictionType="choice"
+        android:entries="@array/text_mode_labels"
+        android:entryValues="@array/text_mode_values"
+        android:defaultValue="block" />
+    <restriction
+        android:key="text_classifier_censor_words"
+        android:title="Extra words to censor (one per line)"
+        android:restrictionType="string" />
+
+    <!-- Ad & tracker blocking -->
+    <restriction
+        android:key="adblock_enabled"
+        android:title="Enable ad &amp; tracker blocking"
+        android:restrictionType="bool"
+        android:defaultValue="false" />
+    <restriction
+        android:key="adblock_lists"
+        android:title="Filter lists (one name per line, e.g. easylist)"
+        android:restrictionType="string" />
+    <restriction
+        android:key="adblock_cosmetic"
+        android:title="Hide ad elements on pages"
+        android:restrictionType="bool"
+        android:defaultValue="true" />
+    <restriction
+        android:key="adblock_allow"
+        android:title="Sites exempt from ad blocking (one per line)"
         android:restrictionType="string" />
     <restriction
         android:key="image_classifier_enabled"

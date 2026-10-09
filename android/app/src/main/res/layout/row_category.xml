@@ -6,10 +6,15 @@
     android:gravity="center_vertical"
     android:padding="8dp">
 
-    <CheckBox
-        android:id="@+id/categoryCheck"
+    <!-- Tap to cycle this policy's action for the category:
+         Off -> Block -> Allow -> Off. -->
+    <Button
+        android:id="@+id/categoryState"
+        style="?android:attr/buttonBarButtonStyle"
         android:layout_width="wrap_content"
-        android:layout_height="wrap_content" />
+        android:layout_height="wrap_content"
+        android:minWidth="72dp"
+        android:text="@string/category_action_off" />
 
     <LinearLayout
         android:layout_width="0dp"

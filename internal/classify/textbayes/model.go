@@ -9,8 +9,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"regexp"
 	"strings"
+
+	"github.com/yjlion/gowebfilter/internal/classify/profanity"
 )
 
 //go:embed model_data.json
@@ -41,6 +42,11 @@ type Model struct {
 	vocabSize  float64
 	features   map[string]featureData
 	maxPhrase  int
+	// unspaced holds the features written in scripts without spaces
+	// between words (Han, Kana, Thai, ...): they can't be token-matched,
+	// so they match as substrings, keyed by their lowercased text in
+	// features.
+	unspaced *profanity.SubstringIndex
 }
 
 // New loads the embedded Bayesian feature table.
@@ -70,13 +76,23 @@ func newFromData(data modelData) (*Model, error) {
 		vocabSize:  float64(len(data.Features)),
 		features:   make(map[string]featureData, len(data.Features)),
 	}
+	var unspaced []string
 	for _, f := range data.Features {
+		if f.Adult < 0 || f.Safe < 0 {
+			return nil, fmt.Errorf("textbayes: feature %q has negative count", f.Text)
+		}
+		if profanity.HasUnspaced(f.Text) {
+			key := strings.ToLower(strings.TrimSpace(f.Text))
+			if _, dup := m.features[key]; !dup {
+				unspaced = append(unspaced, key)
+			}
+			f.Text = key
+			m.features[key] = f
+			continue
+		}
 		key := normalizePhrase(f.Text)
 		if key == "" {
 			continue
-		}
-		if f.Adult < 0 || f.Safe < 0 {
-			return nil, fmt.Errorf("textbayes: feature %q has negative count", f.Text)
 		}
 		f.Text = key
 		m.features[key] = f
@@ -84,6 +100,7 @@ func newFromData(data modelData) (*Model, error) {
 			m.maxPhrase = n
 		}
 	}
+	m.unspaced = profanity.NewSubstringIndex(unspaced)
 	if len(m.features) == 0 {
 		return nil, fmt.Errorf("textbayes: feature table normalized to empty")
 	}
@@ -98,7 +115,7 @@ func (m *Model) Score(text string) (float64, bool) {
 	}
 	hits := m.extractFeatures(text)
 	if len(hits) == 0 {
-		if len(tokenize(text)) == 0 {
+		if len(tokenize(text)) == 0 && !profanity.HasUnspaced(text) {
 			return 0, false
 		}
 		return m.adultPrior / (m.adultPrior + m.safePrior), true
@@ -118,12 +135,17 @@ func (m *Model) Score(text string) (float64, bool) {
 }
 
 func (m *Model) extractFeatures(text string) []string {
-	tokens := tokenize(text)
-	if len(tokens) == 0 {
-		return nil
-	}
 	var hits []string
 	seen := make(map[string]int)
+	// Let repeated adult evidence count, but cap repetition so a long spam
+	// page cannot drive the score solely by duplication.
+	m.unspaced.Scan(text, func(entry string, _, _ int) {
+		if seen[entry] < 4 {
+			hits = append(hits, entry)
+			seen[entry]++
+		}
+	})
+	tokens := tokenize(text)
 	for i := 0; i < len(tokens); i++ {
 		maxN := m.maxPhrase
 		if remaining := len(tokens) - i; remaining < maxN {
@@ -134,8 +156,6 @@ func (m *Model) extractFeatures(text string) []string {
 			if _, ok := m.features[phrase]; !ok {
 				continue
 			}
-			// Let repeated adult evidence count, but cap repetition so a long
-			// spam page cannot drive the score solely by duplication.
 			if seen[phrase] < 4 {
 				hits = append(hits, phrase)
 				seen[phrase]++
@@ -146,20 +166,18 @@ func (m *Model) extractFeatures(text string) []string {
 	return hits
 }
 
-var tokenRe = regexp.MustCompile(`[a-z0-9]+`)
-
 func normalizePhrase(s string) string {
 	return strings.Join(tokenize(s), " ")
 }
 
+// tokenize splits s into lowercased Unicode words (profanity.Tokenize, so
+// the censor and the scorer agree on word boundaries) with light English
+// plural folding.
 func tokenize(s string) []string {
-	raw := tokenRe.FindAllString(strings.ToLower(s), -1)
-	tokens := raw[:0]
-	for _, tok := range raw {
-		if tok == "" {
-			continue
-		}
-		tokens = append(tokens, normalizeToken(tok))
+	raw := profanity.Tokenize(s)
+	tokens := make([]string, len(raw))
+	for i, tok := range raw {
+		tokens[i] = normalizeToken(tok.Text)
 	}
 	return tokens
 }

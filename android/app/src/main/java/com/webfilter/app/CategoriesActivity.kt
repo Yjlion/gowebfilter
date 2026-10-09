@@ -6,7 +6,6 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.BaseAdapter
 import android.widget.Button
-import android.widget.CheckBox
 import android.widget.ListView
 import android.widget.TextView
 import android.widget.Toast
@@ -20,9 +19,10 @@ import mobile.Mobile
  * Per-category blocklist screen: the ipfire lists downloadable from
  * dbl.ipfire.org (Mobile.listCategoriesJson's "available") merged with
  * whatever is already on disk ("installed" — which may include extra names
- * installed by the desktop tarball update). The checkbox binds a category
- * name into THIS policy's url_filter.categories; download/update/delete
- * manage the shared on-disk list itself (shared across all policies).
+ * installed by the desktop tarball update). The state button sets THIS
+ * policy's action for a category in url_filter.category_actions (off /
+ * block / allow); download/update/delete manage the shared on-disk list
+ * itself (shared across all policies).
  *
  * Downloads block for seconds-to-minutes (the largest list is ~15 MB), so
  * they run on a plain background Thread — this app deliberately has no
@@ -46,7 +46,8 @@ class CategoriesActivity : AppCompatActivity() {
     private lateinit var store: PolicyJsonStore
     private lateinit var adapter: CategoryAdapter
     private var rows: List<Row> = emptyList()
-    private var selected = mutableSetOf<String>()
+    /** This policy's category actions: name -> "block" | "allow" (absent = off). */
+    private var actions = mutableMapOf<String, String>()
     private var locked = false
 
     private val dataDir get() = filesDir.absolutePath
@@ -71,9 +72,20 @@ class CategoriesActivity : AppCompatActivity() {
             finish()
             return
         }
-        selected = mutableSetOf()
-        val arr = store.get("url_filter.categories") as? JSONArray ?: JSONArray()
-        for (i in 0 until arr.length()) selected.add(arr.optString(i))
+        actions = mutableMapOf()
+        val obj = store.get("url_filter.category_actions") as? JSONObject
+        if (obj != null) {
+            for (name in obj.keys()) {
+                val a = obj.optString(name)
+                if (a == "block" || a == "allow") actions[name] = a
+            }
+        } else {
+            // Policies written before category_actions: the Go side
+            // migrates the legacy list the same way on load.
+            val arr = store.get("url_filter.categories") as? JSONArray ?: JSONArray()
+            val act = if (store.getString("url_filter.mode", "blacklist") == "whitelist") "allow" else "block"
+            for (i in 0 until arr.length()) actions[arr.optString(i)] = act
+        }
         reloadRows()
     }
 
@@ -99,9 +111,9 @@ class CategoriesActivity : AppCompatActivity() {
         } catch (e: Exception) {
             toastError(e)
         }
-        // Selected-but-unknown names (e.g. hand-edited policies) still show,
-        // so the checkbox state is never hidden from the user.
-        for (name in selected) {
+        // Names with an action but no list (e.g. hand-edited policies) still
+        // show, so an action is never hidden from the user.
+        for (name in actions.keys) {
             if (name !in byName) byName[name] = Row(name, -1, "", remote = false)
         }
         byName.values.forEach { it.busy = it.name in busyNames }
@@ -113,11 +125,11 @@ class CategoriesActivity : AppCompatActivity() {
         Toast.makeText(this, getString(R.string.settings_save_failed, e.message ?: "error"), Toast.LENGTH_LONG).show()
     }
 
-    private fun persistSelection() {
-        val arr = JSONArray()
-        selected.sorted().forEach { arr.put(it) }
+    private fun persistActions() {
+        val obj = JSONObject()
+        actions.toSortedMap().forEach { (name, a) -> obj.put(name, a) }
         try {
-            store.set("url_filter.categories", arr)
+            store.set("url_filter.category_actions", obj)
         } catch (e: Exception) {
             toastError(e)
             store.load()
@@ -183,20 +195,31 @@ class CategoriesActivity : AppCompatActivity() {
                 else -> getString(R.string.category_missing)
             }
 
-            val check = view.findViewById<CheckBox>(R.id.categoryCheck)
-            check.setOnCheckedChangeListener(null)
-            check.isChecked = row.name in selected
-            check.isEnabled = !locked
-            check.setOnCheckedChangeListener { _, checked ->
-                if (checked) selected.add(row.name) else selected.remove(row.name)
-                persistSelection()
-                if (checked && row.installedCount < 0 && !row.busy) {
+            val state = view.findViewById<Button>(R.id.categoryState)
+            state.setText(
+                when (actions[row.name]) {
+                    "block" -> R.string.category_action_block
+                    "allow" -> R.string.category_action_allow
+                    else -> R.string.category_action_off
+                },
+            )
+            state.isEnabled = !locked
+            state.setOnClickListener {
+                // Off -> Block -> Allow -> Off.
+                when (actions[row.name]) {
+                    null -> actions[row.name] = "block"
+                    "block" -> actions[row.name] = "allow"
+                    else -> actions.remove(row.name)
+                }
+                persistActions()
+                if (row.name in actions && row.installedCount < 0 && !row.busy) {
                     Toast.makeText(
                         this@CategoriesActivity,
                         R.string.category_selected_not_installed,
                         Toast.LENGTH_SHORT,
                     ).show()
                 }
+                notifyDataSetChanged()
             }
 
             val action = view.findViewById<Button>(R.id.categoryAction)

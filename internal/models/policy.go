@@ -14,6 +14,7 @@ package models
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -48,20 +49,93 @@ func (c *DohConfig) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// ---- AdblockConfig ----
+
+// AdblockConfig turns on list-driven ad and tracker blocking for a policy.
+// The lists themselves are shared across policies and downloaded at
+// runtime (settings "adblock"); a policy only names which ones it uses.
+type AdblockConfig struct {
+	Enabled bool `json:"enabled"`
+	// Lists names the filter lists to apply (built-in presets such as
+	// "easylist", or a custom list's name from settings).
+	Lists []string `json:"lists"`
+	// Cosmetic injects element-hiding CSS from the lists' ## rules into
+	// HTML pages, hiding ad slots that network blocking leaves empty.
+	Cosmetic bool `json:"cosmetic"`
+	// Allow exempts sites (host patterns, as in url_filter) entirely.
+	Allow []string `json:"allow"`
+}
+
+func NewAdblockConfig() AdblockConfig {
+	return AdblockConfig{
+		Lists:    []string{"easylist", "easyprivacy"},
+		Cosmetic: true,
+		Allow:    []string{},
+	}
+}
+
+type adblockConfigAlias AdblockConfig
+
+func (c *AdblockConfig) UnmarshalJSON(data []byte) error {
+	*c = NewAdblockConfig()
+	if err := json.Unmarshal(data, (*adblockConfigAlias)(c)); err != nil {
+		return err
+	}
+	if c.Lists == nil {
+		c.Lists = []string{}
+	}
+	if c.Allow == nil {
+		c.Allow = []string{}
+	}
+	return nil
+}
+
 // ---- TextClassifierConfig ----
 
+// TextClassifierMode selects what the text classifier does with a page.
+type TextClassifierMode string
+
+const (
+	// TextModeBlock replaces adult pages with the block page (the original
+	// and default behaviour).
+	TextModeBlock TextClassifierMode = "block"
+	// TextModeCensor never blocks; it masks offensive words in the page
+	// text with asterisks.
+	TextModeCensor TextClassifierMode = "censor"
+	// TextModeBoth blocks adult pages and censors the rest.
+	TextModeBoth TextClassifierMode = "both"
+)
+
+// Blocks reports whether the mode can block a page.
+func (m TextClassifierMode) Blocks() bool { return m != TextModeCensor }
+
+// Censors reports whether the mode masks words.
+func (m TextClassifierMode) Censors() bool { return m == TextModeCensor || m == TextModeBoth }
+
 type TextClassifierConfig struct {
-	Enabled     bool     `json:"enabled"`
-	Threshold   float64  `json:"threshold"`
-	Exclude     []string `json:"exclude"`
-	IncludeOnly []string `json:"include_only"`
+	Enabled     bool               `json:"enabled"`
+	Mode        TextClassifierMode `json:"mode"`
+	Threshold   float64            `json:"threshold"`
+	Exclude     []string           `json:"exclude"`
+	IncludeOnly []string           `json:"include_only"`
+	// CensorWords are extra words/phrases masked in censor modes, on top of
+	// the embedded multilingual list.
+	CensorWords []string `json:"censor_words"`
+	// CensorLanguages pins which languages' Latin-script word lists the
+	// censor uses (e.g. ["en","de"]). Empty means automatic: the page's
+	// <html lang> / Content-Language, falling back to English. Words in
+	// non-Latin scripts are always checked.
+	CensorLanguages []string `json:"censor_languages"`
 }
 
 func NewTextClassifierConfig() TextClassifierConfig {
 	return TextClassifierConfig{
-		Threshold:   0.80,
-		Exclude:     []string{},
-		IncludeOnly: []string{},
+		Mode:            TextModeBlock,
+		Threshold:       0.80,
+		Exclude:         []string{},
+		IncludeOnly:     []string{},
+		CensorWords:     []string{},
+		CensorLanguages: []string{},
 	}
 }
 
@@ -93,6 +167,26 @@ func (c *TextClassifierConfig) UnmarshalJSON(data []byte) error {
 	if v, ok := raw["include_only"]; ok {
 		if err := json.Unmarshal(v, &c.IncludeOnly); err != nil {
 			return err
+		}
+	}
+	if v, ok := raw["mode"]; ok {
+		var m string
+		if err := json.Unmarshal(v, &m); err != nil {
+			return fmt.Errorf("text_classifier.mode: %w", err)
+		}
+		switch mode := TextClassifierMode(strings.ToLower(strings.TrimSpace(m))); mode {
+		case TextModeBlock, TextModeCensor, TextModeBoth:
+			c.Mode = mode
+		default:
+			// Unknown (or empty) modes keep the safe historical behaviour.
+			c.Mode = TextModeBlock
+		}
+	}
+	for key, dst := range map[string]*[]string{"censor_words": &c.CensorWords, "censor_languages": &c.CensorLanguages} {
+		if v, ok := raw[key]; ok && string(v) != "null" {
+			if err := json.Unmarshal(v, dst); err != nil {
+				return fmt.Errorf("text_classifier.%s: %w", key, err)
+			}
 		}
 	}
 	return nil
@@ -340,13 +434,34 @@ const (
 	UrlFilterModeWhitelist UrlFilterMode = "whitelist"
 )
 
+// CategoryAction is what a url_filter category does to a matching site.
+type CategoryAction string
+
+const (
+	CategoryActionBlock CategoryAction = "block"
+	CategoryActionAllow CategoryAction = "allow"
+)
+
 type UrlFilterConfig struct {
-	Enabled    bool          `json:"enabled"`
-	Allow      []string      `json:"allow"`
-	Block      []string      `json:"block"`
-	Mode       UrlFilterMode `json:"mode"`
-	Categories []string      `json:"categories"`
-	BlockQuic  bool          `json:"block_quic"`
+	Enabled bool     `json:"enabled"`
+	Allow   []string `json:"allow"`
+	Block   []string `json:"block"`
+	// Mode is the default for sites no rule or category matches:
+	// blacklist = allow them (the default), whitelist = block them.
+	Mode UrlFilterMode `json:"mode"`
+	// CategoryActions sets each shared category to block or allow; a
+	// category that is absent is off. An allow-category hit wins over a
+	// block-category hit, so e.g. "banking: allow" can carve banks out of a
+	// broader blocked category.
+	CategoryActions map[string]CategoryAction `json:"category_actions"`
+	// Categories is the legacy (pre-category_actions) list. On input it is
+	// only read when category_actions is absent: every listed category
+	// becomes "block" in blacklist mode or "allow" in whitelist mode, which
+	// is exactly what the list meant then. On output it carries the names of
+	// every category that has an action, for readers that predate
+	// category_actions.
+	Categories []string `json:"categories"`
+	BlockQuic  bool     `json:"block_quic"`
 }
 
 // NewUrlFilterConfig defaults BlockQuic on: stripping Alt-Svc is a
@@ -356,11 +471,12 @@ type UrlFilterConfig struct {
 // keeping traffic inspectable, not about URL rules.
 func NewUrlFilterConfig() UrlFilterConfig {
 	return UrlFilterConfig{
-		Allow:      []string{},
-		Block:      []string{},
-		Mode:       UrlFilterModeBlacklist,
-		Categories: []string{},
-		BlockQuic:  true,
+		Allow:           []string{},
+		Block:           []string{},
+		Mode:            UrlFilterModeBlacklist,
+		CategoryActions: map[string]CategoryAction{},
+		Categories:      []string{},
+		BlockQuic:       true,
 	}
 }
 
@@ -368,7 +484,108 @@ type urlFilterConfigAlias UrlFilterConfig
 
 func (c *UrlFilterConfig) UnmarshalJSON(data []byte) error {
 	*c = NewUrlFilterConfig()
-	return json.Unmarshal(data, (*urlFilterConfigAlias)(c))
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if err := json.Unmarshal(data, (*urlFilterConfigAlias)(c)); err != nil {
+		return err
+	}
+	actions := map[string]CategoryAction{}
+	if v, ok := raw["category_actions"]; ok && string(v) != "null" {
+		for name, a := range c.CategoryActions {
+			name = strings.TrimSpace(name)
+			switch act := CategoryAction(strings.ToLower(strings.TrimSpace(string(a)))); act {
+			case CategoryActionBlock, CategoryActionAllow:
+				if name != "" {
+					actions[name] = act
+				}
+			}
+			// Anything else ("off", "", typos) means off.
+		}
+	} else {
+		// Legacy schema: one list whose meaning came from the global mode.
+		act := CategoryActionBlock
+		if c.Mode == UrlFilterModeWhitelist {
+			act = CategoryActionAllow
+		}
+		for _, name := range c.Categories {
+			if name = strings.TrimSpace(name); name != "" {
+				actions[name] = act
+			}
+		}
+		// Whitelist with no categories never blocked anything (the old
+		// verdict only applied when categories were listed). Under the new
+		// meaning - "block every unlisted site" - it would block
+		// everything, so keep the old behaviour by migrating it to
+		// blacklist.
+		if c.Mode == UrlFilterModeWhitelist && len(actions) == 0 {
+			c.Mode = UrlFilterModeBlacklist
+		}
+	}
+	if c.Mode != UrlFilterModeWhitelist {
+		c.Mode = UrlFilterModeBlacklist
+	}
+	c.CategoryActions = actions
+	c.Categories = c.categoryNames()
+	return nil
+}
+
+// MarshalJSON keeps the legacy categories list in step with
+// category_actions, whoever mutated the struct.
+func (c UrlFilterConfig) MarshalJSON() ([]byte, error) {
+	c.CategoryActions = c.EffectiveCategoryActions()
+	c.Categories = c.categoryNames()
+	return json.Marshal(urlFilterConfigAlias(c))
+}
+
+// EffectiveCategoryActions is CategoryActions, or - for a config built in
+// Go with only the legacy Categories list set - that list read the legacy
+// way (block in blacklist mode, allow in whitelist mode). JSON input is
+// already migrated by UnmarshalJSON.
+func (c UrlFilterConfig) EffectiveCategoryActions() map[string]CategoryAction {
+	if len(c.CategoryActions) > 0 || len(c.Categories) == 0 {
+		if c.CategoryActions == nil {
+			return map[string]CategoryAction{}
+		}
+		return c.CategoryActions
+	}
+	act := CategoryActionBlock
+	if c.Mode == UrlFilterModeWhitelist {
+		act = CategoryActionAllow
+	}
+	out := make(map[string]CategoryAction, len(c.Categories))
+	for _, name := range c.Categories {
+		if name = strings.TrimSpace(name); name != "" {
+			out[name] = act
+		}
+	}
+	return out
+}
+
+func (c UrlFilterConfig) categoryNames() []string {
+	actions := c.EffectiveCategoryActions()
+	names := make([]string, 0, len(actions))
+	for name := range actions {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// CategoryLists splits the category actions into sorted allow and block
+// lists.
+func (c UrlFilterConfig) CategoryLists() (allow, block []string) {
+	actions := c.EffectiveCategoryActions()
+	for _, name := range c.categoryNames() {
+		switch actions[name] {
+		case CategoryActionAllow:
+			allow = append(allow, name)
+		case CategoryActionBlock:
+			block = append(block, name)
+		}
+	}
+	return allow, block
 }
 
 // ---- BlockPageConfig ----
@@ -423,6 +640,7 @@ type Policy struct {
 	YouTube         YouTubeConfig         `json:"youtube"`
 	Mitm            MitmConfig            `json:"mitm"`
 	UrlFilter       UrlFilterConfig       `json:"url_filter"`
+	Adblock         AdblockConfig         `json:"adblock"`
 	BlockPage       BlockPageConfig       `json:"block_page"`
 }
 
@@ -440,6 +658,7 @@ func NewPolicy() Policy {
 		YouTube:         NewYouTubeConfig(),
 		Mitm:            NewMitmConfig(),
 		UrlFilter:       NewUrlFilterConfig(),
+		Adblock:         NewAdblockConfig(),
 		BlockPage:       NewBlockPageConfig(),
 	}
 }

@@ -15,6 +15,8 @@
 package main
 
 import (
+	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -22,8 +24,10 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
+	"github.com/yjlion/gowebfilter/internal/categories"
 	"github.com/yjlion/gowebfilter/internal/logstore"
 	"github.com/yjlion/gowebfilter/internal/models"
 )
@@ -33,6 +37,7 @@ func main() {
 	hours := flag.Int("hours", 48, "how far back to spread generated log entries")
 	requests := flag.Int("requests", 900, "number of request-log rows to generate")
 	port := flag.Int("mgmt-port", 8000, "mgmt_port to write into the generated settings.json")
+	proxyPort := flag.Int("proxy-port", 8080, "HTTP proxy port to write into the generated settings.json")
 	flag.Parse()
 
 	if *dir == "" {
@@ -46,17 +51,23 @@ func main() {
 	// Test-helper rule from CLAUDE.md applies here too: seed absolute paths, or
 	// the documented relative defaults resolve against the process's working
 	// directory rather than the settings file's location.
-	for _, sub := range []string{"config", "policies", "certs", "logs", "categories"} {
+	for _, sub := range []string{"config", "policies", "certs", "logs", "categories", "adblock"} {
 		if err := os.MkdirAll(filepath.Join(root, sub), 0o755); err != nil {
 			log.Fatalf("mkdir %s: %v", sub, err)
 		}
 	}
 
-	if err := writeSettings(root, *port); err != nil {
+	if err := writeSettings(root, *port, *proxyPort); err != nil {
 		log.Fatalf("write settings: %v", err)
 	}
 	if err := writePolicies(root); err != nil {
 		log.Fatalf("write policies: %v", err)
+	}
+	if err := writeCategories(root); err != nil {
+		log.Fatalf("write categories: %v", err)
+	}
+	if err := writeAdblockLists(root); err != nil {
+		log.Fatalf("write adblock lists: %v", err)
 	}
 	if err := seedLogs(root, *hours, *requests); err != nil {
 		log.Fatalf("seed logs: %v", err)
@@ -74,7 +85,7 @@ func writeJSONFile(path string, v any) error {
 	return os.WriteFile(path, append(buf, '\n'), 0o644)
 }
 
-func writeSettings(root string, port int) error {
+func writeSettings(root string, port, proxyPort int) error {
 	s := models.NewGlobalSettings()
 	s.MgmtHost = "127.0.0.1"
 	s.MgmtPort = port
@@ -82,9 +93,11 @@ func writeSettings(root string, port int) error {
 	s.PoliciesDir = filepath.Join(root, "policies")
 	s.LogsDir = filepath.Join(root, "logs")
 	s.CategoriesDir = filepath.Join(root, "categories")
+	s.Adblock.Dir = filepath.Join(root, "adblock")
+	s.Adblock.CustomLists = []models.AdblockListSource{{Name: "home-lab", URL: "https://lists.example/home-lab.txt"}}
 	s.LogBlocks = true
 	s.LogRequests = true
-	s.ProxyListen = []string{"127.0.0.1:8080", "socks5@127.0.0.1:1080"}
+	s.ProxyListen = []string{fmt.Sprintf("127.0.0.1:%d", proxyPort)}
 	return writeJSONFile(filepath.Join(root, "config", "settings.json"), s)
 }
 
@@ -98,6 +111,7 @@ func writePolicies(root string) error {
 		teensPolicy(),
 		bedtimePolicy(),
 		guestPolicy(),
+		labPolicy(),
 	}
 	for _, p := range policies {
 		path := filepath.Join(root, "policies", p.Name+".json")
@@ -124,8 +138,14 @@ func kidsPolicy() models.Policy {
 	p.Name = "kids"
 	p.SourceIPs = []string{"192.168.1.50", "192.168.1.51"}
 	p.UrlFilter.Enabled = true
-	p.UrlFilter.Categories = []string{"porn", "gambling", "violence"}
+	p.UrlFilter.CategoryActions = map[string]models.CategoryAction{
+		"porn": models.CategoryActionBlock, "gambling": models.CategoryActionBlock,
+		"violence": models.CategoryActionBlock, "social": models.CategoryActionBlock,
+		"banking": models.CategoryActionAllow,
+	}
 	p.UrlFilter.Block = []string{"*.tiktok.com", "*.snapchat.com"}
+	p.Adblock.Enabled = true
+	p.Adblock.Lists = []string{"easylist", "easyprivacy", "fanboy-annoyance"}
 	p.SafeSearch.Enabled = true
 	for name, eng := range p.SafeSearch.Engines {
 		eng.Enabled = true
@@ -135,7 +155,9 @@ func kidsPolicy() models.Policy {
 		p.SafeSearch.Engines[name] = eng
 	}
 	p.TextClassifier.Enabled = true
+	p.TextClassifier.Mode = models.TextModeBoth
 	p.TextClassifier.Threshold = 0.75
+	p.TextClassifier.CensorWords = []string{"frak"}
 	p.ImageClassifier.Enabled = true
 	p.ImageClassifier.Threshold = 0.35
 	p.YouTube.Enabled = true
@@ -152,11 +174,15 @@ func teensPolicy() models.Policy {
 	p.SourceIPs = []string{"192.168.1.60", "192.168.1.0/24"}
 	p.SourceMACs = []string{"aa:bb:cc:dd:ee:01"}
 	p.UrlFilter.Enabled = true
-	p.UrlFilter.Categories = []string{"porn", "gambling"}
+	p.UrlFilter.CategoryActions = map[string]models.CategoryAction{
+		"porn": models.CategoryActionBlock, "gambling": models.CategoryActionBlock,
+	}
 	p.SafeSearch.Enabled = true
 	p.TextClassifier.Enabled = true
+	p.TextClassifier.Mode = models.TextModeCensor
 	p.ImageClassifier.Enabled = true
 	p.YouTube.Enabled = true
+	p.Adblock.Enabled = true
 	return p
 }
 
@@ -186,9 +212,70 @@ func guestPolicy() models.Policy {
 	p.Inactive = true
 	p.SourceIPs = []string{"10.20.0.0/16"}
 	p.UrlFilter.Enabled = true
-	p.UrlFilter.Categories = []string{"porn"}
+	p.UrlFilter.CategoryActions = map[string]models.CategoryAction{"porn": models.CategoryActionBlock}
 	p.SafeSearch.Enabled = true
 	return p
+}
+
+// labPolicy matches the machine running the screenshot script (127.0.0.1),
+// so the captured block page and censored/ad-filtered article come from a
+// real pass through the proxy.
+func labPolicy() models.Policy {
+	p := models.NewPolicy()
+	p.Name = "lab-pc"
+	p.SourceIPs = []string{"127.0.0.1"}
+	p.UrlFilter.Enabled = true
+	p.UrlFilter.Block = []string{"blocked.example"}
+	p.TextClassifier.Enabled = true
+	p.TextClassifier.Mode = models.TextModeBoth
+	p.Adblock.Enabled = true
+	return p
+}
+
+// writeCategories installs a few small, made-up category lists so the
+// policy editor's category table has rows (with counts) to show.
+func writeCategories(root string) error {
+	lists := map[string][]byte{}
+	for name, n := range map[string]int{
+		"porn": 412, "gambling": 128, "violence": 57, "social": 64,
+		"banking": 93, "ads": 240, "shopping": 150, "games": 88,
+	} {
+		var b strings.Builder
+		for i := 0; i < n; i++ {
+			fmt.Fprintf(&b, "%s-%d.example\n", name, i)
+		}
+		lists[name] = []byte(b.String())
+	}
+	_, err := categories.WriteCategories(filepath.Join(root, "categories"), "sample-data", lists, nil)
+	return err
+}
+
+// writeAdblockLists installs tiny stand-ins for a few preset lists, plus an
+// index.json, so the adblock UI shows installed lists without any network.
+func writeAdblockLists(root string) error {
+	dir := filepath.Join(root, "adblock")
+	type entry struct {
+		URL     string `json:"url"`
+		Rules   int    `json:"rules"`
+		Updated string `json:"updated,omitempty"`
+		Error   string `json:"error,omitempty"`
+	}
+	index := map[string]entry{}
+	updated := time.Now().UTC().Add(-3 * time.Hour).Format("2006-01-02T15:04:05Z")
+	for name, rules := range map[string]int{"easylist": 81234, "easyprivacy": 52310, "fanboy-annoyance": 31877} {
+		var raw bytes.Buffer
+		raw.WriteString("[Adblock Plus 2.0]\n! sample data stand-in\n||ads.example^\n/ads/*\n##.ad-banner\n##.ad-slot\n###sponsored\n")
+		var gz bytes.Buffer
+		zw := gzip.NewWriter(&gz)
+		zw.Write(raw.Bytes())
+		zw.Close()
+		if err := os.WriteFile(filepath.Join(dir, name+".txt.gz"), gz.Bytes(), 0o644); err != nil {
+			return err
+		}
+		index[name] = entry{URL: "https://easylist.to/easylist/" + name + ".txt", Rules: rules, Updated: updated}
+	}
+	index["home-lab"] = entry{URL: "https://lists.example/home-lab.txt", Error: "download https://lists.example/home-lab.txt: HTTP 404"}
+	return writeJSONFile(filepath.Join(dir, "index.json"), map[string]any{"lists": index})
 }
 
 // ---------------------------------------------------------------------------
@@ -242,6 +329,10 @@ var blockedSites = []struct{ host, path, component, reason string }{
 	{"imgboard-example.com", "/img/4471.jpg", "image_classifier", "Adult image content detected"},
 	{"blocked-doh.example", "/dns-query", "doh_filter", "Domain blocked by DNS filter"},
 	{"www.youtube.com", "/watch?v=blocked", "youtube", "Channel not in allowlist"},
+	{"securepubads.g.doubleclick.net", "/tag/js/gpt.js", "adblock", "Blocked by ad/tracker filter: ||g.doubleclick.net^"},
+	{"www.google-analytics.com", "/analytics.js", "adblock", "Blocked by ad/tracker filter: ||google-analytics.com^$script,third-party"},
+	{"connect.facebook.net", "/en_US/fbevents.js", "adblock", "Blocked by ad/tracker filter: ||connect.facebook.net^$third-party"},
+	{"cdn.taboola.com", "/libtrc/loader.js", "adblock", "Blocked by ad/tracker filter: ||taboola.com^$third-party"},
 }
 
 func seedLogs(root string, hours, requests int) error {
@@ -296,6 +387,10 @@ func seedLogs(root string, hours, requests int) error {
 			if rng.Float64() < 0.7 {
 				action, component = "modified", "safesearch"
 			}
+		}
+		// Censor mode masks words in place, which also logs as "modified".
+		if a.host == "news.ycombinator.com" && dev.policy == "teens" && rng.Float64() < 0.5 {
+			action, component = "modified", "text_classifier"
 		}
 		if err := store.LogRequest(logstore.RequestEntry{
 			TS: ts.Unix(), Method: "GET", Host: a.host, Path: a.path,
