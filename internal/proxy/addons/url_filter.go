@@ -39,14 +39,16 @@ func (UrlFilter) HandleRequest(fc *proxy.FlowContext) {
 		}
 	}
 
-	// Shared categories, applied per mode. The verdict itself lives in
-	// proxy.CategoryVerdict because the connection-level host gate
-	// (proxy.HostFilterVerdict, for blind-spliced hosts) must reach exactly
-	// the same decision from a hostname alone.
-	if len(cfg.Categories) > 0 {
-		if blocked, reason := proxy.CategoryVerdict(fc.Runtime.Categories, host, cfg); blocked {
-			fc.Block(reason, "url_filter")
-			return
-		}
+	// Shared categories (each set to allow or block) and the default for
+	// unlisted sites. The verdict itself lives in proxy.CategoryVerdict
+	// because the connection-level host gate (proxy.HostFilterVerdict, for
+	// blind-spliced hosts) must reach exactly the same decision from a
+	// hostname alone. An allow-category is an explicit allow, so it skips
+	// the content filters exactly like a custom allow entry.
+	switch decision, reason := proxy.CategoryVerdict(fc.Runtime.Categories, host, cfg); decision {
+	case proxy.CategoryAllowed:
+		fc.URLAllowed = true
+	case proxy.CategoryBlocked:
+		fc.Block(reason, "url_filter")
 	}
 }

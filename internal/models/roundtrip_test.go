@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/yjlion/gowebfilter/internal/models"
@@ -325,5 +326,52 @@ func TestTextClassifierModeDefaultsAndValidation(t *testing.T) {
 	}
 	if !models.TextModeBoth.Blocks() || !models.TextModeBoth.Censors() || models.TextModeCensor.Blocks() || models.TextModeBlock.Censors() {
 		t.Fatal("mode predicates wrong")
+	}
+}
+
+func TestUrlFilterCategoryActionsAndLegacyMigration(t *testing.T) {
+	cases := []struct {
+		in       string
+		wantMode models.UrlFilterMode
+		want     map[string]models.CategoryAction
+	}{
+		{`{"mode":"blacklist","categories":["porn","gambling"]}`, models.UrlFilterModeBlacklist,
+			map[string]models.CategoryAction{"porn": "block", "gambling": "block"}},
+		{`{"mode":"whitelist","categories":["kids"]}`, models.UrlFilterModeWhitelist,
+			map[string]models.CategoryAction{"kids": "allow"}},
+		// Old whitelist-without-categories never blocked anything; keep it so.
+		{`{"mode":"whitelist","categories":[]}`, models.UrlFilterModeBlacklist,
+			map[string]models.CategoryAction{}},
+		// category_actions wins over the legacy list; junk actions are "off".
+		{`{"mode":"whitelist","categories":["x"],"category_actions":{"porn":"block","bank":"Allow","news":"off","y":"nope"}}`,
+			models.UrlFilterModeWhitelist, map[string]models.CategoryAction{"porn": "block", "bank": "allow"}},
+		{`{"mode":"whatever"}`, models.UrlFilterModeBlacklist, map[string]models.CategoryAction{}},
+	}
+	for _, c := range cases {
+		var u models.UrlFilterConfig
+		if err := json.Unmarshal([]byte(c.in), &u); err != nil {
+			t.Fatalf("%s: %v", c.in, err)
+		}
+		if u.Mode != c.wantMode || !reflect.DeepEqual(u.CategoryActions, c.want) {
+			t.Errorf("%s: mode=%q actions=%v, want %q %v", c.in, u.Mode, u.CategoryActions, c.wantMode, c.want)
+		}
+		out, err := json.Marshal(u)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var back models.UrlFilterConfig
+		if err := json.Unmarshal(out, &back); err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(u, back) {
+			t.Errorf("%s: round trip changed config:\n%+v\n%+v", c.in, u, back)
+		}
+	}
+	// The legacy list is written as the names that have an action.
+	u := models.NewUrlFilterConfig()
+	u.CategoryActions = map[string]models.CategoryAction{"b": "allow", "a": "block"}
+	out, _ := json.Marshal(u)
+	if !strings.Contains(string(out), `"categories":["a","b"]`) {
+		t.Fatalf("marshal = %s", out)
 	}
 }

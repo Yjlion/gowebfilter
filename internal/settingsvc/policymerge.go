@@ -33,6 +33,7 @@ func MergePolicyPatch(cur models.Policy, patch []byte) (models.Policy, error) {
 		return models.Policy{}, &ValidationError{Msg: "invalid policy patch: " + err.Error()}
 	}
 
+	dropSupersededCategoryActions(curMap, patchMap)
 	merged := mergeJSONObjects(curMap, patchMap)
 	mergedRaw, err := json.Marshal(merged)
 	if err != nil {
@@ -70,4 +71,28 @@ func mergeJSONObjects(target, patch map[string]any) map[string]any {
 		out[k] = mergeJSONObjects(tObj, pObj)
 	}
 	return out
+}
+
+// dropSupersededCategoryActions lets a patch written against the legacy
+// url_filter schema still take effect. A stored policy always carries
+// category_actions, and models.UrlFilterConfig only reads the legacy
+// "categories" list when category_actions is absent - so a patch that sets
+// "categories" alone (the Android url_filter_categories MDM restriction,
+// older clients) would be silently ignored after merging. When the patch
+// sets "categories" but not "category_actions", the stored actions are
+// dropped so the patch's list is migrated instead.
+func dropSupersededCategoryActions(cur, patch map[string]any) {
+	pUF, ok := patch["url_filter"].(map[string]any)
+	if !ok {
+		return
+	}
+	if _, legacy := pUF["categories"]; !legacy {
+		return
+	}
+	if _, modern := pUF["category_actions"]; modern {
+		return
+	}
+	if cUF, ok := cur["url_filter"].(map[string]any); ok {
+		delete(cUF, "category_actions")
+	}
 }

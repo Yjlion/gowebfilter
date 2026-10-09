@@ -14,6 +14,7 @@ package models
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -392,13 +393,34 @@ const (
 	UrlFilterModeWhitelist UrlFilterMode = "whitelist"
 )
 
+// CategoryAction is what a url_filter category does to a matching site.
+type CategoryAction string
+
+const (
+	CategoryActionBlock CategoryAction = "block"
+	CategoryActionAllow CategoryAction = "allow"
+)
+
 type UrlFilterConfig struct {
-	Enabled    bool          `json:"enabled"`
-	Allow      []string      `json:"allow"`
-	Block      []string      `json:"block"`
-	Mode       UrlFilterMode `json:"mode"`
-	Categories []string      `json:"categories"`
-	BlockQuic  bool          `json:"block_quic"`
+	Enabled bool     `json:"enabled"`
+	Allow   []string `json:"allow"`
+	Block   []string `json:"block"`
+	// Mode is the default for sites no rule or category matches:
+	// blacklist = allow them (the default), whitelist = block them.
+	Mode UrlFilterMode `json:"mode"`
+	// CategoryActions sets each shared category to block or allow; a
+	// category that is absent is off. An allow-category hit wins over a
+	// block-category hit, so e.g. "banking: allow" can carve banks out of a
+	// broader blocked category.
+	CategoryActions map[string]CategoryAction `json:"category_actions"`
+	// Categories is the legacy (pre-category_actions) list. On input it is
+	// only read when category_actions is absent: every listed category
+	// becomes "block" in blacklist mode or "allow" in whitelist mode, which
+	// is exactly what the list meant then. On output it carries the names of
+	// every category that has an action, for readers that predate
+	// category_actions.
+	Categories []string `json:"categories"`
+	BlockQuic  bool     `json:"block_quic"`
 }
 
 // NewUrlFilterConfig defaults BlockQuic on: stripping Alt-Svc is a
@@ -408,11 +430,12 @@ type UrlFilterConfig struct {
 // keeping traffic inspectable, not about URL rules.
 func NewUrlFilterConfig() UrlFilterConfig {
 	return UrlFilterConfig{
-		Allow:      []string{},
-		Block:      []string{},
-		Mode:       UrlFilterModeBlacklist,
-		Categories: []string{},
-		BlockQuic:  true,
+		Allow:           []string{},
+		Block:           []string{},
+		Mode:            UrlFilterModeBlacklist,
+		CategoryActions: map[string]CategoryAction{},
+		Categories:      []string{},
+		BlockQuic:       true,
 	}
 }
 
@@ -420,7 +443,108 @@ type urlFilterConfigAlias UrlFilterConfig
 
 func (c *UrlFilterConfig) UnmarshalJSON(data []byte) error {
 	*c = NewUrlFilterConfig()
-	return json.Unmarshal(data, (*urlFilterConfigAlias)(c))
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if err := json.Unmarshal(data, (*urlFilterConfigAlias)(c)); err != nil {
+		return err
+	}
+	actions := map[string]CategoryAction{}
+	if v, ok := raw["category_actions"]; ok && string(v) != "null" {
+		for name, a := range c.CategoryActions {
+			name = strings.TrimSpace(name)
+			switch act := CategoryAction(strings.ToLower(strings.TrimSpace(string(a)))); act {
+			case CategoryActionBlock, CategoryActionAllow:
+				if name != "" {
+					actions[name] = act
+				}
+			}
+			// Anything else ("off", "", typos) means off.
+		}
+	} else {
+		// Legacy schema: one list whose meaning came from the global mode.
+		act := CategoryActionBlock
+		if c.Mode == UrlFilterModeWhitelist {
+			act = CategoryActionAllow
+		}
+		for _, name := range c.Categories {
+			if name = strings.TrimSpace(name); name != "" {
+				actions[name] = act
+			}
+		}
+		// Whitelist with no categories never blocked anything (the old
+		// verdict only applied when categories were listed). Under the new
+		// meaning - "block every unlisted site" - it would block
+		// everything, so keep the old behaviour by migrating it to
+		// blacklist.
+		if c.Mode == UrlFilterModeWhitelist && len(actions) == 0 {
+			c.Mode = UrlFilterModeBlacklist
+		}
+	}
+	if c.Mode != UrlFilterModeWhitelist {
+		c.Mode = UrlFilterModeBlacklist
+	}
+	c.CategoryActions = actions
+	c.Categories = c.categoryNames()
+	return nil
+}
+
+// MarshalJSON keeps the legacy categories list in step with
+// category_actions, whoever mutated the struct.
+func (c UrlFilterConfig) MarshalJSON() ([]byte, error) {
+	c.CategoryActions = c.EffectiveCategoryActions()
+	c.Categories = c.categoryNames()
+	return json.Marshal(urlFilterConfigAlias(c))
+}
+
+// EffectiveCategoryActions is CategoryActions, or - for a config built in
+// Go with only the legacy Categories list set - that list read the legacy
+// way (block in blacklist mode, allow in whitelist mode). JSON input is
+// already migrated by UnmarshalJSON.
+func (c UrlFilterConfig) EffectiveCategoryActions() map[string]CategoryAction {
+	if len(c.CategoryActions) > 0 || len(c.Categories) == 0 {
+		if c.CategoryActions == nil {
+			return map[string]CategoryAction{}
+		}
+		return c.CategoryActions
+	}
+	act := CategoryActionBlock
+	if c.Mode == UrlFilterModeWhitelist {
+		act = CategoryActionAllow
+	}
+	out := make(map[string]CategoryAction, len(c.Categories))
+	for _, name := range c.Categories {
+		if name = strings.TrimSpace(name); name != "" {
+			out[name] = act
+		}
+	}
+	return out
+}
+
+func (c UrlFilterConfig) categoryNames() []string {
+	actions := c.EffectiveCategoryActions()
+	names := make([]string, 0, len(actions))
+	for name := range actions {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// CategoryLists splits the category actions into sorted allow and block
+// lists.
+func (c UrlFilterConfig) CategoryLists() (allow, block []string) {
+	actions := c.EffectiveCategoryActions()
+	for _, name := range c.categoryNames() {
+		switch actions[name] {
+		case CategoryActionAllow:
+			allow = append(allow, name)
+		case CategoryActionBlock:
+			block = append(block, name)
+		}
+	}
+	return allow, block
 }
 
 // ---- BlockPageConfig ----

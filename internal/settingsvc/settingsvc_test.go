@@ -1,6 +1,7 @@
 package settingsvc
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -220,5 +221,28 @@ func TestMergeSettingsAllowsMgmtTLSWithoutCertFiles(t *testing.T) {
 	}
 	if !got.MgmtTLS {
 		t.Error("mgmt_tls did not survive the merge")
+	}
+}
+
+func TestMergePolicyPatchLegacyCategoriesStillApply(t *testing.T) {
+	cur := models.NewPolicy()
+	cur.UrlFilter.CategoryActions = map[string]models.CategoryAction{"banking": models.CategoryActionAllow}
+
+	p, err := MergePolicyPatch(cur, []byte(`{"url_filter":{"categories":["porn","gambling"]}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]models.CategoryAction{"porn": "block", "gambling": "block"}
+	if !reflect.DeepEqual(p.UrlFilter.CategoryActions, want) {
+		t.Fatalf("legacy patch: actions = %v, want %v", p.UrlFilter.CategoryActions, want)
+	}
+
+	// A patch touching something else keeps the stored actions.
+	p, err = MergePolicyPatch(cur, []byte(`{"url_filter":{"enabled":true}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.UrlFilter.CategoryActions["banking"] != models.CategoryActionAllow {
+		t.Fatalf("unrelated patch lost category actions: %v", p.UrlFilter.CategoryActions)
 	}
 }

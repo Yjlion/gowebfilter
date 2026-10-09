@@ -153,18 +153,12 @@ func (s *Server) simulateURLFilter(policy models.Policy, host, urlString string)
 			return policySimulateDecision{Component: "url_filter", Action: "blocked", Reason: "matched block pattern " + pattern}
 		}
 	}
-	if len(policy.UrlFilter.Categories) == 0 {
-		return policySimulateDecision{Component: "url_filter", Action: "no_match", Reason: "no URL allow/block/category rule matched"}
-	}
-	cat := s.Categories.MatchAny(host, policy.UrlFilter.Categories)
-	if policy.UrlFilter.Mode == models.UrlFilterModeWhitelist {
-		if cat == "" {
-			return policySimulateDecision{Component: "url_filter", Action: "blocked", Reason: "site is not in an allowed category"}
-		}
-		return policySimulateDecision{Component: "url_filter", Action: "allowed", Reason: "matched allowed category " + cat}
-	}
-	if cat != "" {
-		return policySimulateDecision{Component: "url_filter", Action: "blocked", Reason: "matched blocked category " + cat}
+	switch decision, reason := proxy.CategoryVerdict(s.Categories, host, policy.UrlFilter); decision {
+	case proxy.CategoryAllowed:
+		allow, _ := policy.UrlFilter.CategoryLists()
+		return policySimulateDecision{Component: "url_filter", Action: "allowed", Reason: "matched allowed category " + s.Categories.MatchAny(host, allow)}
+	case proxy.CategoryBlocked:
+		return policySimulateDecision{Component: "url_filter", Action: "blocked", Reason: reason}
 	}
 	return policySimulateDecision{Component: "url_filter", Action: "no_match", Reason: "no URL allow/block/category rule matched"}
 }
