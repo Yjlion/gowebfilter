@@ -32,6 +32,7 @@ func main() {
 		newTrayCmd(),
 		newGuiCmd(),
 		newCategoriesCmd(),
+		newAdblockCmd(),
 		newTun2SocksCmd(),
 		newGatewayCmd(),
 		newOuiCmd(),

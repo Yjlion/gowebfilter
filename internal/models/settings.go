@@ -78,6 +78,7 @@ type GlobalSettings struct {
 	Tun2Socks Tun2SocksConfig `json:"tun2socks"`
 	Gateway   GatewayConfig   `json:"gateway"`
 	Icap      IcapConfig      `json:"icap"`
+	Adblock   AdblockSettings `json:"adblock"`
 
 	// OuiPath is a Go-port-only optional field (documented deviation): path
 	// to an optional IEEE OUI vendor lookup table override. When empty, the
@@ -297,6 +298,48 @@ type IcapConfig struct {
 	TrustClientIPHeader bool `json:"trust_client_ip_header"`
 }
 
+// AdblockListSource is a custom filter list offered alongside the built-in
+// presets.
+type AdblockListSource struct {
+	Name string `json:"name"`
+	URL  string `json:"url"`
+}
+
+// AdblockSettings configures the shared adblock list store. Policies pick
+// lists by name (policy "adblock.lists").
+type AdblockSettings struct {
+	// Dir holds downloaded lists (<name>.txt.gz) and index.json.
+	Dir string `json:"dir"`
+	// UpdateHours is how old a list may get before it is re-downloaded.
+	UpdateHours int `json:"update_hours"`
+	// CustomLists adds lists beyond the built-in presets. Names must be
+	// lowercase letters, digits, '-' or '_' and may not reuse a preset name.
+	CustomLists []AdblockListSource `json:"custom_lists"`
+}
+
+func NewAdblockSettings() AdblockSettings {
+	return AdblockSettings{Dir: "./adblock", UpdateHours: 24, CustomLists: []AdblockListSource{}}
+}
+
+type adblockSettingsAlias AdblockSettings
+
+func (c *AdblockSettings) UnmarshalJSON(data []byte) error {
+	*c = NewAdblockSettings()
+	if err := json.Unmarshal(data, (*adblockSettingsAlias)(c)); err != nil {
+		return err
+	}
+	if c.Dir == "" {
+		c.Dir = "./adblock"
+	}
+	if c.UpdateHours <= 0 {
+		c.UpdateHours = 24
+	}
+	if c.CustomLists == nil {
+		c.CustomLists = []AdblockListSource{}
+	}
+	return nil
+}
+
 // NewIcapConfig returns the documented ICAP defaults.
 func NewIcapConfig() IcapConfig {
 	return IcapConfig{
@@ -345,6 +388,7 @@ func NewGlobalSettings() GlobalSettings {
 		Tun2Socks:        NewTun2SocksConfig(),
 		Gateway:          NewGatewayConfig(),
 		Icap:             NewIcapConfig(),
+		Adblock:          NewAdblockSettings(),
 	}
 }
 

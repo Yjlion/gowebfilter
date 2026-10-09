@@ -5,17 +5,20 @@
 package mgmtapi
 
 import (
+	"net/http"
 	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/yjlion/gowebfilter/internal/adblock"
 	"github.com/yjlion/gowebfilter/internal/categories"
 	"github.com/yjlion/gowebfilter/internal/certs"
 	"github.com/yjlion/gowebfilter/internal/config"
 	"github.com/yjlion/gowebfilter/internal/gateway"
 	"github.com/yjlion/gowebfilter/internal/logstore"
 	"github.com/yjlion/gowebfilter/internal/models"
+	"github.com/yjlion/gowebfilter/internal/proxy"
 	"github.com/yjlion/gowebfilter/internal/tun2socks"
 )
 
@@ -32,6 +35,7 @@ type Server struct {
 	Logs         *logstore.Store
 	CA           *certs.CA
 	Categories   *categories.Store
+	Adblock      *adblock.Store
 	StartedAt    time.Time
 
 	// OnCARotated is invoked after a successful CA import so the proxy
@@ -121,12 +125,17 @@ func NewServer(settingsPath string) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+	ab := adblock.NewStoreFromSettings(s.Adblock)
+	// List downloads use the engine's egress dialer so TUN/gateway capture
+	// on the same host never loops them back through the proxy.
+	ab.Client = &http.Client{Transport: proxy.NewTransport(), Timeout: 5 * time.Minute}
 	return &Server{
 		SettingsPath: settingsPath,
 		Policies:     config.NewPolicyStore(s.PoliciesDir),
 		Logs:         logs,
 		CA:           ca,
 		Categories:   categories.NewStore(s.CategoriesDir),
+		Adblock:      ab,
 		StartedAt:    time.Now(),
 		settings:     s,
 	}, nil
@@ -200,6 +209,7 @@ func (s *Server) Router() *chi.Mux {
 	s.registerOpsRoutes(r)
 	s.registerCertsRoutes(r)
 	s.registerCategoriesRoutes(r)
+	s.registerAdblockRoutes(r)
 	s.registerBackupRoutes(r)
 	s.registerToolsRoutes(r)
 	s.registerLogsExportRoute(r)

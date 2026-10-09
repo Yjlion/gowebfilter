@@ -49,6 +49,47 @@ func (c *DohConfig) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// ---- AdblockConfig ----
+
+// AdblockConfig turns on list-driven ad and tracker blocking for a policy.
+// The lists themselves are shared across policies and downloaded at
+// runtime (settings "adblock"); a policy only names which ones it uses.
+type AdblockConfig struct {
+	Enabled bool `json:"enabled"`
+	// Lists names the filter lists to apply (built-in presets such as
+	// "easylist", or a custom list's name from settings).
+	Lists []string `json:"lists"`
+	// Cosmetic injects element-hiding CSS from the lists' ## rules into
+	// HTML pages, hiding ad slots that network blocking leaves empty.
+	Cosmetic bool `json:"cosmetic"`
+	// Allow exempts sites (host patterns, as in url_filter) entirely.
+	Allow []string `json:"allow"`
+}
+
+func NewAdblockConfig() AdblockConfig {
+	return AdblockConfig{
+		Lists:    []string{"easylist", "easyprivacy"},
+		Cosmetic: true,
+		Allow:    []string{},
+	}
+}
+
+type adblockConfigAlias AdblockConfig
+
+func (c *AdblockConfig) UnmarshalJSON(data []byte) error {
+	*c = NewAdblockConfig()
+	if err := json.Unmarshal(data, (*adblockConfigAlias)(c)); err != nil {
+		return err
+	}
+	if c.Lists == nil {
+		c.Lists = []string{}
+	}
+	if c.Allow == nil {
+		c.Allow = []string{}
+	}
+	return nil
+}
+
 // ---- TextClassifierConfig ----
 
 // TextClassifierMode selects what the text classifier does with a page.
@@ -599,6 +640,7 @@ type Policy struct {
 	YouTube         YouTubeConfig         `json:"youtube"`
 	Mitm            MitmConfig            `json:"mitm"`
 	UrlFilter       UrlFilterConfig       `json:"url_filter"`
+	Adblock         AdblockConfig         `json:"adblock"`
 	BlockPage       BlockPageConfig       `json:"block_page"`
 }
 
@@ -616,6 +658,7 @@ func NewPolicy() Policy {
 		YouTube:         NewYouTubeConfig(),
 		Mitm:            NewMitmConfig(),
 		UrlFilter:       NewUrlFilterConfig(),
+		Adblock:         NewAdblockConfig(),
 		BlockPage:       NewBlockPageConfig(),
 	}
 }

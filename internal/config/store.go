@@ -57,6 +57,7 @@ func NewBootstrapSettings(settingsPath string) models.GlobalSettings {
 	settings.PoliciesDir = filepath.Join(root, "policies")
 	settings.CategoriesDir = filepath.Join(root, "categories")
 	settings.LogsDir = filepath.Join(root, "logs")
+	settings.Adblock.Dir = filepath.Join(root, "adblock")
 	return settings
 }
 
@@ -76,6 +77,19 @@ func LoadSettings(path string) (models.GlobalSettings, error) {
 	var s models.GlobalSettings
 	if err := json.Unmarshal(data, &s); err != nil {
 		return models.GlobalSettings{}, fmt.Errorf("parse settings %s: %w", path, err)
+	}
+	// Settings files written before the adblock block existed (every
+	// already-provisioned Android install among them) would otherwise get
+	// the relative "./adblock" default, which resolves against the process
+	// working directory - "/" and unwritable on Android. Root it beside the
+	// other runtime directories instead, exactly as a fresh bootstrap would.
+	var probe struct {
+		Adblock *struct {
+			Dir *string `json:"dir"`
+		} `json:"adblock"`
+	}
+	if json.Unmarshal(data, &probe) == nil && (probe.Adblock == nil || probe.Adblock.Dir == nil) {
+		s.Adblock.Dir = NewBootstrapSettings(path).Adblock.Dir
 	}
 	return s, nil
 }
