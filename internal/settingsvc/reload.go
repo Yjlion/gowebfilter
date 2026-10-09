@@ -27,9 +27,7 @@ import (
 //   - proxy_auth_*          addons/proxy_auth.go (per request/CONNECT/SOCKS5)
 //   - icap.*                internal/proxy/icap.go (per ICAP transaction)
 //   - categories_dir        re-pointed via categories.Store.Configure
-//   - adblock               re-pointed via adblock.Store.Configure (dir,
-//                           custom lists, refresh age); engines are looked
-//                           up per request
+//   - adblock               adblock.Store.Apply (dir, custom lists, refresh age)
 //   - oui_path              neighbors.ConfigureOUI, already reconfigured live
 //   - auth_enabled,         mgmtapi middleware/auth read these through
 //     password_hash,        Server.Settings() on every request, so they are
