@@ -24,6 +24,8 @@ these are not real traffic. Every policy, log row and hostname here comes from
 | `login.png` | `login.html` | Sign-in page |
 | `block-page.png` | through the proxy | The block page a browser sees |
 | `censor-before.png` | sample article, direct | A page with ads and profanity, as published |
+| `image-blur-before.png` | generated gallery, direct | Harmless generated artwork, as served |
+| `image-blur-after.png` | the same, through the proxy | The same images blurred. The seeded `lab-pc` policy sets the image threshold to 0 so every image is flagged; this shows the blur, not classifier accuracy |
 | `censor-after.png` | the same, through the proxy | Words censored (incl. a German quote, via its `lang`), ad elements hidden |
 
 ## Regenerating

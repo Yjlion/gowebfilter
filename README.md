@@ -11,9 +11,10 @@ replacing a Python + mitmproxy runtime with one static executable.
 
 - **Single binary, nothing to install.** Written in Go; just download and
   run it. No Python, no native ML runtime, no sidecar libraries.
-- **Lightweight.** The binary is about 30 MB and needs a minimum of about
-  200 MB of memory, so it runs well on small machines: a Raspberry Pi, a
-  small VM, or your desktop's localhost.
+- **Lightweight.** The binary is about 30 MB. Memory use is about 50 MB
+  idle and roughly 150-220 MB with the image classifier busy (measured on
+  Linux x86_64), so it runs well on small machines: a Raspberry Pi, a small
+  VM, or your desktop's localhost.
 - **Built for parental control, not as a general proxy server.** There are
   no complicated ACLs and no policy ordering. Each client's IP or MAC is
   matched to one policy; the only ordering is that a single IP wins over an
@@ -40,6 +41,12 @@ every deployment mode (localhost, LAN, bridge, transparent) has its own
 enforcement story, and each needs its own development and testing track.
 There are not the resources for that at the moment.
 
+What it does give you is flexibility. The proxy supports several listener
+modes: regular, SOCKS4/5, transparent (Linux), ICAP for use behind Squid, and
+TLS-wrapped variants. That means it can be integrated with any firewall or
+redirection method you already use: point your firewall's redirect rules,
+a PAC file, a gateway, or an existing proxy at the listener that fits.
+
 You are welcome to do the integration yourself for your setup, and
 documentation contributions are especially appreciated. The
 [packaging notes](packaging/README.md) and [Docker guide](docs/docker.md)
@@ -63,6 +70,11 @@ full list), rendered against generated sample data. Regenerate with
 | [![URL filter categories](screenshots/editor-url-filter.png)](screenshots/editor-url-filter.png) Per-category block / allow / off | [![Ad & tracker blocking](screenshots/editor-adblock.png)](screenshots/editor-adblock.png) Ad & tracker blocking |
 | [![Text classifier](screenshots/editor-text-classifier.png)](screenshots/editor-text-classifier.png) Text classifier: block, censor or both | [![Logs](screenshots/logs-requests.png)](screenshots/logs-requests.png) Request log |
 | [![Before](screenshots/censor-before.png)](screenshots/censor-before.png) A page as published... | [![After](screenshots/censor-after.png)](screenshots/censor-after.png) ...and through the proxy: words censored, ads hidden |
+| [![Images before](screenshots/image-blur-before.png)](screenshots/image-blur-before.png) Images as published... | [![Images after](screenshots/image-blur-after.png)](screenshots/image-blur-after.png) ...and through the proxy: flagged images blurred (see note below) |
+
+The image-blur captures use harmless generated artwork, with the policy's
+image threshold set to 0 so every image is flagged. They show what the blur
+looks like, not what the classifier scores.
 
 ## What it does
 
