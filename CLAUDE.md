@@ -45,9 +45,7 @@ go build -o webfilter ./cmd/webfilter             # (webfilter.exe on Windows)
 CLI commands: `run` (proxy + mgmt together), `proxy` / `mgmt` (standalone
 for process isolation), `tray` (desktop system-tray controller — self-hosts
 the proxy+mgmt server if nothing is already listening on the mgmt port),
-`gui` (native desktop management window, gogpu/ui — same self-host-or-attach
-decision as `tray`; closing the window stops a self-hosted engine but never
-an attached one), `service` (Windows service management),
+`service` (Windows service management),
 `categories update`, `adblock update|status`, `oui update`, `tun2socks download|status|cleanup`,
 `gateway status|cleanup`, `version`.
 
@@ -62,17 +60,6 @@ Request/block/audit logs go to SQLite at `logs/webfilter.db`.
 - `cmd/webfilter/` — cobra CLI; `runners.go` delegates engine construction to
   `internal/app`. The desktop-only tun2socks supervision (`runEngineWithTun`)
   stays here because it is root/`ip`-gated and OS-coupled.
-- `cmd/webfilter/internal/gui/` — native desktop management UI
-  (github.com/gogpu/ui, pure Go/WebGPU, still CGO_ENABLED=0). Lives under
-  `cmd/`, **not** top-level `internal/`, so the Android sweep
-  (`GOOS=android go build ./mobile ./internal/...`) never compiles the gogpu
-  windowing stack. Sub-packages `mgmtclient/` (typed loopback HTTP client)
-  and `uimodel/` (headless form/poll view-models) import no gogpu packages
-  and carry the tests; the widget files (`gui.go`, `screen_*.go`) are thin
-  over them. Covers dashboard/policies/logs/settings; everything else defers
-  to the "Open Web UI" button. No build tags — headless Linux just never
-  runs `webfilter gui` (an X11/Wayland display is a runtime need of that one
-  command, not a build dependency).
 - `internal/app/` — **single-sources the engine wiring** shared by the CLI and
   the Android `mobile/` package. `BuildProxyEngine` wires the addon pipeline in
   a **fixed order** that matters (mirrors the Python original):
@@ -394,7 +381,7 @@ Request/block/audit logs go to SQLite at `logs/webfilter.db`.
   restart-required fields at the value actually in effect: swapping the whole
   snapshot would let `management_access` redirect clients to a `mgmt_port`
   nothing is bound to. Two delivery paths, both needed —
-  `mgmtapi.Server.OnSettingsSaved` (instant, in-process, `run`/`tray`/`gui`
+  `mgmtapi.Server.OnSettingsSaved` (instant, in-process, `run`/`tray`
   and every Android writer) and an fsnotify watch in `Runtime.Start`, which
   is the only thing covering split-process (`webfilter proxy` +
   `webfilter mgmt`). That watch is on the settings file's **directory**:
@@ -592,59 +579,6 @@ Request/block/audit logs go to SQLite at `logs/webfilter.db`.
   `seccompSyscall` shim that remaps to the *at family, and adds a go.mod
   `replace`); `-undo` reverts it — **never commit the replace line**. arm64
   real devices don't need it. `android.yml` runs the patch itself.
-- **The native desktop GUI is an HTTP client of the mgmt API even when it
-  self-hosts the engine in-process.** All reads/writes go through
-  `cmd/webfilter/internal/gui/mgmtclient` to loopback HTTP — never directly
-  to disk or `logstore` — so the MDM lock, audit log, validation, and policy
-  hot-reload apply exactly once, server-side. Don't "optimize" it into a
-  third direct-write path (after mgmtapi and mobile/), and don't open a
-  second SQLite handle for its log viewer. Self-host auth uses
-  `mgmtapi.Server.SessionCookie()` (deterministic token, invalidated by a
-  password change); the supervisor re-seeds it after every engine restart.
-- **gogpu/ui is pinned at v0.x and its API churns between minors.** Treat
-  `github.com/gogpu/{ui,gogpu,gg}` upgrades as deliberate changes: re-verify
-  the widget option names against the module cache (several differ from the
-  docs' examples — e.g. `primitives.CrossAxisCenter`, `textfield.TypePassword`)
-  and re-run `webfilter gui` manually. The widget layer is deliberately thin
-  over `uimodel`/`mgmtclient` so an API-churn rewrite doesn't touch tested
-  logic.
-- **The GUI drives its own render loop (`gui.runRenderLoop`), NOT
-  `desktop.Run`.** gogpu/ui v0.1.44's `desktop.Run` compositor mis-behaves for
-  this UI: it double-applies the DPI scale (2.25× and cropped on a 150%
-  display) and its per-boundary GPU textures never clear, so a previous tab's
-  content bleeds through on tab switch. Our loop clears the whole gg canvas
-  every frame and applies the DPI scale exactly once (`cc.Scale(scale)` on a
-  physical-pixel canvas created with `ggcanvas.NewWithScale(provider, physW,
-  physH, 1.0)` — gg's own `WithDeviceScale>1` scales twice in v0.50.5). This
-  is the same stateless full-repaint the `offscreen` snapshot renderer uses,
-  which is why those snapshots are always correct.
-- **Only call `Window().HandleResize` when the size actually changed.** It
-  unconditionally sets needsLayout/needsRedraw/needsFullRepaint and marks the
-  whole tree dirty; calling it every frame (to keep the ui window's size in
-  sync, since gogpu never delivers resizes to the EventSource the ui window
-  subscribes to) keeps gogpu/ui's 30fps animation pumper alive forever and
-  pegs a CPU core on an idle window. Gate it on `w != lastW || h != lastH`.
-- **The lists use `gui.scrollBox`, not `core/listview` or `core/scrollview`.**
-  In v0.1.44 `listview` is a virtualized repaint boundary that renders blank
-  (or bleeds a stale texture) in the direct-DrawTo loop, and `core/scrollview`
-  self-invalidates every frame once its content overflows (~100fps, CPU-pegged
-  idle window). `scrollBox` is a plain clip+translate container that only
-  requests a frame on an actual wheel event. Lists are a `VBox` of ordinary
-  row widgets inside it, capped at `maxListRows`; the full history is behind
-  "Open Web UI".
-- **The GUI's gg GPU accelerator is registered by `cmd/webfilter/cmd_gui.go`
-  (`_ "github.com/gogpu/gg/gpu"`), NOT by the `gui` package.** That blank
-  import swaps gg's software rasterizer for the GPU one process-wide; if the
-  `gui` package imported it, the package's own `offscreen` snapshot test
-  (`snapshot_test.go`, `GUI_SNAPSHOT_DIR=<dir> go test ./cmd/webfilter/internal/gui`)
-  would render blank. Keep GPU registration in the command, CPU-only in the
-  package.
-- **After async data lands, the GUI's `redraw()` marks the root
-  needs-layout, then requests a frame.** gogpu/ui's demand-driven `Frame()`
-  only re-lays-out when `needsLayout` is set, and swapping a list/editor's
-  content (via `swapWidget.SetChild`) or a signal change doesn't set it at the
-  root — so the new content would draw with a stale/empty layout. `onTabSelected`
-  also calls `redraw()` so a switched-to tab lays out the same frame.
 - Local `main` may lag GitHub because fixes land through PRs — fetch
   `origin/main` and reconcile before publishing changes.
 

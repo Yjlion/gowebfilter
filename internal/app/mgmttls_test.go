@@ -105,7 +105,7 @@ func serve(t *testing.T, srv *mgmtapi.Server, port int) {
 }
 
 // caPool reads the generated CA off disk, which is exactly what a client
-// (or the native GUI's mgmtclient) has to do to trust a CA-minted leaf.
+// (or any other loopback client) has to do to trust a CA-minted leaf.
 func caPool(t *testing.T, certDir string) *x509.CertPool {
 	t.Helper()
 	pem, err := os.ReadFile(filepath.Join(certDir, "ca.crt"))

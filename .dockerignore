@@ -26,7 +26,7 @@ webfilter.exe
 *.so
 *.test
 
-# Android/desktop-GUI side trees: the AAR is built by gomobile, not here, and
+# Android side tree: the AAR is built by gomobile, not here, and
 # the Gradle/IDE caches are large.
 android/
 third_party/

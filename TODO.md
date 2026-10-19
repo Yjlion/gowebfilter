@@ -311,11 +311,9 @@ not speculative.
   `gofmt -l` gate. Windows is cross-compiled but never tested. The release
   job attaches a debug-signed APK.
 
-- [ ] **Mobile API and desktop GUI parity.** `M`
+- [ ] **Mobile API parity.** `M`
   The gomobile API has no policy simulator, classifier health, cert
-  export/import, or log export (the WebView covers them). The native GUI shows
-  schedules read-only (`uimodel/policyform.go:53`) and can't edit the
-  SafeSearch engine list.
+  export/import, or log export (the WebView covers them).
 
 ## 4. Classifier quality
 
@@ -399,7 +397,7 @@ not speculative.
   blind-spliced otherwise; either way it no longer reaches the MITM path's
   HTTP parser.
 - [x] `block_quic` defaults on, and is exposed in the web policy editor (it was
-  desktop-GUI/Android-only) with help text that says what it does and does not
+  Android-only) with help text that says what it does and does not
   do.
 - [x] Policy test/simulator API (`POST /api/tools/policy-simulate`) — policy
   selection, schedule status, URL allow/block/category results, addon hints;
