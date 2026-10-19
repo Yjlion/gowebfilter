@@ -247,8 +247,8 @@ func mgmtTLSConfig(srv *mgmtapi.Server) (*tls.Config, error) {
 }
 
 // MgmtURL renders the base URL the management server is reachable at, so
-// callers that hand a URL to a browser or an HTTP client (the tray, the
-// native GUI, the Android bridge) agree on the scheme instead of each
+// callers that hand a URL to a browser or an HTTP client (the tray and the
+// Android bridge) agree on the scheme instead of each
 // hardcoding "http://".
 func MgmtURL(cfg models.GlobalSettings, host string, forcePlaintext bool) string {
 	scheme := "http"

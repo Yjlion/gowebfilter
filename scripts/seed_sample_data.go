@@ -229,6 +229,12 @@ func labPolicy() models.Policy {
 	p.TextClassifier.Enabled = true
 	p.TextClassifier.Mode = models.TextModeBoth
 	p.Adblock.Enabled = true
+	// The image-blur shots serve harmless generated artwork, which a real
+	// NSFW model rightly scores near zero. A zero threshold flags every image
+	// so the blur itself can be shown without sourcing explicit content.
+	p.ImageClassifier.Enabled = true
+	p.ImageClassifier.Action = models.ImageActionBlur
+	p.ImageClassifier.Threshold = 0
 	return p
 }
 

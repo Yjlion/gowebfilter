@@ -1,18 +1,60 @@
 # gowebfilter
 
-A single-binary, policy-based web-filtering proxy for a household or small
-office network: MITM-intercepts HTTP/HTTPS traffic, applies per-client
-(IP/MAC/CIDR) policies, and ships a browser-based management UI for
-configuring everything. It is a from-scratch Go port of
+A single-binary parental-control web filter, written in Go. Download it, run
+it, and manage it from your browser.
+
+It MITM-intercepts HTTP/HTTPS traffic, matches each client (by MAC, IP or
+CIDR range) to a filtering policy, and ships a browser-based management UI.
+It is a from-scratch Go port of
 [mitmproxy-web-filter](https://github.com/Yjlion/mitmproxy-web-filter),
-aimed at replacing a Python + mitmproxy runtime with one static executable.
+replacing a Python + mitmproxy runtime with one static executable.
+
+- **Single binary, nothing to install.** Written in Go; just download and
+  run it. No Python, no native ML runtime, no sidecar libraries.
+- **Lightweight.** The binary is about 30 MB. Memory use is about 50 MB
+  idle and roughly 150-220 MB with the image classifier busy (measured on
+  Linux x86_64), so it runs well on small machines: a Raspberry Pi, a small
+  VM, or your desktop's localhost.
+- **Built for parental control, not as a general proxy server.** There are
+  no complicated ACLs and no policy ordering. Each client's IP or MAC is
+  matched to one policy; the only ordering is that a single IP wins over an
+  IP range.
+- **Poor man's classification.** Every policy can query a DoH
+  (DNS-over-HTTPS) endpoint, so you can lean on another service's
+  filtering instead of downloading and maintaining large blocklists. The
+  standard blocklists are supported too if you want them.
+- **Android without hacks.** The Android app does no tricks to enforce
+  itself. Lock it down with an EMM/MDM instead.
 
 > **Vibe-coded disclaimer.** This project was built almost entirely through
-> AI-assisted sessions with a human reviewing direction and testing rather
+> AI-assisted sessions, with a human reviewing direction and testing rather
 > than writing most of the code by hand. It has real test coverage and has
 > been exercised against live traffic, but it has not had an independent
 > human security audit. Treat it as a personal/homelab project, not audited
 > security software.
+
+## Scope: a proxy, not an enforcer
+
+gowebfilter is the proxy server and nothing more. It does not currently try
+to force traffic through itself. Every platform (Windows, macOS, Linux) and
+every deployment mode (localhost, LAN, bridge, transparent) has its own
+enforcement story, and each needs its own development and testing track.
+There are not the resources for that at the moment.
+
+What it does give you is flexibility. The proxy supports several listener
+modes: regular, SOCKS4/5, transparent (Linux), ICAP for use behind Squid, and
+TLS-wrapped variants. That means it can be integrated with any firewall or
+redirection method you already use: point your firewall's redirect rules,
+a PAC file, a gateway, or an existing proxy at the listener that fits.
+
+You are welcome to do the integration yourself for your setup, and
+documentation contributions are especially appreciated. The
+[packaging notes](packaging/README.md) and [Docker guide](docs/docker.md)
+cover what exists today (systemd units, a Windows service, optional
+tun2socks capture, and a Linux gateway mode).
+
+This is a CLI application with a web interface. There is no native desktop
+UI.
 
 ## Screenshots
 
@@ -28,6 +70,11 @@ full list), rendered against generated sample data. Regenerate with
 | [![URL filter categories](screenshots/editor-url-filter.png)](screenshots/editor-url-filter.png) Per-category block / allow / off | [![Ad & tracker blocking](screenshots/editor-adblock.png)](screenshots/editor-adblock.png) Ad & tracker blocking |
 | [![Text classifier](screenshots/editor-text-classifier.png)](screenshots/editor-text-classifier.png) Text classifier: block, censor or both | [![Logs](screenshots/logs-requests.png)](screenshots/logs-requests.png) Request log |
 | [![Before](screenshots/censor-before.png)](screenshots/censor-before.png) A page as published... | [![After](screenshots/censor-after.png)](screenshots/censor-after.png) ...and through the proxy: words censored, ads hidden |
+| [![Images before](screenshots/image-blur-before.png)](screenshots/image-blur-before.png) Images as published... | [![Images after](screenshots/image-blur-after.png)](screenshots/image-blur-after.png) ...and through the proxy: flagged images blurred (see note below) |
+
+The image-blur captures use harmless generated artwork, with the policy's
+image threshold set to 0 so every image is flagged. They show what the blur
+looks like, not what the classifier scores.
 
 ## What it does
 
@@ -35,8 +82,9 @@ full list), rendered against generated sample data. Regenerate with
   leaf certificates on the fly, and filters decrypted HTTP/HTTPS traffic
   through an ordered addon pipeline.
 - **Per-client policy routing**: policies match by MAC address, exact IP,
-  CIDR range, or a catch-all default, using the same tiered matching as the
-  Python original.
+  CIDR range, or a catch-all default. The most specific match wins: MAC,
+  then single IP, then IP range, then the default. There is no rule
+  ordering to manage.
 - **Filtering addons**: URL allow/block lists plus shared category lists,
   each set to block, allow or off per policy (so "banking: allow" can carve
   banks out of a broader blocked list); ad and tracker blocking from
@@ -53,13 +101,13 @@ full list), rendered against generated sample data. Regenerate with
   [docs/icap.md](docs/icap.md).
 - **Management UI**: policy editor, live logs/analytics, PAC file
   generation, neighbor/ARP scanning, and category list management.
-- **Native desktop UI**: `webfilter gui` opens a native window
-  (github.com/gogpu/ui — pure Go, GPU-rendered, still no CGO) covering the
-  dashboard, policies, logs, and settings, with the web UI one click away
-  for everything else.
 - **Single binary**: no Python runtime, virtualenv, native ML runtime, or
   sidecar DLL to bundle; cross-compiles for Windows and Linux
   (x86_64/arm64) with `CGO_ENABLED=0`.
+- **DoH-based classification**: each policy can point at a DNS-over-HTTPS
+  resolver (for example a family-filtering DNS service) and treat its answer
+  as the verdict, so you do not have to download and maintain big
+  blocklists.
 
 ## Quick start
 
@@ -81,14 +129,6 @@ client's trust store to avoid TLS warnings once MITM starts intercepting.
 `run` starts both the proxy engine and the management server in one
 process. `webfilter proxy` and `webfilter mgmt` run them standalone if you
 want process isolation.
-
-`webfilter gui` opens the native desktop window instead: if nothing is
-serving the management port it hosts the proxy + management server itself
-(closing the window then stops filtering); if a server is already running
-(`run`, the tray, or a service) it attaches to it and closing the window
-changes nothing. Headless servers are unaffected — the GUI toolkit is
-compiled in but only touches a display when you actually run `gui` (on
-Linux that command needs X11/Wayland at runtime; building does not).
 
 ### In a container
 

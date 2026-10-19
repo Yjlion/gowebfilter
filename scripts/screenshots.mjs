@@ -16,6 +16,7 @@ import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { deflateSync } from "node:zlib";
 
 const args = Object.fromEntries(
   process.argv.slice(2).reduce((acc, a, i, all) => {
@@ -57,11 +58,71 @@ tray, pulled out a crumpled page and swore at the damn thing like a lunatic.</p>
 <p>Moral of the story: clean your rollers.</p>
 </body></html>`;
 
+// Harmless generated artwork for the image-blur shots: a sunset scene with
+// crisp edges and fine stripes so the blur is obvious. Encoded by hand (PNG
+// is just zlib + CRC) to keep the script free of npm packages.
+function crc32(buf) {
+  let c, crc = 0xffffffff;
+  for (let n = 0; n < buf.length; n++) {
+    c = (crc ^ buf[n]) & 0xff;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    crc = (crc >>> 8) ^ c;
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+function pngChunk(type, data) {
+  const out = Buffer.alloc(12 + data.length);
+  out.writeUInt32BE(data.length, 0);
+  out.write(type, 4, "ascii");
+  data.copy(out, 8);
+  out.writeUInt32BE(crc32(out.subarray(4, 8 + data.length)), 8 + data.length);
+  return out;
+}
+function artwork(variant) {
+  const w = 320, h = 220;
+  const hues = [[255, 140, 60], [90, 170, 255], [190, 90, 220]][variant % 3];
+  const raw = Buffer.alloc((w * 3 + 1) * h);
+  for (let y = 0; y < h; y++) {
+    raw[y * (w * 3 + 1)] = 0;
+    for (let x = 0; x < w; x++) {
+      let r = 40 + (y / h) * hues[0] * 0.8, g = 40 + (y / h) * hues[1] * 0.8, b = 90 + (y / h) * hues[2] * 0.6;
+      const dx = x - w * 0.7, dy = y - h * 0.38;
+      if (dx * dx + dy * dy < 34 * 34) { r = 255; g = 235; b = 150; }
+      const ridge = h * 0.62 + Math.sin((x + variant * 40) / 22) * 14 + Math.abs(((x * 2 + variant * 30) % 90) - 45) * 0.5;
+      if (y > ridge) { const stripe = ((x >> 3) + (y >> 3)) & 1; r = stripe ? 20 : 60; g = stripe ? 50 : 100; b = stripe ? 40 : 70; }
+      const o = y * (w * 3 + 1) + 1 + x * 3;
+      raw[o] = r; raw[o + 1] = g; raw[o + 2] = b;
+    }
+  }
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 2;
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk("IHDR", ihdr), pngChunk("IDAT", deflateSync(raw)), pngChunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+
+const GALLERY = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Photo gallery</title>
+<style>
+ body{font:16px/1.5 system-ui,sans-serif;max-width:720px;margin:28px auto;padding:0 16px;color:#1f2937}
+ h1{font-size:24px;margin:0 0 4px} p{color:#6b7280;margin:0 0 16px}
+ .row{display:flex;flex-wrap:wrap;gap:12px} img{width:220px;height:151px;border-radius:8px;display:block}
+</style></head><body>
+<h1>Photo gallery</h1><p>Sample artwork, served by the screenshot script.</p>
+<div class="row"><img src="/art/0.png"><img src="/art/1.png"><img src="/art/2.png"></div>
+</body></html>`;
+
 function startOrigin() {
   return new Promise((resolve) => {
     const srv = createServer((req, res) => {
+      const art = req.url.match(/^\/art\/(\d)\.png/);
+      if (art) {
+        res.writeHead(200, { "Content-Type": "image/png" });
+        return res.end(artwork(Number(art[1])));
+      }
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-      res.end(ARTICLE);
+      res.end(req.url.startsWith("/gallery") ? GALLERY : ARTICLE);
     });
     srv.listen(0, "127.0.0.1", () => resolve(srv));
   });
@@ -212,9 +273,11 @@ const uiShots = [
 // Through the proxy: Chromium bypasses proxies for loopback unless told not to.
 const proxyShots = [
   { name: "block-page", url: "http://blocked.example/", width: 1100, height: 760 },
+  { name: "image-blur-after", url: `${ORIGIN}/gallery.html`, width: 760, height: 280 },
   { name: "censor-after", url: `${ORIGIN}/article.html`, width: 900, height: 860, warm: true },
 ];
 const directShots = [
+  { name: "image-blur-before", url: `${ORIGIN}/gallery.html`, width: 760, height: 280 },
   { name: "censor-before", url: `${ORIGIN}/article.html`, width: 900, height: 860 },
 ];
 

@@ -30,7 +30,6 @@ func main() {
 		newProxyCmd(),
 		newMgmtCmd(),
 		newTrayCmd(),
-		newGuiCmd(),
 		newCategoriesCmd(),
 		newAdblockCmd(),
 		newTun2SocksCmd(),

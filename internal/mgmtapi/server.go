@@ -45,7 +45,7 @@ type Server struct {
 	OnCARotated func()
 
 	// OnSettingsSaved is invoked after settings are persisted, so a
-	// co-located proxy engine (`run`, `tray`, `gui`) applies the hot fields
+	// co-located proxy engine (`run`, `tray`) applies the hot fields
 	// immediately instead of waiting for its settings watcher to debounce.
 	// Same shape and purpose as OnCARotated; nil is a valid no-op, which is
 	// the standalone-`mgmt` case - there the proxy process picks the change
@@ -53,7 +53,7 @@ type Server struct {
 	OnSettingsSaved func(models.GlobalSettings)
 
 	// Tun2Socks is the live TUN-capture supervisor when the proxy engine runs
-	// in this process (`run`, `tray`, `gui`). nil under standalone `mgmt`, in
+	// in this process (`run`, `tray`). nil under standalone `mgmt`, in
 	// which case status falls back to the settings/filesystem view - the nil
 	// Ref handles that itself.
 	Tun2Socks *tun2socks.Ref
