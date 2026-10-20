@@ -70,6 +70,14 @@ type Server struct {
 	// mgmt_tls would otherwise lock an admin out of their own device UI.
 	ForcePlaintext bool
 
+	// WebUIDisabled, when set and returning true, turns the management web
+	// UI and its REST API off: every path except webUIOffPaths answers 404.
+	// Consulted per request, so it can be flipped at runtime. Set by the
+	// Android path (mobile/), whose native screens use the gomobile API
+	// directly and only expose this HTTP surface when the user opts in. Nil
+	// (desktop) means always on.
+	WebUIDisabled func() bool
+
 	settingsMu sync.RWMutex
 	settings   models.GlobalSettings
 
@@ -167,6 +175,7 @@ func (s *Server) SaveSettings(newSettings models.GlobalSettings) error {
 // gate, every /api/* route, PAC/WPAD, and the embedded static UI.
 func (s *Server) Router() *chi.Mux {
 	r := chi.NewRouter()
+	r.Use(s.webUIGate)
 	r.Use(s.authMiddleware)
 
 	r.Get("/api/version", s.handleVersion)
