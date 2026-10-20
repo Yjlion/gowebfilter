@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copy for the tabbed shell, dashboard, onboarding, filters tab, guided
+     CA install and app picker. -->
+<resources>
+    <!-- Bottom navigation -->
+    <string name="nav_home">Home</string>
+    <string name="nav_filters">Filters</string>
+    <string name="nav_logs">Activity</string>
+    <string name="nav_settings">Settings</string>
+
+    <!-- Home dashboard -->
+    <string name="home_toggle_desc">Start or stop protection</string>
+    <string name="home_protected">Protected</string>
+    <string name="home_not_protected">Not protected</string>
+    <string name="home_tap_to_start">Tap the shield to start filtering</string>
+    <string name="home_tap_to_stop">Filtering is on. Tap the shield to stop.</string>
+    <string name="home_working">One moment…</string>
+    <string name="home_mode_vpn">VPN mode</string>
+    <string name="home_mode_proxy">Proxy-only mode</string>
+    <string name="home_stat_requests">Requests · 24h</string>
+    <string name="home_stat_blocked">Blocked · 24h</string>
+    <string name="home_stat_rate">Block rate</string>
+    <string name="home_chart_title">Blocks per hour</string>
+    <string name="home_status_title">Status</string>
+    <string name="home_ca_ok">Certificate installed</string>
+    <string name="home_ca_ok_sub">HTTPS content filtering is available</string>
+    <string name="home_ca_missing">Certificate not installed</string>
+    <string name="home_ca_missing_sub">Tap to set up HTTPS content filtering</string>
+    <string name="home_apps_proxy_mode">Not used in proxy-only mode</string>
+    <string name="home_policy_active">Active policy: %1$s</string>
+    <string name="home_policy_nothing_on">No filters switched on</string>
+    <string name="home_not_enforced">Not enforced</string>
+    <string name="home_not_enforced_sub">Anyone with this phone can turn filtering off. Tap to learn more.</string>
+    <string name="home_managed_sub">Your organization manages this app\'s settings</string>
+    <string name="home_recent_title">Recently blocked</string>
+    <string name="home_recent_empty">Nothing blocked yet</string>
+    <string name="home_see_all">See all</string>
+
+    <!-- Enforcement notice -->
+    <string name="enforce_title">This app doesn\'t enforce anything</string>
+    <string name="enforce_body">WebFilter filters the traffic it is given, but on its own it cannot stop anyone with this phone from turning it off.\n\nThe VPN can be disconnected from the notification shade or system settings, the CA certificate can be removed, filter settings can be changed here, and the app can be uninstalled.\n\nTo enforce filtering, deploy WebFilter through an EMM/MDM (Android Enterprise). It can turn on always-on VPN with lockdown, lock the settings with a managed configuration, push the CA certificate, and block uninstalling the app.</string>
+    <string name="enforce_managed_title">Managed by your organization</string>
+    <string name="enforce_managed_body">Your organization applies WebFilter\'s configuration through device management. Whether filtering can be turned off or the app removed depends on the policies it sets (for example always-on VPN with lockdown and blocking uninstall).</string>
+
+    <!-- Onboarding -->
+    <string name="onb_back">Back</string>
+    <string name="onb_next">Next</string>
+    <string name="onb_understand">I understand</string>
+    <string name="onb_start">Start protection</string>
+    <string name="onb_welcome_title">Welcome to WebFilter</string>
+    <string name="onb_welcome_body">WebFilter filters web traffic on this phone: SafeSearch, ad and tracker blocking, safe DNS, site and category blocking, and optional content classifiers.\n\nEverything runs on the device. Nothing is sent to a cloud service.</string>
+    <string name="onb_enforce_body">WebFilter filters what it is given, but on its own it cannot stop someone with this phone from switching it off:</string>
+    <string name="onb_enforce_point_vpn">The VPN can be turned off</string>
+    <string name="onb_enforce_point_vpn_body">From the notification shade or Settings › Network › VPN.</string>
+    <string name="onb_enforce_point_settings">Filters can be changed</string>
+    <string name="onb_enforce_point_settings_body">The settings in this app, and the CA certificate, are not locked.</string>
+    <string name="onb_enforce_point_uninstall">The app can be uninstalled</string>
+    <string name="onb_enforce_point_uninstall_body">Removing it removes the filter.</string>
+    <string name="onb_enforce_mdm">Need enforcement? Use an EMM/MDM</string>
+    <string name="onb_enforce_mdm_body">Deploy through Android Enterprise to get always-on VPN with lockdown, locked settings (managed configuration), a pushed CA certificate and uninstall protection.</string>
+    <string name="onb_apps_title">Choose what to filter</string>
+    <string name="onb_apps_body">The web browsers on this phone are selected. Other apps connect directly. You can change this at any time.</string>
+    <string name="onb_apps_body_all">No browser was detected, so every app will be filtered. You can pick specific apps instead.</string>
+    <string name="onb_apps_more">+ %1$d more</string>
+    <string name="onb_apps_change">Change apps</string>
+    <string name="onb_ca_title">HTTPS content filtering</string>
+    <string name="onb_ca_body">Site, category and DNS filtering work straight away. To also filter page content (SafeSearch, ads on pages, classifiers), install WebFilter\'s CA certificate.</string>
+    <string name="onb_ca_optional">Optional. You can do this later from Home.</string>
+    <string name="onb_ca_setup">Set up certificate</string>
+    <string name="onb_done_title">You\'re set</string>
+    <string name="onb_done_body">The default policy has these filters on. Change them, or add scheduled policies, on the Filters tab.</string>
+
+    <!-- Filters tab -->
+    <string name="filters_hint">The default policy always applies. Add a policy with a schedule to override it at set times. Tap a policy to see its filters.</string>
+    <string name="policy_default_title">Default policy</string>
+    <string name="policy_more">More options</string>
+    <string name="policy_summary_on">On: %1$s</string>
+    <plurals name="categories_blocked">
+        <item quantity="one">%1$d category blocked</item>
+        <item quantity="other">%1$d categories blocked</item>
+    </plurals>
+    <string name="mod_safesearch">Safe results on Google, Bing, DuckDuckGo, YouTube and more</string>
+    <string name="mod_adblock">Block ads and trackers</string>
+    <string name="mod_doh">Filtered DNS through a family-safe resolver</string>
+    <string name="mod_url_filter">Block or allow specific sites</string>
+    <string name="mod_categories">Block whole categories (adult, gambling…)</string>
+    <string name="mod_categories_inactive">%1$s — turn on URL filter to apply</string>
+    <string name="mod_youtube">Restrict channels, hide comments and recommendations</string>
+    <string name="mod_text_classifier">Block or censor adult text on pages</string>
+    <string name="mod_image_classifier">Blur or block NSFW images</string>
+    <string name="mod_block_page">Message shown when a page is blocked</string>
+
+    <!-- Activity (logs) tab -->
+    <string name="logs_kind_blocks">Blocked</string>
+    <string name="logs_kind_requests">All requests</string>
+    <string name="logs_kind_policy_changes">Policy changes</string>
+    <string name="logs_empty">No entries yet</string>
+
+    <!-- Settings tab -->
+    <string name="settings_cat_filtering">Filtering</string>
+    <string name="settings_cat_advanced">Advanced</string>
+    <string name="settings_cat_about">About</string>
+    <string name="pref_proxy_only_summary">No VPN: only apps set to use the local proxy (e.g. Chrome through an MDM proxy policy) are filtered.</string>
+    <string name="pref_proxy_only_running">Stop filtering to change the mode.</string>
+    <string name="pref_forced_by_admin">Set by your organization</string>
+    <string name="pref_web_ui">Web interface</string>
+    <string name="pref_web_ui_summary">Serve the full management web UI on 127.0.0.1. Off: only the PAC file and CA certificate are served.</string>
+    <string name="pref_open_web_ui">Open web interface</string>
+    <string name="web_ui_needs_running">Start filtering to open it</string>
+    <string name="pref_general_summary">Logging, retention, web UI language and engine status</string>
+    <string name="pref_security_summary">Web interface password</string>
+    <string name="pref_enforcement_summary">What this app can and cannot enforce</string>
+    <string name="pref_show_onboarding">Show the welcome guide</string>
+    <string name="pref_version">Version</string>
+    <string name="restr_web_ui_desc">Serve the management web UI on the device\'s loopback address and show it in the app. Off: only the PAC file and CA certificate are served.</string>
+
+    <!-- Filtered apps -->
+    <string name="apps_all">All apps</string>
+    <string name="apps_all_summary">Every app is routed through the filter</string>
+    <plurals name="apps_selected">
+        <item quantity="one">%1$d app selected</item>
+        <item quantity="other">%1$d apps selected</item>
+    </plurals>
+    <string name="apps_filter_all">Filter all apps</string>
+    <string name="apps_search_hint">Search apps</string>
+    <string name="apps_section_browsers">Browsers</string>
+    <string name="apps_section_other">Other apps</string>
+    <string name="apps_select_browsers">Select all</string>
+    <string name="apps_restart_hint">Stop and start protection to apply app changes.</string>
+
+    <!-- Guided CA install -->
+    <string name="ca_intro">Installing WebFilter\'s certificate lets it look inside HTTPS pages, which SafeSearch, page-level ad blocking, YouTube rules and the content classifiers need. Android requires a screen lock (PIN, pattern or password) to install it.</string>
+    <string name="ca_status_installed">Certificate installed</string>
+    <string name="ca_status_installed_body">Android trusts WebFilter\'s certificate.</string>
+    <string name="ca_status_missing">Certificate not installed</string>
+    <string name="ca_status_missing_body">Follow the steps below, then come back to this screen.</string>
+    <string name="ca_step_save">Save the certificate</string>
+    <string name="ca_step_save_body">Saves webfilter-ca.crt to your Downloads folder.</string>
+    <string name="ca_step_save_body_legacy">Choose where to save webfilter-ca.crt (Downloads is easiest to find).</string>
+    <string name="ca_saved_downloads">Saved %1$s to Downloads.</string>
+    <string name="ca_step_install">Install it in Settings</string>
+    <string name="ca_step_install_body">Android only installs CA certificates from Settings. Open Settings, then go to Security (or Security &amp; privacy) › More security settings › Encryption &amp; credentials › Install a certificate › CA certificate. Tap \"Install anyway\" and pick webfilter-ca.crt from Downloads.\n\nSamsung: Security and privacy › More security settings › Install from device storage › CA certificate.\nXiaomi: Passwords &amp; security › Privacy › Encryption &amp; credentials.\nCan\'t find it? Search Settings for \"CA certificate\".</string>
+    <string name="ca_step_install_body_legacy">Tap Install, give the certificate a name if asked, and choose \"VPN and apps\".</string>
+    <string name="ca_install_now">Install</string>
+    <string name="ca_settings_hint">Look for Encryption &amp; credentials › Install a certificate › CA certificate</string>
+    <string name="ca_step_verify">Check</string>
+    <string name="ca_step_verify_body">This screen checks automatically when you come back.</string>
+    <string name="ca_step_verify_done">Done — the certificate is trusted.</string>
+    <string name="ca_check_again">Check again</string>
+</resources>

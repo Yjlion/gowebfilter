@@ -1,0 +1,29 @@
+<resources>
+    <color name="purple_500">#BAC3FF</color>
+
+    <color name="md_primary">#BAC3FF</color>
+    <color name="md_on_primary">#08218A</color>
+    <color name="md_primary_container">#293CA0</color>
+    <color name="md_on_primary_container">#DEE0FF</color>
+    <color name="md_secondary">#C3C5DD</color>
+    <color name="md_on_secondary">#2D2F42</color>
+    <color name="md_secondary_container">#434659</color>
+    <color name="md_on_secondary_container">#E0E1F9</color>
+    <color name="md_background">#131318</color>
+    <color name="md_surface">#131318</color>
+    <color name="md_on_surface">#E4E1E9</color>
+    <color name="md_surface_variant">#46464F</color>
+    <color name="md_on_surface_variant">#C7C5D0</color>
+    <color name="md_surface_container_low">#1B1B21</color>
+    <color name="md_surface_container">#1F1F25</color>
+    <color name="md_surface_container_high">#2A292F</color>
+    <color name="md_outline">#90909A</color>
+    <color name="md_outline_variant">#46464F</color>
+
+    <color name="status_ok">#81C784</color>
+    <color name="status_ok_container">#1E3A20</color>
+    <color name="status_off">#EF9A9A</color>
+    <color name="status_off_container">#4A1B1B</color>
+    <color name="status_warn">#FFB74D</color>
+    <color name="status_warn_container">#3D2E12</color>
+</resources>

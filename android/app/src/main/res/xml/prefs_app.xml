@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The Settings tab (AppSettingsFragment). Filter policies are on the
+     Filters tab; these are app-wide. proxy_only_mode / web_ui_enabled
+     persist to the local webfilter_prefs file (Prefs.kt); everything else
+     navigates. -->
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <PreferenceCategory
+        android:title="@string/settings_cat_filtering"
+        app:iconSpaceReserved="true">
+
+        <Preference
+            android:key="nav_apps"
+            android:icon="@drawable/ic_apps"
+            android:persistent="false"
+            android:title="@string/title_app_picker" />
+
+        <Preference
+            android:key="nav_ca"
+            android:icon="@drawable/ic_lock"
+            android:persistent="false"
+            android:title="@string/title_ca_install" />
+
+        <SwitchPreferenceCompat
+            android:defaultValue="false"
+            android:icon="@drawable/ic_globe"
+            android:key="proxy_only_mode"
+            android:title="@string/proxy_only_mode" />
+
+        <Preference
+            android:key="nav_analytics"
+            android:icon="@drawable/ic_bar_chart"
+            android:persistent="false"
+            android:summary="@string/pref_analytics_summary"
+            android:title="@string/title_analytics" />
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        android:title="@string/settings_cat_advanced"
+        app:iconSpaceReserved="true">
+
+        <SwitchPreferenceCompat
+            android:defaultValue="false"
+            android:icon="@drawable/ic_web"
+            android:key="web_ui_enabled"
+            android:title="@string/pref_web_ui" />
+
+        <Preference
+            android:key="open_web_ui"
+            android:icon="@drawable/ic_open_in_new"
+            android:persistent="false"
+            android:title="@string/pref_open_web_ui"
+            app:isPreferenceVisible="false" />
+
+        <Preference
+            android:key="nav_general"
+            android:icon="@drawable/ic_tune"
+            android:persistent="false"
+            android:summary="@string/pref_general_summary"
+            android:title="@string/cat_general" />
+
+        <Preference
+            android:key="nav_security"
+            android:icon="@drawable/ic_lock"
+            android:persistent="false"
+            android:summary="@string/pref_security_summary"
+            android:title="@string/cat_security" />
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        android:title="@string/settings_cat_about"
+        app:iconSpaceReserved="true">
+
+        <Preference
+            android:key="about_enforcement"
+            android:icon="@drawable/ic_info"
+            android:persistent="false"
+            android:summary="@string/pref_enforcement_summary"
+            android:title="@string/enforce_title" />
+
+        <Preference
+            android:key="about_onboarding"
+            android:icon="@drawable/ic_shield"
+            android:persistent="false"
+            android:title="@string/pref_show_onboarding" />
+
+        <Preference
+            android:key="about_version"
+            android:icon="@drawable/ic_code"
+            android:persistent="false"
+            android:selectable="false"
+            android:title="@string/pref_version" />
+    </PreferenceCategory>
+</PreferenceScreen>

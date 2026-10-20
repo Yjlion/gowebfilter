@@ -1,6 +1,7 @@
 package mobile
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -39,6 +40,17 @@ func ensureMobileSettings(settingsPath string) error {
 	if err := config.SaveSettings(settingsPath, settings); err != nil {
 		return err
 	}
+	// First provisioning only: seed the protective default policy before
+	// BootstrapRuntimeFiles, which then finds it and leaves it alone. An
+	// existing default.json (a reinstall that kept data, or an MDM
+	// policy_json applied earlier) is never overwritten.
+	store := &config.PolicyStore{Dir: settings.PoliciesDir}
+	if err := os.MkdirAll(settings.PoliciesDir, 0o755); err != nil {
+		return err
+	}
+	if err := store.Create(mobileDefaultPolicy()); err != nil && !errors.Is(err, config.ErrExists) {
+		return fmt.Errorf("seed default policy: %w", err)
+	}
 	// Bootstrap the default policy + dirs against the freshly written file.
 	return config.BootstrapRuntimeFiles(settingsPath)
 }
@@ -52,6 +64,25 @@ func mobileDefaults(settingsPath string) models.GlobalSettings {
 	settings.ProxyListen = []string{"socks5@127.0.0.1:1080"}
 	settings.Tun2Socks.Enabled = true
 	return settings
+}
+
+// mobileDefaultPolicy is the "family baseline" a fresh Android install
+// starts with, rather than the desktop's everything-off default: a phone
+// user who installs a filter expects it to filter something on first start.
+// SafeSearch (every engine - an absent engine entry means enabled), ad and
+// tracker blocking with the default lists, and DNS through Cloudflare's
+// family resolver, with QUIC blocked so browsers can't skip the pipeline.
+// The NSFW classifiers and URL categories stay off: the former have real
+// false-positive cost, the latter need list downloads first.
+func mobileDefaultPolicy() models.Policy {
+	p := models.NewPolicy()
+	p.Name = "default"
+	p.SafeSearch.Enabled = true
+	p.Adblock.Enabled = true
+	p.Doh.Enabled = true
+	p.Doh.Server = "https://1.1.1.3/dns-query"
+	p.UrlFilter.BlockQuic = true
+	return p
 }
 
 func logMobile(format string, args ...any) {

@@ -129,6 +129,8 @@ func startEngine(dataDir string, tunFd int, proxyOnly bool) error {
 	// app hands out - so honouring mgmt_tls here would break the only UI the
 	// device has, and a managed-configuration push could do it remotely.
 	mgmtSrv.ForcePlaintext = true
+	// The web UI is opt-in on Android (webui.go); consulted per request.
+	mgmtSrv.WebUIDisabled = webUIDisabled
 
 	ctx, cancel := context.WithCancel(context.Background())
 	rt.Start(ctx)
@@ -227,6 +229,23 @@ func MgmtUrl() string {
 	return ctl.mgmtURL
 }
 
+// ActivePolicyName names the policy currently applied to this device's own
+// traffic, or "" when the engine is stopped or nothing matches. Every flow
+// on Android arrives from loopback (tun2socks dials the in-process SOCKS5
+// listener; proxy-only clients dial the loopback HTTP proxy), so the
+// 127.0.0.1 match is the device's answer, schedules included.
+func ActivePolicyName() string {
+	ctl.mu.Lock()
+	defer ctl.mu.Unlock()
+	if !ctl.running || ctl.rt == nil {
+		return ""
+	}
+	if p := ctl.rt.GetPolicy("127.0.0.1"); p != nil {
+		return p.Name
+	}
+	return ""
+}
+
 // ReloadPolicies re-reads policies/*.json immediately (the fsnotify watcher
 // also does this, but Android's scoped storage can make inotify unreliable,
 // so expose an explicit trigger for the Kotlin layer to call after an edit).
@@ -241,7 +260,7 @@ func ReloadPolicies() error {
 }
 
 // Status returns a small JSON blob {running, mode, mgmtUrl, pacUrl,
-// proxyPort, listeners} for the UI to render without a second round trip.
+// proxyPort, listeners, webUi} for the UI to render without a second round trip.
 // mode is "vpn" or "proxy"; pacUrl/proxyPort describe what a browser (or an
 // MDM-pushed Chrome ProxySettings policy) should be pointed at in
 // proxy-only mode.
@@ -256,7 +275,8 @@ func Status() string {
 		PacURL    string   `json:"pacUrl"`
 		ProxyPort int      `json:"proxyPort"`
 		Listeners []string `json:"listeners"`
-	}{Running: ctl.running, Mode: ctl.mode, MgmtURL: ctl.mgmtURL}
+		WebUI     bool     `json:"webUi"`
+	}{Running: ctl.running, Mode: ctl.mode, MgmtURL: ctl.mgmtURL, WebUI: webUIEnabled.Load()}
 	if ctl.running && ctl.eng != nil {
 		st.Listeners = append(st.Listeners, ctl.eng.Settings.ProxyListen...)
 		// Only meaningful when a regular listener is actually bound — in

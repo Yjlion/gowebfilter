@@ -123,8 +123,15 @@ class SettingsJsonStore(private val dataDir: String) {
     }
 }
 
-/** Read-only view of the MDM lock state for gating the settings UI. */
+/** Read-only view of the MDM state for gating the settings UI. */
 object ManagedState {
+    /** True when an EMM has applied a managed configuration to this device. */
+    fun isManaged(context: Context): Boolean = try {
+        JSONObject(Mobile.getManagedStateJson(context.filesDir.absolutePath)).optBoolean("managed", false)
+    } catch (_: Exception) {
+        false
+    }
+
     fun isLocked(context: Context): Boolean = try {
         val st = JSONObject(Mobile.getManagedStateJson(context.filesDir.absolutePath))
         st.optBoolean("managed", false) && st.optBoolean("settings_locked", false)

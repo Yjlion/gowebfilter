@@ -12,7 +12,6 @@ import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
-import androidx.appcompat.app.AppCompatActivity
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -26,7 +25,7 @@ import org.json.JSONObject
  * Schedules fail open on the engine side: disabled or empty-window
  * schedules mean "always active".
  */
-class ScheduleActivity : AppCompatActivity() {
+class ScheduleActivity : BaseActivity() {
 
     companion object {
         /** Optional intent extra naming the policy whose schedule to edit. */

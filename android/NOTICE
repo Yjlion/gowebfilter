@@ -1,0 +1,7 @@
+Third-party material bundled in the Android app
+===============================================
+
+Material Design icons (res/drawable/ic_*.xml, except the ic_engine_* search
+engine marks and the launcher icon) are path data from Google's Material
+Icons, licensed under the Apache License, Version 2.0:
+https://github.com/google/material-design-icons/blob/master/LICENSE

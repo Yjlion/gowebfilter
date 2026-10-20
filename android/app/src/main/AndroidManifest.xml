@@ -15,6 +15,17 @@
         tools:ignore="QueryAllPackagesPermission"
         xmlns:tools="http://schemas.android.com/tools" />
 
+    <!-- Browser detection for the first-run filtered-apps default
+         (BrowserApps.kt); QUERY_ALL_PACKAGES already covers it, but this
+         keeps the intent visible should that permission ever be dropped. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="https" />
+        </intent>
+    </queries>
+
     <application
         android:name=".App"
         android:allowBackup="true"
@@ -32,7 +43,8 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:label="@string/app_name">
+            android:label="@string/app_name"
+            android:theme="@style/Theme.WebFilter.NoActionBar">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -55,19 +67,19 @@
             android:label="@string/title_schedule" />
 
         <activity
-            android:name=".PoliciesActivity"
-            android:exported="false"
-            android:label="@string/title_policies" />
-
-        <activity
             android:name=".CategoriesActivity"
             android:exported="false"
             android:label="@string/title_categories" />
 
         <activity
-            android:name=".LogsActivity"
+            android:name=".OnboardingActivity"
             android:exported="false"
-            android:label="@string/title_logs" />
+            android:theme="@style/Theme.WebFilter.NoActionBar" />
+
+        <activity
+            android:name=".WebUiActivity"
+            android:exported="false"
+            android:label="@string/pref_web_ui" />
 
         <activity
             android:name=".AnalyticsActivity"

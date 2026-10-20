@@ -73,13 +73,6 @@
         <item>__custom__</item>
     </string-array>
 
-    <!-- Order must match LogsActivity.kinds. -->
-    <string-array name="log_kind_labels">
-        <item>Blocked requests</item>
-        <item>All requests</item>
-        <item>Policy changes (audit)</item>
-    </string-array>
-
     <!-- Order must match AnalyticsActivity.windows. -->
     <string-array name="analytics_window_labels">
         <item>Last 24 hours</item>

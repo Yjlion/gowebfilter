@@ -1,77 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Single-activity shell: the four tabs are fragments (HomeFragment,
+     FiltersFragment, LogsFragment, AppSettingsFragment). -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:padding="16dp">
+    android:orientation="vertical">
 
-    <TextView
-        android:id="@+id/statusText"
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/toolbar"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="16dp"
-        android:gravity="center"
-        android:text="@string/status_stopped"
-        android:textSize="20sp"
-        android:textStyle="bold" />
+        android:layout_height="?attr/actionBarSize"
+        app:title="@string/app_name"
+        app:titleCentered="false" />
 
-    <Button
-        android:id="@+id/toggleButton"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/start_filter" />
-
-    <Switch
-        android:id="@+id/proxyOnlySwitch"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:text="@string/proxy_only_mode" />
-
-    <!-- PAC URL + HTTP proxy address, shown while running in proxy-only
-         mode; tapping copies the PAC URL. -->
-    <TextView
-        android:id="@+id/proxyInfo"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:textSize="13sp"
-        android:visibility="gone" />
-
-    <Button
-        android:id="@+id/appsButton"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:text="@string/choose_apps" />
-
-    <Button
-        android:id="@+id/settingsButton"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:text="@string/open_settings" />
-
-    <Button
-        android:id="@+id/caButton"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:text="@string/install_ca" />
-
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:layout_marginBottom="4dp"
-        android:text="@string/open_dashboard"
-        android:textStyle="bold" />
-
-    <!-- The embedded management UI (served by the Go engine on
-         127.0.0.1) loads here once filtering is running. -->
-    <WebView
-        android:id="@+id/dashboard"
+    <FrameLayout
+        android:id="@+id/tabContainer"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1" />
+
+    <com.google.android.material.bottomnavigation.BottomNavigationView
+        android:id="@+id/bottomNav"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        app:labelVisibilityMode="labeled"
+        app:menu="@menu/bottom_nav" />
 </LinearLayout>
