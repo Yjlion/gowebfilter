@@ -50,13 +50,27 @@ object ManagedConfig {
      * `proxy_only_mode` restriction, null when unmanaged. This key is
      * consumed by the Kotlin layer ONLY (it selects how the service starts,
      * not engine config) — deliberately absent from [buildDocFromBundle],
-     * the one documented exception to the restriction-key == preference-key
+     * one of the documented exceptions to the restriction-key == preference-key
      * sync rule.
      */
     fun forcedProxyOnly(context: Context): Boolean? = try {
         val rm = context.getSystemService(Context.RESTRICTIONS_SERVICE) as RestrictionsManager
         val b = rm.applicationRestrictions
         if (b.containsKey("proxy_only_mode")) b.getBoolean("proxy_only_mode") else null
+    } catch (_: Exception) {
+        null
+    }
+
+    /**
+     * MDM-forced web UI switch (`web_ui_enabled` restriction), null when not
+     * set. Kotlin-only like [forcedProxyOnly]: it gates the loopback
+     * management server through Mobile.setWebUiEnabled rather than engine
+     * config, so it is absent from [buildDocFromBundle].
+     */
+    fun forcedWebUi(context: Context): Boolean? = try {
+        val rm = context.getSystemService(Context.RESTRICTIONS_SERVICE) as RestrictionsManager
+        val b = rm.applicationRestrictions
+        if (b.containsKey("web_ui_enabled")) b.getBoolean("web_ui_enabled") else null
     } catch (_: Exception) {
         null
     }

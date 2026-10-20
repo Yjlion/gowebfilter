@@ -6,7 +6,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.util.Log
-import mobile.Mobile
 
 /**
  * Application entry point: applies MDM managed configuration on process
@@ -29,7 +28,9 @@ class App : Application() {
         override fun onReceive(context: Context, intent: Intent) {
             val changed = ManagedConfig.applyRestrictions(context)
             Log.i(TAG, "managed configuration push received, changed=$changed")
-            if (changed && Mobile.isRunning()) {
+            // web_ui_enabled is Kotlin-side state; re-apply on every push.
+            Prefs.applyWebUi(context)
+            if (changed && EngineState.running) {
                 restartEngine()
             }
         }
@@ -38,6 +39,9 @@ class App : Application() {
     override fun onCreate() {
         super.onCreate()
         ManagedConfig.applyRestrictions(this)
+        // The web UI switch is process state in Go (off by default); seed it
+        // before anything can start the engine.
+        Prefs.applyWebUi(this)
         registerReceiver(
             restrictionsReceiver,
             IntentFilter(Intent.ACTION_APPLICATION_RESTRICTIONS_CHANGED),

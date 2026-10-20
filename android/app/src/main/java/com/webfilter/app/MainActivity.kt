@@ -1,170 +1,158 @@
 package com.webfilter.app
 
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Intent
 import android.net.VpnService
 import android.os.Bundle
-import android.view.View
-import android.webkit.WebView
-import android.webkit.WebViewClient
-import android.widget.Button
-import android.widget.Switch
-import android.widget.TextView
-import android.widget.Toast
+import android.os.Handler
+import android.os.Looper
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
-import org.json.JSONObject
-import mobile.Mobile
+import androidx.fragment.app.Fragment
+import com.google.android.material.appbar.MaterialToolbar
+import com.google.android.material.bottomnavigation.BottomNavigationView
 
 /**
- * Home screen: start/stop the filter, open the per-app picker and CA install
- * flow, and embed the management dashboard (served by the Go engine on
- * 127.0.0.1) in a WebView once filtering is running.
+ * The app shell: a toolbar, four tabs (Home dashboard, Filters, Logs,
+ * Settings) and the filter start/stop plumbing they share — VPN consent,
+ * VPN vs proxy-only start, stop. First launch routes through
+ * [OnboardingActivity].
+ *
+ * The management web UI is deliberately not embedded here any more; it is
+ * opt-in under Settings › Advanced and opens in [WebUiActivity].
  */
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var statusText: TextView
-    private lateinit var toggleButton: Button
-    private lateinit var proxyOnlySwitch: Switch
-    private lateinit var proxyInfo: TextView
-    private lateinit var dashboard: WebView
+    /** Tabs that redraw when the engine starts or stops. */
+    interface EngineStateListener {
+        fun onEngineStateChanged()
+    }
 
-    /**
-     * Effective start mode. The MDM `proxy_only_mode` restriction (when the
-     * device is managed) wins over the local switch.
-     */
-    private fun proxyOnlyMode(): Boolean =
-        ManagedConfig.forcedProxyOnly(this) ?: Prefs.proxyOnlyMode(this)
+    private val handler = Handler(Looper.getMainLooper())
+    private lateinit var bottomNav: BottomNavigationView
 
     private val vpnConsent =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            if (result.resultCode == RESULT_OK) {
-                startVpn()
+            if (result.resultCode == RESULT_OK) startVpn()
+        }
+
+    private val onboarding =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == RESULT_OK &&
+                result.data?.getBooleanExtra(OnboardingActivity.EXTRA_START, false) == true &&
+                !EngineState.running
+            ) {
+                toggleFilter()
             }
+            notifyEngineState()
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        setSupportActionBar(findViewById<MaterialToolbar>(R.id.toolbar))
 
-        statusText = findViewById(R.id.statusText)
-        toggleButton = findViewById(R.id.toggleButton)
-        proxyOnlySwitch = findViewById(R.id.proxyOnlySwitch)
-        proxyInfo = findViewById(R.id.proxyInfo)
-        dashboard = findViewById(R.id.dashboard)
-
-        toggleButton.setOnClickListener { onToggle() }
-        proxyOnlySwitch.setOnCheckedChangeListener { _, checked ->
-            Prefs.setProxyOnlyMode(this, checked)
+        bottomNav = findViewById(R.id.bottomNav)
+        bottomNav.setOnItemSelectedListener { item ->
+            showTab(item.itemId)
+            true
         }
-        findViewById<Button>(R.id.appsButton).setOnClickListener {
-            startActivity(Intent(this, AppPickerActivity::class.java))
-        }
-        findViewById<Button>(R.id.settingsButton).setOnClickListener {
-            startActivity(Intent(this, SettingsActivity::class.java))
-        }
-        findViewById<Button>(R.id.caButton).setOnClickListener {
-            startActivity(Intent(this, CaInstallActivity::class.java))
-        }
-
-        dashboard.settings.javaScriptEnabled = true
-        dashboard.settings.domStorageEnabled = true
-        dashboard.webViewClient = WebViewClient()
-    }
-
-    override fun onResume() {
-        super.onResume()
-        refreshState()
-    }
-
-    private fun onToggle() {
-        if (Mobile.isRunning()) {
-            stopVpn()
-        } else if (proxyOnlyMode()) {
-            // No TUN is established, so no VPN consent dialog is needed.
-            startProxyOnly()
-        } else {
-            // Ask the user for VPN consent; startVpn() runs on OK.
-            val prepare = VpnService.prepare(this)
-            if (prepare != null) {
-                vpnConsent.launch(prepare)
-            } else {
-                startVpn()
+        if (savedInstanceState == null) {
+            showTab(R.id.nav_home)
+            if (!Prefs.onboardingDone(this)) {
+                onboarding.launch(Intent(this, OnboardingActivity::class.java))
             }
         }
     }
 
-    private fun startVpn() {
-        val intent = Intent(this, WebFilterVpnService::class.java)
-            .setAction(WebFilterVpnService.ACTION_START)
-        startForegroundService(intent)
-        // The engine binds asynchronously; give the UI a moment then refresh.
-        dashboard.postDelayed({ refreshState() }, 800)
+    override fun onRestoreInstanceState(savedInstanceState: Bundle) {
+        super.onRestoreInstanceState(savedInstanceState)
+        // Fragments (and their hidden state) are restored for us; the
+        // selected tab is restored by now, the toolbar title is not.
+        supportActionBar?.title = titleFor(bottomNav.selectedItemId)
     }
 
-    private fun startProxyOnly() {
-        val intent = Intent(this, WebFilterVpnService::class.java)
-            .setAction(WebFilterVpnService.ACTION_START_PROXY_ONLY)
-        startForegroundService(intent)
-        dashboard.postDelayed({ refreshState() }, 800)
-    }
+    private fun titleFor(itemId: Int): String = getString(
+        when (itemId) {
+            R.id.nav_filters -> R.string.nav_filters
+            R.id.nav_logs -> R.string.nav_logs
+            R.id.nav_settings -> R.string.nav_settings
+            else -> R.string.app_name
+        },
+    )
 
-    private fun stopVpn() {
-        val intent = Intent(this, WebFilterVpnService::class.java)
-            .setAction(WebFilterVpnService.ACTION_STOP)
-        startService(intent)
-        dashboard.postDelayed({ refreshState() }, 400)
-    }
-
-    private fun refreshState() {
-        val running = Mobile.isRunning()
-        statusText.setText(if (running) R.string.status_running else R.string.status_stopped)
-        toggleButton.setText(if (running) R.string.stop_filter else R.string.start_filter)
-        refreshModeControls(running)
-
-        if (running) {
-            val url = Mobile.mgmtUrl()
-            if (url.isNotEmpty() && dashboard.url != url) {
-                dashboard.loadUrl(url)
-            }
-        } else {
-            dashboard.loadUrl("about:blank")
-        }
+    /** Switches tabs programmatically (e.g. Home's "See all" → Logs). */
+    fun selectTab(itemId: Int) {
+        bottomNav.selectedItemId = itemId
     }
 
     /**
-     * Mode switch state + the proxy-only info row (PAC URL / HTTP proxy
-     * address with a tap-to-copy on the PAC URL). The switch is locked to
-     * the pushed value on MDM-managed devices, and disabled while running
-     * (switching modes requires a stop/start).
+     * Tab fragments are created once and shown/hidden, so a tab keeps its
+     * scroll position and expanded cards when the user switches back.
      */
-    private fun refreshModeControls(running: Boolean) {
-        val forced = ManagedConfig.forcedProxyOnly(this)
-        proxyOnlySwitch.isChecked = forced ?: Prefs.proxyOnlyMode(this)
-        proxyOnlySwitch.isEnabled = forced == null && !running
-
-        var pacUrl = ""
-        var proxyPort = 0
-        var mode = ""
-        try {
-            val st = JSONObject(Mobile.status())
-            mode = st.optString("mode", "")
-            pacUrl = st.optString("pacUrl", "")
-            proxyPort = st.optInt("proxyPort", 0)
-        } catch (_: Exception) {
+    private fun showTab(itemId: Int) {
+        val tag = "tab_$itemId"
+        val fm = supportFragmentManager
+        val tx = fm.beginTransaction()
+        for (f in fm.fragments) {
+            if (f.tag?.startsWith("tab_") == true && f.tag != tag) tx.hide(f)
         }
-
-        if (running && mode == "proxy" && pacUrl.isNotEmpty()) {
-            proxyInfo.visibility = View.VISIBLE
-            proxyInfo.text = getString(R.string.proxy_info, "127.0.0.1:$proxyPort", pacUrl)
-            proxyInfo.setOnClickListener {
-                val cm = getSystemService(ClipboardManager::class.java)
-                cm.setPrimaryClip(ClipData.newPlainText("PAC URL", pacUrl))
-                Toast.makeText(this, R.string.pac_copied, Toast.LENGTH_SHORT).show()
-            }
+        val existing = fm.findFragmentByTag(tag)
+        if (existing != null) {
+            tx.show(existing)
         } else {
-            proxyInfo.visibility = View.GONE
+            tx.add(R.id.tabContainer, newTab(itemId), tag)
         }
+        tx.commit()
+        supportActionBar?.title = titleFor(itemId)
+    }
+
+    private fun newTab(itemId: Int): Fragment = when (itemId) {
+        R.id.nav_filters -> FiltersFragment()
+        R.id.nav_logs -> LogsFragment()
+        R.id.nav_settings -> AppSettingsFragment()
+        else -> HomeFragment()
+    }
+
+    /** Start or stop filtering, in the effective mode (MDM wins). */
+    fun toggleFilter() {
+        // A start/stop is still in flight on the engine worker.
+        if (EngineState.busy) return
+        if (EngineState.running) {
+            stopFilter()
+        } else if (Prefs.effectiveProxyOnly(this)) {
+            // No TUN is established, so no VPN consent dialog is needed.
+            startFilterService(WebFilterVpnService.ACTION_START_PROXY_ONLY)
+        } else {
+            // Ask the user for VPN consent; startVpn() runs on OK.
+            val prepare = VpnService.prepare(this)
+            if (prepare != null) vpnConsent.launch(prepare) else startVpn()
+        }
+    }
+
+    private fun startVpn() = startFilterService(WebFilterVpnService.ACTION_START)
+
+    private fun stopFilter() {
+        startService(Intent(this, WebFilterVpnService::class.java).setAction(WebFilterVpnService.ACTION_STOP))
+        handler.postDelayed({ notifyEngineState() }, 400)
+    }
+
+    private fun startFilterService(action: String) {
+        startForegroundService(Intent(this, WebFilterVpnService::class.java).setAction(action))
+        // The engine binds asynchronously; refresh shortly, then again once
+        // a slow first start (CA generation, sqlite schema) has finished.
+        handler.postDelayed({ notifyEngineState() }, 800)
+        handler.postDelayed({ notifyEngineState() }, 2500)
+    }
+
+    fun notifyEngineState() {
+        if (isFinishing || isDestroyed) return
+        for (f in supportFragmentManager.fragments) {
+            if (f.isAdded) (f as? EngineStateListener)?.onEngineStateChanged()
+        }
+    }
+
+    override fun onDestroy() {
+        handler.removeCallbacksAndMessages(null)
+        super.onDestroy()
     }
 }

@@ -8,6 +8,8 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.net.VpnService
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import mobile.Mobile
@@ -23,7 +25,9 @@ import mobile.Mobile
  */
 class WebFilterVpnService : VpnService() {
 
+    // Touched only on EngineState.worker.
     private var tunInterface: ParcelFileDescriptor? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     companion object {
         private const val TAG = "WebFilterVpn"
@@ -53,43 +57,33 @@ class WebFilterVpnService : VpnService() {
         return START_STICKY
     }
 
+    /**
+     * VPN mode. The foreground notification goes up immediately on the main
+     * thread (Android requires it within seconds of startForegroundService);
+     * everything that touches the engine runs on [EngineState.worker].
+     */
     private fun startFilter() {
-        if (Mobile.isRunning()) {
-            Log.i(TAG, "engine already running")
-            return
-        }
-
-        // Apply any pending MDM managed configuration before the engine
-        // boots (idempotent no-op when nothing changed). Combined with the
-        // self-bootstrapping apply path on the Go side, a managed device
-        // never runs its first session on unmanaged defaults.
-        ManagedConfig.applyRestrictions(this)
-
-        val builder = Builder()
-            .setSession(getString(R.string.app_name))
-            .setMtu(TUN_MTU)
-            .addAddress(TUN_ADDRESS, TUN_PREFIX)
-            .addDnsServer(DNS_SERVER)
-            .addRoute("0.0.0.0", 0)
-
-        applyPerAppSelection(builder)
-
-        val pfd = builder.establish()
-        if (pfd == null) {
-            Log.e(TAG, "VpnService.establish() returned null")
-            stopSelf()
-            return
-        }
-        tunInterface = pfd
-
         startForegroundWithNotification()
+        submitStart("Mobile.start") {
+            // Apply any pending MDM managed configuration before the engine
+            // boots (idempotent no-op when nothing changed). Combined with the
+            // self-bootstrapping apply path on the Go side, a managed device
+            // never runs its first session on unmanaged defaults.
+            ManagedConfig.applyRestrictions(this)
 
-        try {
+            val builder = Builder()
+                .setSession(getString(R.string.app_name))
+                .setMtu(TUN_MTU)
+                .addAddress(TUN_ADDRESS, TUN_PREFIX)
+                .addDnsServer(DNS_SERVER)
+                .addRoute("0.0.0.0", 0)
+
+            applyPerAppSelection(builder)
+
+            val pfd = builder.establish() ?: throw IllegalStateException("VpnService.establish() returned null")
+            tunInterface = pfd
             // Ownership of the fd transfers to Go, which closes it on Stop().
             Mobile.start(filesDir.absolutePath, pfd.detachFd().toLong())
-        } catch (e: Exception) {
-            Log.e(TAG, "Mobile.start failed", e)
-            stopFilter()
         }
     }
 
@@ -102,43 +96,80 @@ class WebFilterVpnService : VpnService() {
      * is never called.
      */
     private fun startProxyOnlyFilter() {
-        if (Mobile.isRunning()) {
-            Log.i(TAG, "engine already running")
-            return
-        }
-        ManagedConfig.applyRestrictions(this)
         startForegroundWithNotification(proxyOnly = true)
-        try {
+        submitStart("Mobile.startProxyOnly") {
+            ManagedConfig.applyRestrictions(this)
             Mobile.startProxyOnly(filesDir.absolutePath)
-        } catch (e: Exception) {
-            Log.e(TAG, "Mobile.startProxyOnly failed", e)
-            stopFilter()
+        }
+    }
+
+    private fun submitStart(what: String, start: () -> Unit) {
+        EngineState.busy = true
+        EngineState.worker.execute {
+            try {
+                if (Mobile.isRunning()) {
+                    Log.i(TAG, "engine already running")
+                } else {
+                    start()
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "$what failed", e)
+                stopEngine()
+                mainHandler.post { stopService() }
+            } finally {
+                EngineState.running = Mobile.isRunning()
+                EngineState.mgmtUrl = if (EngineState.running) Mobile.mgmtUrl() else ""
+                EngineState.busy = false
+            }
         }
     }
 
     /**
-     * Route only the user-selected apps through the filter, or every app when
-     * the selection is empty. This app itself is always excluded so its own
-     * mgmt/loopback traffic never loops back through the TUN.
+     * Route only the user-selected apps through the filter (the installed
+     * browsers by default), or every app when the selection is empty. This
+     * app's own traffic never enters the TUN, so its mgmt/loopback traffic
+     * cannot loop back through it.
+     *
+     * VpnService.Builder refuses to mix the two lists ("addDisallowedApplication
+     * already called"), so exactly one is used: an allow-list of the selected
+     * apps (which leaves this app out by construction), or — for "all apps",
+     * or when none of the selected packages is still installed — a deny-list
+     * holding only this app.
      */
     private fun applyPerAppSelection(builder: Builder) {
-        val selected = Prefs.selectedApps(this)
-        try {
-            builder.addDisallowedApplication(packageName)
-        } catch (_: Exception) {
-        }
-        if (selected.isEmpty()) return
-        for (pkg in selected) {
+        // First start without onboarding (e.g. an always-on VPN pushed by an
+        // EMM): seed the browsers default once.
+        Prefs.ensureAppSelectionInitialized(this)
+        var allowed = 0
+        for (pkg in Prefs.selectedApps(this)) {
             if (pkg == packageName) continue
             try {
                 builder.addAllowedApplication(pkg)
+                allowed++
             } catch (e: Exception) {
+                // Typically NameNotFoundException: the app was uninstalled.
                 Log.w(TAG, "cannot add allowed app $pkg", e)
+            }
+        }
+        if (allowed == 0) {
+            try {
+                builder.addDisallowedApplication(packageName)
+            } catch (_: Exception) {
             }
         }
     }
 
     private fun stopFilter() {
+        EngineState.busy = true
+        EngineState.worker.execute {
+            stopEngine()
+            EngineState.busy = false
+        }
+        stopService()
+    }
+
+    /** Worker thread only. Safe to call when not running. */
+    private fun stopEngine() {
         try {
             Mobile.stop()
         } catch (e: Exception) {
@@ -146,6 +177,11 @@ class WebFilterVpnService : VpnService() {
         }
         tunInterface?.close()
         tunInterface = null
+        EngineState.running = false
+        EngineState.mgmtUrl = ""
+    }
+
+    private fun stopService() {
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
@@ -157,7 +193,7 @@ class WebFilterVpnService : VpnService() {
     }
 
     override fun onDestroy() {
-        stopFilter()
+        EngineState.worker.execute { stopEngine() }
         super.onDestroy()
     }
 

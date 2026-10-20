@@ -72,7 +72,8 @@ Request/block/audit logs go to SQLite at `logs/webfilter.db`.
 - `mobile/` — gomobile-bound Android entry point. Exports a small API surface
   (`Start(dataDir, tunFd)`, `StartProxyOnly(dataDir)` — same bring-up minus
   the TUN, for the no-VPN loopback-proxy/PAC mode — `Stop`, `IsRunning`,
-  `Status`, `MgmtUrl`, `ReloadPolicies`, `CaCertPem`, plus JSON-string
+  `Status`, `MgmtUrl`, `ActivePolicyName`, `ReloadPolicies`, `CaCertPem`,
+  `SetWebUiEnabled`/`WebUiEnabled` (`webui.go`), plus JSON-string
   accessors for the native UI and MDM path, one file per concern:
   `settingsapi.go` (`GetSettingsJson`, `UpdateSettingsJson`, `GetPolicyJson`,
   `UpdatePolicyJson`), `managed.go` (`GetManagedStateJson`,
@@ -90,12 +91,14 @@ Request/block/audit logs go to SQLite at `logs/webfilter.db`.
   a GOOS filename suffix ANDs with the build tag and would exclude it on a
   Linux desktop, breaking `go test ./mobile`. Build:
   `gomobile bind -target=android/arm64,android/arm -androidapi 26 -o android/app/libs/webfilter.aar ./mobile`.
-- `android/` — Kotlin/Gradle app scaffold (VpnService with a proxy-only
-  no-TUN mode, WebView mgmt UI, native settings screens backed by the
-  `mobile/` JSON API, native multi-policy manager / category-blocklist /
-  logs / analytics screens, per-app filtering with app icons, MDM managed
-  configurations via `app_restrictions.xml` + `ManagedConfig.kt`, CA
-  install/save flow). See `android/README.md` for local
+- `android/` — Kotlin/Gradle app (single-activity bottom-nav shell:
+  Home dashboard / Filters (expandable policy cards with inline module
+  switches) / Activity logs / Settings; first-run onboarding with the
+  no-enforcement notice and browsers-by-default app selection; VpnService
+  with a proxy-only no-TUN mode; native screens backed by the `mobile/`
+  JSON API; opt-in WebView of the web UI; guided CA install with a live
+  `AndroidCAStore` check; MDM managed configurations via
+  `app_restrictions.xml` + `ManagedConfig.kt`). See `android/README.md` for local
   build steps and the TestDPC verification recipe;
   the AAR is a build artifact (gitignored). The debug APK can also be built on
   demand by the **manual** `.github/workflows/android.yml` workflow
@@ -447,11 +450,41 @@ Request/block/audit logs go to SQLite at `logs/webfilter.db`.
   already accept string-typed numbers — keep it that way. The restriction
   keys in `android/.../res/xml/app_restrictions.xml` and the preference keys
   in `PreferenceDataStores.kt` are the same identifiers by design; keep the
-  two (and `ManagedConfig.buildDocFromBundle`) in sync. Two documented
-  exceptions: `proxy_only_mode` is consumed by the Kotlin layer only (it
-  selects how the service starts, not engine config), and
+  two (and `ManagedConfig.buildDocFromBundle`) in sync. Documented
+  exceptions: `proxy_only_mode` and `web_ui_enabled` are consumed by the
+  Kotlin layer only (they select how the service starts and whether
+  `Mobile.setWebUiEnabled` opens the web UI — not engine config), and
   `url_filter_categories` is edited natively by `CategoriesActivity`
   rather than a preference widget (the restriction mapping is unchanged).
+- **On Android the management web UI is opt-in, and "off" is enforced in
+  Go.** `mgmtapi.Server.WebUIDisabled` (nil on desktop) is consulted per
+  request by the `webUIGate` middleware, which runs *before* auth and 404s
+  everything except `webUIOffPaths` (`/proxy.pac`, `/wpad.dat`, `/wpad.da`,
+  `/api/ca-cert`, `/health` — the PAC is what proxy-only mode hands to
+  Chrome, the cert is what clients install). `mobile/webui.go` keeps the
+  switch as process state (default off), not settings.json: the Kotlin
+  layer owns the preference (and the `web_ui_enabled` restriction) and
+  pushes it in at process start via `Prefs.applyWebUi`. The native screens
+  never use HTTP, so they are unaffected either way.
+- **Android: never call `Mobile.isRunning()`/`status()`/`mgmtUrl()` on the
+  main thread.** `startEngine` holds the controller lock for the whole
+  bring-up (seconds on first run: CA generation, SQLite schema, listener
+  binds), so any of those calls during a start blocks — that used to ANR
+  the app because the VpnService also ran `Mobile.start` on the main thread.
+  Engine start/stop now run on the process-wide `EngineState.worker`; UI
+  code reads `EngineState.running`/`busy`/`mgmtUrl` instead.
+- **`VpnService.Builder` refuses to mix allowed and disallowed apps.** The
+  per-app selection is an allow-list (this app is excluded by construction);
+  only "all apps" (or a selection with no installed package left) uses a
+  deny-list holding just this app. Calling `addDisallowedApplication(self)`
+  first, as the old code did, made every `addAllowedApplication` throw and
+  silently filtered the whole device.
+- **The Android default policy is seeded once, at first provisioning.**
+  `ensureMobileSettings` writes `mobileDefaultPolicy()` (SafeSearch,
+  adblock, Cloudflare-family DoH, QUIC discouraged; classifiers and
+  categories off) only in the branch where settings.json did not exist,
+  and via `PolicyStore.Create`, so an existing `default.json` is never
+  overwritten. Desktop keeps `models.NewPolicy()`'s everything-off default.
 - **The PAC file advertises the first `regular` listener**
   (`PrimaryRegularProxyPort`, 8080 fallback) — never a SOCKS port; PAC's
   `PROXY` directive is HTTP-only. Proxy-only mode (`mobile.StartProxyOnly` /

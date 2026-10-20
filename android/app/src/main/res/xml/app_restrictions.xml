@@ -29,12 +29,21 @@
 
     <!-- Consumed by the Kotlin layer ONLY (selects how the service starts,
          not engine config) — deliberately absent from
-         ManagedConfig.buildDocFromBundle; the one exception to the
-         restriction-key == preference-key sync rule. -->
+         ManagedConfig.buildDocFromBundle; one of the two exceptions (with
+         web_ui_enabled) to the restriction-key == preference-key sync rule. -->
     <restriction
         android:key="proxy_only_mode"
         android:title="Proxy-only mode (no VPN)"
         android:description="@string/restr_proxy_only_desc"
+        android:restrictionType="bool"
+        android:defaultValue="false" />
+
+    <!-- Kotlin-only as well (ManagedConfig.forcedWebUi): gates the loopback
+         management web UI via Mobile.setWebUiEnabled, not engine config. -->
+    <restriction
+        android:key="web_ui_enabled"
+        android:title="Management web interface"
+        android:description="@string/restr_web_ui_desc"
         android:restrictionType="bool"
         android:defaultValue="false" />
 

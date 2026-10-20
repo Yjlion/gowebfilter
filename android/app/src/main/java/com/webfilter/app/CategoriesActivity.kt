@@ -10,7 +10,6 @@ import android.widget.ListView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
-import androidx.appcompat.app.AppCompatActivity
 import org.json.JSONArray
 import org.json.JSONObject
 import mobile.Mobile
@@ -28,7 +27,7 @@ import mobile.Mobile
  * they run on a plain background Thread — this app deliberately has no
  * coroutines. gomobile calls are thread-safe here (the Go side locks).
  */
-class CategoriesActivity : AppCompatActivity() {
+class CategoriesActivity : BaseActivity() {
 
     companion object {
         /** Optional intent extra naming the policy whose selection to edit. */

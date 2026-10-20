@@ -1,5 +1,6 @@
 package com.webfilter.app
 
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.text.InputType
@@ -16,18 +17,38 @@ import org.json.JSONObject
 import mobile.Mobile
 
 /**
- * Native settings UI: a root screen of categories, each opening a
- * [PrefsFragment] whose widgets read/write the Go engine's JSON config via
- * the gomobile API (see [ConfigStores]). When the device is MDM-managed
+ * Hosts one native preference screen whose widgets read/write the Go
+ * engine's JSON config via the gomobile API (see [ConfigStores]): either a
+ * policy module screen (SafeSearch, URL filter, … for a named policy,
+ * opened from the Filters tab) or a global settings screen (General,
+ * Security, opened from the Settings tab). When the device is MDM-managed
  * with the settings lock set, everything renders read-only and a banner
  * explains why (the Go engine enforces the lock regardless — this is just
  * honest UI).
  */
-class SettingsActivity : AppCompatActivity() {
+class SettingsActivity : BaseActivity() {
 
     companion object {
-        /** Optional intent extra naming the policy to edit; default "default". */
+        /** Intent extra naming the policy to edit; default "default". */
         const val EXTRA_POLICY_NAME = "policy_name"
+        private const val EXTRA_SCREEN = "screen_xml"
+        private const val EXTRA_KIND = "screen_kind"
+        private const val EXTRA_TITLE = "screen_title"
+
+        /** One module screen of [policy] (e.g. R.xml.prefs_safesearch). */
+        fun policyScreen(context: Context, policy: String, xmlRes: Int, title: String): Intent =
+            Intent(context, SettingsActivity::class.java)
+                .putExtra(EXTRA_POLICY_NAME, policy)
+                .putExtra(EXTRA_SCREEN, xmlRes)
+                .putExtra(EXTRA_KIND, PrefsFragment.KIND_POLICY)
+                .putExtra(EXTRA_TITLE, title)
+
+        /** A global settings screen (R.xml.prefs_general / prefs_security). */
+        fun settingsScreen(context: Context, xmlRes: Int, title: String): Intent =
+            Intent(context, SettingsActivity::class.java)
+                .putExtra(EXTRA_SCREEN, xmlRes)
+                .putExtra(EXTRA_KIND, PrefsFragment.KIND_SETTINGS)
+                .putExtra(EXTRA_TITLE, title)
     }
 
     lateinit var policyStore: PolicyJsonStore
@@ -45,21 +66,29 @@ class SettingsActivity : AppCompatActivity() {
         policyStore = PolicyJsonStore.forApp(this, policyName)
         settingsStore = SettingsJsonStore.forApp(this)
 
-        // Non-default policies get a policy-scoped root (their filters +
-        // schedule) instead of the global settings hub, and a header naming
-        // the policy being edited.
+        val kind = intent.getStringExtra(EXTRA_KIND) ?: PrefsFragment.KIND_POLICY
+        title = intent.getStringExtra(EXTRA_TITLE) ?: getString(R.string.title_settings)
+
+        // Policy screens name the policy being edited.
         val header = findViewById<TextView>(R.id.policyHeader)
-        if (policyName != "default") {
+        if (kind == PrefsFragment.KIND_POLICY) {
             header.visibility = View.VISIBLE
-            header.text = getString(R.string.editing_policy, policyName)
+            header.text = getString(
+                R.string.editing_policy,
+                if (policyName == "default") getString(R.string.policy_default_title) else policyName,
+            )
         } else {
             header.visibility = View.GONE
         }
 
         if (savedInstanceState == null) {
-            val rootXml = if (policyName == "default") R.xml.prefs_root else R.xml.prefs_policy_root
+            val xml = intent.getIntExtra(EXTRA_SCREEN, 0)
+            if (xml == 0) {
+                finish()
+                return
+            }
             supportFragmentManager.beginTransaction()
-                .replace(R.id.settingsContainer, PrefsFragment.newInstance(rootXml, PrefsFragment.KIND_ROOT))
+                .replace(R.id.settingsContainer, PrefsFragment.newInstance(xml, kind))
                 .commit()
         }
     }
@@ -67,21 +96,13 @@ class SettingsActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         locked = ManagedState.isLocked(this)
-        findViewById<TextView>(R.id.managedBanner).visibility = if (locked) View.VISIBLE else View.GONE
-    }
-
-    fun openScreen(xmlRes: Int, kind: String) {
-        supportFragmentManager.beginTransaction()
-            .replace(R.id.settingsContainer, PrefsFragment.newInstance(xmlRes, kind))
-            .addToBackStack(null)
-            .commit()
+        findViewById<View>(R.id.managedBanner).visibility = if (locked) View.VISIBLE else View.GONE
     }
 }
 
 class PrefsFragment : PreferenceFragmentCompat() {
 
     companion object {
-        const val KIND_ROOT = "root"
         const val KIND_POLICY = "policy"
         const val KIND_SETTINGS = "settings"
         private const val ARG_XML = "xml"
@@ -96,7 +117,7 @@ class PrefsFragment : PreferenceFragmentCompat() {
     }
 
     private val xmlRes get() = requireArguments().getInt(ARG_XML)
-    private val kind get() = requireArguments().getString(ARG_KIND) ?: KIND_ROOT
+    private val kind get() = requireArguments().getString(ARG_KIND) ?: KIND_POLICY
     private val host get() = requireActivity() as SettingsActivity
     private var inflatedOnce = false
 
@@ -145,36 +166,12 @@ class PrefsFragment : PreferenceFragmentCompat() {
     }
 
     private fun applyLockState() {
-        // The root screen stays navigable when locked (viewing is allowed);
-        // value screens render disabled.
-        if (kind != KIND_ROOT) {
-            preferenceScreen.isEnabled = !host.locked
-        }
+        // Viewing is allowed when locked; editing is not.
+        preferenceScreen.isEnabled = !host.locked
     }
 
     override fun onPreferenceTreeClick(preference: Preference): Boolean {
         when (preference.key) {
-            "nav_safesearch" -> host.openScreen(R.xml.prefs_safesearch, KIND_POLICY)
-            "nav_url_filter" -> host.openScreen(R.xml.prefs_url_filter, KIND_POLICY)
-            "nav_youtube" -> host.openScreen(R.xml.prefs_youtube, KIND_POLICY)
-            "nav_classifiers" -> host.openScreen(R.xml.prefs_classifiers, KIND_POLICY)
-            "nav_adblock" -> host.openScreen(R.xml.prefs_adblock, KIND_POLICY)
-            "nav_doh" -> host.openScreen(R.xml.prefs_doh, KIND_POLICY)
-            "nav_block_page" -> host.openScreen(R.xml.prefs_block_page, KIND_POLICY)
-            "nav_general" -> host.openScreen(R.xml.prefs_general, KIND_SETTINGS)
-            "nav_security" -> host.openScreen(R.xml.prefs_security, KIND_SETTINGS)
-            "nav_policies" -> startActivity(Intent(requireContext(), PoliciesActivity::class.java))
-            "nav_logs" -> startActivity(Intent(requireContext(), LogsActivity::class.java))
-            "nav_analytics" -> startActivity(Intent(requireContext(), AnalyticsActivity::class.java))
-            "nav_categories" -> startActivity(
-                Intent(requireContext(), CategoriesActivity::class.java)
-                    .putExtra(CategoriesActivity.EXTRA_POLICY_NAME, host.policyName),
-            )
-            "nav_schedule" -> startActivity(
-                Intent(requireContext(), ScheduleActivity::class.java)
-                    .putExtra(ScheduleActivity.EXTRA_POLICY_NAME, host.policyName),
-            )
-            "nav_apps" -> startActivity(Intent(requireContext(), AppPickerActivity::class.java))
             "change_password" -> promptNewPassword()
             else -> return super.onPreferenceTreeClick(preference)
         }

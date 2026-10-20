@@ -86,10 +86,12 @@ for local dev. They persist to disk; the mgmt API's
   app seccomp policy kills; the script remaps them to the *at family via a
   gitignored libc copy + a go.mod `replace` (`-undo` reverts; never commit
   the replace). arm64 is unaffected.
-- `android/` - Kotlin/Gradle Android app (VpnService with a proxy-only
-  no-TUN mode, WebView mgmt UI, native settings/policies/categories/logs/
-  analytics screens, MDM managed configurations, per-app filtering, CA
-  install/save flow) consuming the gomobile AAR. Debug APKs build via
+- `android/` - Kotlin/Gradle Android app (bottom-nav shell: Home dashboard,
+  Filters as expandable policy cards, Activity logs, Settings; first-run
+  onboarding with the no-enforcement notice and browsers-by-default app
+  selection; VpnService with a proxy-only no-TUN mode; opt-in WebView of
+  the web UI; guided CA install with a live installed check; MDM managed
+  configurations) consuming the gomobile AAR. Debug APKs build via
   the `.github/workflows/android.yml` workflow (manual trigger, and on `v*`
   tags from `ci.yml`'s release job, which attaches the APK to the release)
 - `ui/` - management web UI copied from the Python original; Alpine.js and
@@ -234,9 +236,26 @@ for local dev. They persist to disk; the mgmt API's
   restrictions; the models' decoders accept string-typed numbers. Keep
   `app_restrictions.xml`, `PreferenceDataStores.kt`, and
   `ManagedConfig.buildDocFromBundle` key sets in sync. Documented
-  exceptions: `proxy_only_mode` is Kotlin-only (service start mode, not
-  engine config); `url_filter_categories` is edited by CategoriesActivity,
-  not a preference widget.
+  exceptions: `proxy_only_mode` and `web_ui_enabled` are Kotlin-only
+  (service start mode / web UI switch, not engine config);
+  `url_filter_categories` is edited by CategoriesActivity, not a
+  preference widget.
+- On Android the management web UI is opt-in and "off" is enforced in Go:
+  `mgmtapi.Server.WebUIDisabled` (nil on desktop) drives the `webUIGate`
+  middleware, which runs before auth and 404s everything but `/proxy.pac`,
+  `/wpad.dat`, `/wpad.da`, `/api/ca-cert` and `/health`. The switch is
+  process state in `mobile/webui.go` (default off), pushed in by the Kotlin
+  layer; it is not in settings.json.
+- Android: never call `Mobile.isRunning()`/`status()`/`mgmtUrl()` on the
+  main thread — `startEngine` holds the controller lock for the whole
+  bring-up. Engine start/stop run on `EngineState.worker`; UI reads
+  `EngineState`. And `VpnService.Builder` cannot mix allowed and disallowed
+  apps: the per-app selection is an allow-list; only "all apps" uses a
+  deny-list of this app.
+- The Android default policy is seeded once at first provisioning
+  (`mobileDefaultPolicy()` in `mobile/settings.go`: SafeSearch, adblock,
+  family DoH, QUIC discouraged) via `PolicyStore.Create`, so an existing
+  `default.json` is never overwritten; desktop keeps the all-off default.
 - The PAC file advertises the first `regular` listener
   (`PrimaryRegularProxyPort`, 8080 fallback) — never a SOCKS port.
   Proxy-only mode (`mobile.StartProxyOnly`) injects a session-only

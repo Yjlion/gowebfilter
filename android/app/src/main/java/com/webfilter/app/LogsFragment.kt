@@ -6,16 +6,13 @@ import android.text.TextWatcher
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.AdapterView
-import android.widget.ArrayAdapter
 import android.widget.BaseAdapter
-import android.widget.Button
 import android.widget.EditText
 import android.widget.ListView
-import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
-import androidx.appcompat.app.AppCompatActivity
+import androidx.fragment.app.Fragment
+import com.google.android.material.chip.ChipGroup
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
@@ -24,14 +21,12 @@ import java.util.Locale
 import mobile.Mobile
 
 /**
- * Native request/block/audit log viewer. Reads the SQLite log store
- * through Mobile.queryLogsJson (a write-free reader), so it works whether
- * or not the filter is running. Rows come newest-first from the Go side; a
- * client-side substring filter narrows them.
+ * Native request/block/audit log viewer (the Logs tab). Reads the SQLite
+ * log store through Mobile.queryLogsJson (a write-free reader), so it works
+ * whether or not the filter is running. Rows come newest-first from the Go
+ * side; a client-side substring filter narrows them.
  */
-class LogsActivity : AppCompatActivity() {
-
-    private val kinds = arrayOf("blocks", "requests", "policy_changes")
+class LogsFragment : Fragment(), MainActivity.EngineStateListener {
 
     private lateinit var adapter: LogAdapter
     private var entries = JSONArray()
@@ -39,33 +34,28 @@ class LogsActivity : AppCompatActivity() {
     private var kind = "blocks"
     private var filter = ""
 
-    private val timeFmt = SimpleDateFormat("MM-dd HH:mm:ss", Locale.US)
+    private val timeFmt = SimpleDateFormat("MM-dd HH:mm:ss", Locale.getDefault())
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_logs)
+    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View =
+        inflater.inflate(R.layout.fragment_logs, container, false)
 
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         adapter = LogAdapter()
-        findViewById<ListView>(R.id.logList).adapter = adapter
-
-        val kindSpinner = findViewById<Spinner>(R.id.kindSpinner)
-        kindSpinner.adapter = ArrayAdapter(
-            this,
-            android.R.layout.simple_spinner_dropdown_item,
-            resources.getStringArray(R.array.log_kind_labels),
-        )
-        kindSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                if (kinds[position] != kind) {
-                    kind = kinds[position]
-                    refresh()
-                }
-            }
-
-            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        view.findViewById<ListView>(R.id.logList).apply {
+            adapter = this@LogsFragment.adapter
+            emptyView = view.findViewById(R.id.logEmpty)
         }
 
-        findViewById<EditText>(R.id.filterInput).addTextChangedListener(object : TextWatcher {
+        view.findViewById<ChipGroup>(R.id.kindChips).setOnCheckedStateChangeListener { _, ids ->
+            kind = when (ids.firstOrNull()) {
+                R.id.chipRequests -> "requests"
+                R.id.chipPolicyChanges -> "policy_changes"
+                else -> "blocks"
+            }
+            refresh()
+        }
+
+        view.findViewById<EditText>(R.id.filterInput).addTextChangedListener(object : TextWatcher {
             override fun afterTextChanged(s: Editable?) {
                 filter = s?.toString()?.trim()?.lowercase() ?: ""
                 applyFilter()
@@ -75,26 +65,40 @@ class LogsActivity : AppCompatActivity() {
             override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
         })
 
-        findViewById<Button>(R.id.refreshButton).setOnClickListener { refresh() }
+        view.findViewById<View>(R.id.refreshButton).setOnClickListener { refresh() }
     }
 
     override fun onResume() {
         super.onResume()
-        refresh()
+        if (!isHidden) refresh()
+    }
+
+    override fun onHiddenChanged(hidden: Boolean) {
+        super.onHiddenChanged(hidden)
+        if (!hidden) refresh()
+    }
+
+    override fun onEngineStateChanged() {
+        if (!isHidden) refresh()
     }
 
     private fun refresh() {
+        val ctx = context?.applicationContext ?: return
+        val k = kind
         Thread {
+            var error: Exception? = null
             val result = try {
-                JSONObject(Mobile.queryLogsJson(filesDir.absolutePath, kind, 500L))
+                JSONObject(Mobile.queryLogsJson(ctx.filesDir.absolutePath, k, 500L))
                     .optJSONArray("entries") ?: JSONArray()
             } catch (e: Exception) {
-                runOnUiThread {
-                    Toast.makeText(this, getString(R.string.settings_save_failed, e.message ?: "error"), Toast.LENGTH_LONG).show()
-                }
+                error = e
                 JSONArray()
             }
-            runOnUiThread {
+            activity?.runOnUiThread {
+                if (!isAdded || k != kind) return@runOnUiThread
+                error?.let {
+                    Toast.makeText(ctx, getString(R.string.settings_save_failed, it.message ?: "error"), Toast.LENGTH_LONG).show()
+                }
                 entries = result
                 applyFilter()
             }
@@ -108,7 +112,7 @@ class LogsActivity : AppCompatActivity() {
             if (filter.isEmpty() || matches(e)) list.add(e)
         }
         shown = list
-        findViewById<TextView>(R.id.logCount).text = getString(R.string.log_count, shown.size)
+        view?.findViewById<TextView>(R.id.logCount)?.text = getString(R.string.log_count, shown.size)
         adapter.notifyDataSetChanged()
     }
 
@@ -150,18 +154,27 @@ class LogsActivity : AppCompatActivity() {
         return parts.joinToString(" · ")
     }
 
+    /** Icon and tone per row: blocked red, modified amber, allowed neutral. */
+    private fun styleFor(e: JSONObject): Pair<Int, Tone> = when (kind) {
+        "blocks" -> R.drawable.ic_block to Tone.OFF
+        "requests" -> when (e.optString("action")) {
+            "blocked" -> R.drawable.ic_block to Tone.OFF
+            "modified" -> R.drawable.ic_tune to Tone.WARN
+            else -> R.drawable.ic_globe to Tone.NEUTRAL
+        }
+        else -> R.drawable.ic_policy to Tone.NEUTRAL
+    }
+
     private inner class LogAdapter : BaseAdapter() {
         override fun getCount() = shown.size
         override fun getItem(position: Int) = shown[position]
         override fun getItemId(position: Int) = position.toLong()
 
-        override fun getView(position: Int, convertView: View?, parent: ViewGroup?): View {
-            val view = convertView ?: LayoutInflater.from(this@LogsActivity)
-                .inflate(R.layout.row_log, parent, false)
+        override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+            val view = convertView ?: Rows.inflate(parent)
             val e = getItem(position)
-            view.findViewById<TextView>(R.id.logTitle).text = titleFor(e)
-            view.findViewById<TextView>(R.id.logSubtitle).text = subtitleFor(e)
-            return view
+            val (icon, tone) = styleFor(e)
+            return Rows.bind(view, icon, titleFor(e), subtitleFor(e), tone)
         }
     }
 }
